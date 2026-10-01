@@ -1,0 +1,15 @@
+# AGENTS.md — Package
+
+Các quy tắc dưới đây bổ sung cho [quy ước chung](../AGENTS.md#quy-ước).
+
+- **Dạng export của plugin.** Package service export mặc định class kế thừa `Service` (ví dụ `mcp-gateway`, `runner`). Package plugin dạng hàm export có tên `name`, `inject`, `Config`, `apply` và không có export mặc định. Không trộn hai dạng.
+- **Khai báo `inject` đầy đủ.** Plugin dùng `ctx.<service>` phải liệt kê service đó trong `inject`, để plugin chờ service xuất hiện thay vì ném lỗi khi nạp.
+- **`Config` dùng schemastery** (`z` export từ `@aitest/core`) và có `.description()` tiếng Việt cho trường không hiển nhiên. Giá trị mặc định phải an toàn: chỉ đọc, giới hạn thời gian, không mở cổng ra ngoài `127.0.0.1`.
+- **Phụ thuộc:** mọi package khai báo `@aitest/core: workspace:*` và `@deepseek-ai/cordis: ~4.0.4`. Package mới thêm vào `dependencies` của `package.json` gốc để `aitest.yml` phân giải được.
+- **Plugin không import lẫn nhau.** Giao tiếp qua service và event trong `@aitest/core`. Hàm dùng chung đặt trong core (ví dụ `readPath`, `compare` ở `core/src/match.ts`). Ngoại lệ hiện có: `runner` dùng kiểu của `mcp-gateway`.
+- **`core/src/types.ts` chỉ chứa kiểu**, không chứa mã chạy.
+- **Trạng thái theo case** lưu trong `WeakMap<CaseScope, ...>` của plugin, không gắn thêm trường vào `CaseScope`. Tài nguyên theo case (sink webhook, endpoint) dọn ở `case/end` hoặc qua hàm `close` trả về.
+- **Tài nguyên dài hạn** (HTTP server, kết nối DB, process con) mở lười khi cần và đóng trong `ctx.effect`. Process con phải bị dừng khi plugin unload.
+- **Mô tả tool viết từ góc nhìn của agent.** Chỉ nêu khái niệm cần cho nhiệm vụ: tham số, kết quả, cách dùng kết quả để assert. Không nhắc chi tiết triển khai hay transport.
+- **Action trả lỗi bằng `throw`.** Pipeline chuẩn hoá thành `status: error`. Kết quả hợp lệ nhưng không đạt điều kiện (hết thời gian chờ, chưa nhận đủ callback) trả về bình thường kèm `satisfied: false`, để verdict quyết định.
+- **README theo package** chỉ thêm khi package có cấu hình hoặc giới hạn mà tài liệu kiến trúc chưa nêu.

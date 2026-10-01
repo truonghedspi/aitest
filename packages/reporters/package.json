@@ -1,0 +1,15 @@
+{
+  "name": "@aitest/reporters",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./console": "./src/console.ts",
+    "./junit": "./src/junit.ts",
+    "./markdown": "./src/markdown.ts"
+  },
+  "dependencies": {
+    "@aitest/core": "workspace:*",
+    "@deepseek-ai/cordis": "~4.0.4"
+  }
+}

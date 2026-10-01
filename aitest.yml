@@ -1,0 +1,86 @@
+# Cấu hình nền tảng: mọi thành phần đều là plugin.
+# Mỗi dòng gồm `id` (duy nhất), `name` (package hoặc đường dẫn) và `config`.
+# Các service lõi (actions, plans, agents, prompt, runlog) được nạp sẵn;
+# khai báo dòng có cùng `id` để thay cấu hình hoặc thay bằng bản triển khai khác.
+plugins:
+  - id: logger
+    name: '@deepseek-ai/cordis-plugin-logger-console'
+    config:
+      levels: { base: 2 }
+
+  - id: runlog
+    name: aitest:runlog
+    config:
+      dir: .aitest/runs
+
+  # Định dạng test plan
+  - id: plan-yaml
+    name: '@aitest/plan-yaml'
+
+  # Hạ tầng thực thi
+  - id: gateway
+    name: '@aitest/mcp-gateway'
+    config:
+      serverName: aitest
+  - id: verdict
+    name: '@aitest/verdict'
+  - id: runner
+    name: '@aitest/runner'
+    config:
+      agent: kiro
+      caseTimeout: 300
+
+  # Agent: Kiro qua ACP
+  - id: agent-kiro
+    name: '@aitest/agent-acp'
+    config:
+      name: kiro
+      command: kiro-cli
+      args: [acp]
+
+  # Action
+  - id: action-http
+    name: '@aitest/action-http'
+  - id: action-db
+    name: '@aitest/action-sqlite'
+    config:
+      namespace: db
+      file: ${env.ORDER_DB:-examples/order-api/orders.db}
+      readonly: true
+  # Kết nối ghi, chỉ dùng trong setup/teardown. Plan không khai báo `dbadmin` trong `requires`
+  # nên agent không nhìn thấy action này.
+  - id: action-dbadmin
+    name: '@aitest/action-sqlite'
+    config:
+      namespace: dbadmin
+      file: ${env.ORDER_DB:-examples/order-api/orders.db}
+      readonly: false
+  # Integration: chờ điều kiện bất đồng bộ và nhận callback
+  - id: action-wait
+    name: '@aitest/action-wait'
+  - id: action-webhook
+    name: '@aitest/action-webhook'
+
+  # Ví dụ nối một MCP server bên ngoài thành action (bỏ `disabled` để dùng):
+  - id: action-pg
+    name: '@aitest/action-mcp-proxy'
+    disabled: true
+    config:
+      namespace: pg
+      transport: stdio
+      command: npx
+      args: ['-y', '@modelcontextprotocol/server-postgres', '${env.PG_URL}']
+
+  # Guard
+  - id: guard
+    name: '@aitest/guard-basic'
+    config:
+      readOnlyNamespaces: [db]
+
+  # Reporter
+  - id: reporter-console
+    name: '@aitest/reporters/console'
+  - id: reporter-markdown
+    name: '@aitest/reporters/markdown'
+  - id: reporter-junit
+    name: '@aitest/reporters/junit'

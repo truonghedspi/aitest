@@ -1,0 +1,63 @@
+# yaml-language-server: $schema=../../docs/plan.schema.json
+id: TP-ORDER-001
+name: Đặt và huỷ lệnh qua Order API
+description: Kiểm tra luồng đặt lệnh, huỷ lệnh và ràng buộc lô chẵn của Order API.
+requires: [http, db]
+vars:
+  base_url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}
+context: |
+  Order API nhận lệnh mua/bán cổ phiếu và lưu vào bảng `orders` (SQLite).
+  Cột chính: id, symbol, side (BUY|SELL), qty, price, status (NEW|CANCELLED), cancelled_at.
+  Ràng buộc nghiệp vụ: khối lượng (qty) phải là bội số của 100 (lô chẵn).
+
+cases:
+  - id: TC-01
+    title: Đặt lệnh mua hợp lệ
+    tags: [smoke]
+    timeout: 180
+    steps:
+      - Gọi POST {{base_url}}/orders với body {"symbol":"VNM","side":"BUY","qty":100,"price":70000}.
+      - Lấy id lệnh từ response.
+      - Truy vấn bảng orders theo id vừa nhận.
+    expect:
+      - id: http-201
+        desc: API trả về HTTP 201
+        check: { op: eq, value: 201 }
+      - id: db-status
+        desc: Bản ghi trong DB có status NEW
+        check: { op: eq, value: NEW }
+      - id: db-qty
+        desc: Khối lượng lưu trong DB bằng 100
+        check: { op: eq, value: 100 }
+
+  - id: TC-02
+    title: Huỷ lệnh vừa đặt
+    timeout: 180
+    steps:
+      - Đặt một lệnh bán hợp lệ qua POST {{base_url}}/orders với symbol FPT, qty 200, price 120000.
+      - Gọi POST {{base_url}}/orders/<id>/cancel với id vừa nhận.
+      - Truy vấn bảng orders theo id để kiểm tra trạng thái và thời điểm huỷ.
+    expect:
+      - id: cancel-200
+        desc: API huỷ lệnh trả về HTTP 200
+        check: { op: eq, value: 200 }
+      - id: db-cancelled
+        desc: Bản ghi trong DB có status CANCELLED
+        check: { op: eq, value: CANCELLED }
+      - id: db-cancelled-at
+        desc: Cột cancelled_at đã được ghi
+        check: { op: exists }
+
+  - id: TC-03
+    title: Từ chối lệnh lẻ lô
+    timeout: 180
+    steps:
+      - Gọi POST {{base_url}}/orders với symbol HPG, side BUY, qty 150, price 25000.
+      - Đếm số bản ghi trong bảng orders có symbol HPG và qty 150.
+    expect:
+      - id: http-400
+        desc: API từ chối lệnh lẻ lô với HTTP 400
+        check: { op: eq, value: 400 }
+      - id: db-none
+        desc: Không có bản ghi lệnh lẻ lô nào được lưu
+        check: { op: eq, value: 0 }

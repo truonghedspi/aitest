@@ -1,0 +1,22 @@
+# Cấu hình cho test E2E qua trình duyệt: kế thừa aitest.yml rồi thêm Playwright MCP.
+# Chạy: pnpm aitest -c aitest.e2e.yml run examples/plans/order-ui.plan.yaml
+extends: ./aitest.yml
+
+plugins:
+  - id: action-browser
+    name: '@aitest/action-mcp-proxy'
+    config:
+      namespace: browser
+      # Tool của Playwright MCP đã có tiền tố `browser_`.
+      prefix: ''
+      command: ./node_modules/.bin/playwright-mcp
+      args: ['--headless', '--isolated', '--browser', '${env.AITEST_BROWSER:-chrome}', '--output-dir', '.aitest/playwright']
+      # Bỏ các tool cho phép chạy mã tuỳ ý trong trang.
+      exclude: [browser_run_code_unsafe, browser_evaluate, browser_file_upload]
+      readOnly: [browser_snapshot, browser_take_screenshot, browser_console_messages, browser_network_requests, browser_network_request, browser_find, browser_tabs]
+
+  - id: runner
+    name: '@aitest/runner'
+    config:
+      agent: kiro
+      caseTimeout: 420

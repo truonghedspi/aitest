@@ -1,0 +1,40 @@
+{
+  "name": "aitest-root",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "aitest": "tsx --disable-warning=ExperimentalWarning packages/cli/src/bin.ts",
+    "demo:api": "tsx --disable-warning=ExperimentalWarning examples/order-api/server.ts"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@playwright/mcp": "0.0.83",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "dependencies": {
+    "@aitest/action-http": "workspace:*",
+    "@aitest/action-mcp-proxy": "workspace:*",
+    "@aitest/action-sqlite": "workspace:*",
+    "@aitest/action-wait": "workspace:*",
+    "@aitest/action-webhook": "workspace:*",
+    "@aitest/agent-acp": "workspace:*",
+    "@aitest/cli": "workspace:*",
+    "@aitest/core": "workspace:*",
+    "@aitest/guard-basic": "workspace:*",
+    "@aitest/mcp-gateway": "workspace:*",
+    "@aitest/plan-yaml": "workspace:*",
+    "@aitest/reporters": "workspace:*",
+    "@aitest/runner": "workspace:*",
+    "@aitest/verdict": "workspace:*",
+    "@deepseek-ai/cordis-plugin-logger-console": "~1.0.4"
+  }
+}

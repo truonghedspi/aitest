@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitest.local/plan.schema.json",
+  "title": "aitest test plan",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "cases"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Mã plan, duy nhất trong dự án."
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "requires": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Namespace action mà plan được dùng, ví dụ http, db."
+    },
+    "vars": {
+      "type": "object",
+      "description": "Biến dùng trong steps qua cú pháp {{tên}}. Hỗ trợ ${env.NAME:-mặc định}."
+    },
+    "context": {
+      "type": "string",
+      "description": "Bối cảnh nghiệp vụ cho agent."
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "steps"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Giới hạn thời gian, đơn vị giây."
+          },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "expect": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "desc"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                },
+                "check": {
+                  "type": "object",
+                  "required": [
+                    "op"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "op": {
+                      "enum": [
+                        "eq",
+                        "ne",
+                        "gt",
+                        "gte",
+                        "lt",
+                        "lte",
+                        "contains",
+                        "matches",
+                        "exists",
+                        "not_exists"
+                      ]
+                    },
+                    "value": {}
+                  }
+                }
+              }
+            }
+          },
+          "setup": {
+            "$ref": "#/$defs/fixtures"
+          },
+          "teardown": {
+            "$ref": "#/$defs/fixtures"
+          }
+        }
+      }
+    },
+    "setup": {
+      "$ref": "#/$defs/fixtures",
+      "description": "Chạy trước mỗi case, không qua AI."
+    },
+    "teardown": {
+      "$ref": "#/$defs/fixtures",
+      "description": "Chạy sau mỗi case, kể cả khi case lỗi."
+    }
+  },
+  "$defs": {
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "Tên action, ví dụ dbadmin_query."
+          },
+          "args": {
+            "type": "object"
+          },
+          "save": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Lưu giá trị từ kết quả thành biến: { tên: path }."
+          },
+          "desc": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

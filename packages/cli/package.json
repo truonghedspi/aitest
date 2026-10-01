@@ -1,0 +1,13 @@
+{
+  "name": "@aitest/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "aitest": "./src/bin.ts" },
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@aitest/core": "workspace:*",
+    "@aitest/runner": "workspace:*",
+    "@deepseek-ai/cordis": "~4.0.4"
+  }
+}

@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=../../docs/plan.schema.json
+# Chạy với cấu hình E2E: pnpm aitest -c aitest.e2e.yml run examples/plans/order-ui.plan.yaml
+id: TP-ORDER-UI-001
+name: Đặt lệnh qua giao diện web
+description: Kiểm tra luồng người dùng trên trình duyệt, đối chiếu chéo với cơ sở dữ liệu.
+requires: [browser, db]
+vars:
+  base_url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}
+context: |
+  Trang chủ có form "Đặt lệnh" gồm: Mã chứng khoán, Chiều (Mua/Bán), Khối lượng, Giá và nút "Đặt lệnh".
+  Sau khi gửi, vùng thông báo hiển thị "Đã đặt lệnh số <id>" hoặc "Lỗi: <lý do>".
+  Bảng "Lệnh gần đây" liệt kê các lệnh mới nhất.
+  Dùng browser_snapshot để đọc nội dung trang; kết quả snapshot là văn bản, assert với path `$`.
+
+setup:
+  - desc: Xoá lệnh VCB cũ
+    action: dbadmin_query
+    args: { sql: "DELETE FROM orders WHERE symbol IN ('VCB', 'VC')" }
+teardown:
+  - desc: Đóng trình duyệt để case sau bắt đầu sạch
+    action: browser_close
+
+cases:
+  - id: E2E-01
+    title: Đặt lệnh mua hợp lệ trên giao diện
+    timeout: 300
+    steps:
+      - Mở trang {{base_url}}/ trên trình duyệt.
+      - Nhập mã VCB, chọn chiều Mua, khối lượng 100, giá 90000 rồi bấm nút "Đặt lệnh".
+      - Chụp snapshot trang sau khi đặt lệnh.
+      - Truy vấn bảng orders để lấy lệnh VCB mới nhất.
+    expect:
+      - id: ui-message
+        desc: Trang hiển thị thông báo đặt lệnh thành công
+        check: { op: contains, value: Đã đặt lệnh số }
+      - id: ui-table
+        desc: Bảng lệnh gần đây có dòng VCB
+        check: { op: contains, value: VCB }
+      - id: db-status
+        desc: Bản ghi trong DB có status NEW
+        check: { op: eq, value: NEW }
+      - id: db-qty
+        desc: Khối lượng lưu trong DB bằng 100
+        check: { op: eq, value: 100 }
+
+  - id: E2E-02
+    title: Giao diện báo lỗi khi mã chứng khoán sai định dạng
+    timeout: 300
+    steps:
+      - Mở trang {{base_url}}/ trên trình duyệt.
+      - Nhập mã "VC" (chỉ 2 ký tự), chọn chiều Bán, khối lượng 100, giá 90000 rồi bấm nút "Đặt lệnh".
+      - Chụp snapshot trang sau khi gửi.
+      - Đếm số lệnh có symbol VC trong bảng orders.
+    expect:
+      - id: ui-error
+        desc: Trang hiển thị thông báo lỗi
+        check: { op: contains, value: "Lỗi:" }
+      - id: db-none
+        desc: Không có lệnh VC nào được lưu
+        check: { op: eq, value: 0 }

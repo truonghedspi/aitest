@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=../../docs/plan.schema.json
+id: TP-ORDER-INT-001
+name: Tích hợp khớp lệnh bất đồng bộ
+description: |
+  Kiểm tra luồng xuyên ba thành phần: Order API, cơ sở dữ liệu và callback gửi ra hệ thống ngoài.
+  Lệnh được khớp bất đồng bộ nên các bước kiểm tra phải chờ tới khi trạng thái ổn định.
+requires: [http, db, webhook]
+vars:
+  base_url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}
+context: |
+  Khi lệnh có `callback_url`, Order API khớp lệnh sau khoảng 1,5 giây:
+  status chuyển từ NEW sang FILLED, `filled_qty` bằng `qty`, rồi API gọi POST tới callback_url
+  với body {"event":"order.filled","orderId":<id>,"status":"FILLED","filledQty":<qty>}.
+  Lệnh đã FILLED hoặc CANCELLED không huỷ được nữa (HTTP 409).
+
+# Chạy trước mỗi case: dọn dữ liệu mã MWG để case không phụ thuộc lượt chạy trước.
+setup:
+  - desc: Xoá lệnh MWG cũ
+    action: dbadmin_query
+    args: { sql: "DELETE FROM orders WHERE symbol = 'MWG'" }
+
+cases:
+  - id: IT-01
+    title: Lệnh có callback được khớp và báo về qua webhook
+    timeout: 240
+    steps:
+      - Tạo một webhook để nhận callback.
+      - Gọi POST {{base_url}}/orders với symbol MWG, side BUY, qty 300, price 60000, callback_url là URL webhook vừa tạo.
+      - Chờ webhook nhận được callback, tối đa 20 giây.
+      - Dùng wait_until gọi lặp db_query cho tới khi bản ghi của lệnh có status FILLED, tối đa 20 giây.
+    expect:
+      - id: http-201
+        desc: API nhận lệnh với HTTP 201
+        check: { op: eq, value: 201 }
+      - id: callback-event
+        desc: Callback có event order.filled
+        check: { op: eq, value: order.filled }
+      - id: callback-qty
+        desc: Callback báo khớp đủ 300 cổ phiếu
+        check: { op: eq, value: 300 }
+      - id: db-filled
+        desc: Bản ghi trong DB chuyển sang FILLED
+        check: { op: eq, value: FILLED }
+
+  - id: IT-02
+    title: Huỷ lệnh có sẵn và không cho huỷ lần hai
+    timeout: 180
+    setup:
+      - desc: Tạo sẵn một lệnh NEW không có callback
+        action: dbadmin_query
+        args:
+          sql: "INSERT INTO orders (symbol, side, qty, price, status) VALUES ('MWG', 'SELL', 100, 61000, 'NEW') RETURNING id"
+        save: { order_id: '$.rows[0].id' }
+    steps:
+      - Gọi POST {{base_url}}/orders/{{order_id}}/cancel.
+      - Gọi lại POST {{base_url}}/orders/{{order_id}}/cancel lần thứ hai.
+      - Truy vấn bảng orders theo id {{order_id}}.
+    expect:
+      - id: cancel-200
+        desc: Lần huỷ đầu trả về HTTP 200
+        check: { op: eq, value: 200 }
+      - id: cancel-again-409
+        desc: Lần huỷ thứ hai bị từ chối với HTTP 409
+        check: { op: eq, value: 409 }
+      - id: db-cancelled
+        desc: Bản ghi trong DB có status CANCELLED
+        check: { op: eq, value: CANCELLED }
+    teardown:
+      - desc: Xoá lệnh tạo trong setup
+        action: dbadmin_query
+        args: { sql: "DELETE FROM orders WHERE id = ?", params: ["{{order_id}}"] }
