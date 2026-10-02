@@ -31,6 +31,19 @@ pnpm aitest -c aitest.e2e.yml run examples/plans/order-ui.plan.yaml
 
 Kết quả mong đợi với `order.plan.yaml`: TC-01 và TC-02 đạt. TC-03 không đạt vì Order API mẫu có lỗi cố ý: API không từ chối lệnh lẻ lô.
 
+## Soạn test plan cùng AI
+
+Chat với agent trên giao diện web. Agent đọc đặc tả, khảo sát hệ thống, soạn plan, kiểm tra và chạy thử. Bạn duyệt trước khi agent chạy thử hoặc lưu plan.
+
+```bash
+pnpm web:build
+pnpm aitest -c aitest.web.yml serve     # mở http://127.0.0.1:4300
+```
+
+Trang **Lượt chạy** cho xem lại agent đã làm gì trong từng case và vì sao ra kết quả đó: giá trị thật nền tảng đọc được, evidence, prompt, dòng thời gian; lượt chạy đang diễn ra được cập nhật liên tục. Trang **Knowledge** lưu tri thức của nhóm trong `kb/`: lỗi đã biết (báo cáo tách lỗi đã biết khỏi lỗi mới), quy ước (agent soạn plan luôn áp dụng), bài học. Giao diện có thêm trang **Plugin** (bật/tắt, cấu hình, thêm plugin, thêm MCP server) và trang **Tool** (bật/tắt, chạy thử từng tool). Thay đổi ghi vào `aitest.web.patch.yml`, không sửa cấu hình gốc.
+
+Người dùng terminal có thể dùng Kiro chat với cùng bộ tool: `kiro-cli chat --agent aitest-author`.
+
 Mỗi lượt chạy tạo thư mục `.aitest/runs/<run-id>/` gồm:
 
 | File | Nội dung |
@@ -49,6 +62,8 @@ Dựng lại báo cáo từ log: `pnpm aitest report .aitest/runs/<run-id>/event
 | `aitest validate <plan>` | Kiểm tra schema và namespace action |
 | `aitest actions` | Liệt kê action đã đăng ký |
 | `aitest report <events.jsonl>` | Dựng lại báo cáo từ run log |
+| `aitest -c aitest.web.yml serve` | Chạy giao diện web soạn plan cùng agent |
+| `aitest mcp` | Chạy MCP server soạn plan qua stdio, cho Kiro chat hoặc agent khác |
 
 Tuỳ chọn `-c <file>` chọn file cấu hình plugin, mặc định là `aitest.yml`.
 
@@ -72,6 +87,8 @@ cases:
         desc: API trả về HTTP 201
         check: { op: eq, value: 201 }
 ```
+
+Giá trị mong đợi cần tính toán dùng công thức, ví dụ `check: { op: eq, expr: "round(qty * price / 1000 * 0.0015, 2, HALF_UP)" }`: nền tảng tính bằng số thập phân chính xác từ dữ liệu thật, agent không tự tính.
 
 Bước viết bằng ngôn ngữ tự nhiên. Tiêu chí `check` là cố định: agent chỉ chọn evidence để đối chiếu, còn nền tảng tự so sánh với giá trị thật.
 
@@ -97,4 +114,4 @@ plugins:
 | Định dạng plan khác | Plugin gọi `ctx.plans.registerFormat(...)` |
 | Reporter | Plugin lắng nghe `run/report` |
 
-Chi tiết tại mục 7 của [docs/architecture.md](docs/architecture.md).
+Chi tiết tại mục 8 của [docs/architecture.md](docs/architecture.md).

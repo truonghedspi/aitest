@@ -29,6 +29,14 @@ export function apply(ctx: Context, config: { verbose?: boolean } = {}) {
     for (const reason of decision.reasons) out(`    - ${reason}`)
   })
 
+  // Đánh dấu của plugin khác (ví dụ lỗi đã biết) tới qua run log, sau `case/end`.
+  ctx.on('run/event', (event) => {
+    if (event.type !== 'case/annotation') return
+    const data = event.data as { key: string; value: Array<{ id: string }> }
+    const label = data.key === 'knownIssues' ? 'lỗi đã biết' : data.key === 'possiblyFixed' ? 'có thể đã sửa' : data.key
+    out(`    ${DIM}${label}: ${data.value.map((i) => i.id).join(', ')}${RESET}`)
+  })
+
   ctx.on('run/report', async (report) => {
     const t = report.totals
     out()

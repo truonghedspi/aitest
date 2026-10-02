@@ -40,7 +40,7 @@ export function deriveReport(events: RunEvent[]): RunReport {
       const data = event.data as CaseStartData
       cases.set(data.id, {
         id: data.id, title: data.title, verdict: 'inconclusive', reasons: [], durationMs: 0,
-        expectations: data.expect.map((e) => ({ ...e, attempts: [] })), actions: [], steps: [], agentSummary: '',
+        expectations: data.expect.map((e) => ({ ...e, attempts: [] })), actions: [], steps: [], agentSummary: '', annotations: {},
       })
       continue
     }
@@ -58,6 +58,12 @@ export function deriveReport(events: RunEvent[]): RunReport {
           target.attempts.push(data)
           target.assertion = data
         }
+        break
+      }
+      case 'case/annotation': {
+        // Plugin gắn thông tin vào case; event sau cùng cho cùng `key` thắng.
+        const data = event.data as { key: string; value: unknown }
+        report.annotations[data.key] = data.value
         break
       }
       case 'step/note':

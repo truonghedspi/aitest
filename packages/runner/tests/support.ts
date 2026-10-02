@@ -10,7 +10,8 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { bootFromFile, type AgentDriver, type Kernel, type PluginRow } from '@aitest/core'
+import WebSocket from 'ws'
+import { bootFromFile, type AgentDriver, type CaseScope, type Kernel, type PluginRow, type TestPlan } from '@aitest/core'
 
 export const root = resolve(import.meta.dirname, '../../..')
 
@@ -68,7 +69,10 @@ export async function setupHarness(options: {
   port: number
   config?: string
   scripts: Record<string, Script>
-  rows?: PluginRow[]
+  /** Dòng cấu hình bổ sung; dạng hàm nhận thư mục tạm của bài test. */
+  rows?: PluginRow[] | ((dir: string) => PluginRow[])
+  /** Đường dẫn patch layer trong thư mục tạm; mặc định không dùng patch layer. */
+  patchFile?: (dir: string) => string
   env?: Record<string, string>
 }): Promise<Harness> {
   const dir = await mkdtemp(join(tmpdir(), 'aitest-'))
@@ -90,8 +94,8 @@ export async function setupHarness(options: {
     { id: 'runlog', name: 'aitest:runlog', config: { dir: join(dir, 'runs') } },
     { id: 'logger', name: 'aitest:noop', disabled: true },
     { id: 'reporter-console', name: '@aitest/reporters/console', disabled: true },
-    ...(options.rows ?? []),
-  ])
+    ...(typeof options.rows === 'function' ? options.rows(dir) : options.rows ?? []),
+  ], { patchFile: options.patchFile?.(dir) ?? false })
   kernel.ctx.agents.register(scriptedDriver(options.scripts))
 
   return {
@@ -103,5 +107,50 @@ export async function setupHarness(options: {
       api.kill()
       await rm(dir, { recursive: true, force: true })
     },
+  }
+}
+
+/** Dựng scope của một case để gọi action trực tiếp trong bài test. */
+export function caseScope(plan: TestPlan, index = 0, overrides: Partial<CaseScope> = {}): CaseScope {
+  return {
+    kind: 'case', id: plan.cases[index].id, runId: 'test', plan, case: plan.cases[index], vars: {},
+    phase: 'agent', namespaces: new Set(plan.requires), signal: new AbortController().signal, log: () => {},
+    ...overrides,
+  }
+}
+
+/** Client WebSocket tối giản cho bài test: gọi method và chờ message đẩy chủ động. */
+export class WsClient {
+  private seq = 0
+  private readonly waiting = new Map<number, (m: any) => void>()
+  readonly pushed: any[] = []
+  private readonly listeners = new Set<(m: any) => void>()
+  constructor(readonly socket: WebSocket) {
+    socket.on('message', (raw) => {
+      const m = JSON.parse(String(raw))
+      if (m.id !== undefined) return this.waiting.get(m.id)?.(m)
+      this.pushed.push(m)
+      for (const l of this.listeners) l(m)
+    })
+  }
+  static async open(url: string) {
+    const socket = new WebSocket(url)
+    await new Promise((r) => socket.once('open', r))
+    return new WsClient(socket)
+  }
+  call(method: string, params: Record<string, unknown> = {}) {
+    const id = ++this.seq
+    return new Promise<any>((resolve, reject) => {
+      this.waiting.set(id, (m) => (m.error ? reject(new Error(m.error)) : resolve(m.result)))
+      this.socket.send(JSON.stringify({ id, method, params }))
+    })
+  }
+  waitFor(predicate: (m: any) => boolean) {
+    const found = this.pushed.find(predicate)
+    if (found) return Promise.resolve(found)
+    return new Promise<any>((resolve) => {
+      const listener = (m: any) => { if (predicate(m)) { this.listeners.delete(listener); resolve(m) } }
+      this.listeners.add(listener)
+    })
   }
 }

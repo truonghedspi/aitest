@@ -1,0 +1,10 @@
+{
+  "name": "aitest-chat",
+  "description": "Agent cho cuộc chat soạn plan trên giao diện aitest. Chỉ dẫn vai trò và tool soạn plan do aitest cung cấp qua ACP.",
+  "prompt": null,
+  "mcpServers": {},
+  "tools": ["*"],
+  "allowedTools": ["thinking", "todo"],
+  "resources": [],
+  "includeMcpJson": false
+}

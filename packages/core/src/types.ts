@@ -12,6 +12,23 @@ export type AssertOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 
 export interface ExpectationCheck {
   op: AssertOp
   value?: unknown
+  /**
+   * Công thức tính giá trị mong đợi, thay cho `value`, ví dụ `round(qty * price * 0.0015, 2)`.
+   * Agent chỉ chỉ ra evidence chứa từng biến; nền tảng đọc giá trị thật và tính chính xác.
+   */
+  expr?: string
+}
+
+/** Tham chiếu tới một giá trị trong evidence: mã evidence và path. */
+export interface EvidenceRef {
+  evidenceId: string
+  path: string
+}
+
+/** Đọc giá trị thật từ evidence đã thu thập trong một scope. Plugin `verdict` cung cấp (`ctx.evidence`). */
+export interface EvidenceReader {
+  /** Ném lỗi khi mã evidence không tồn tại trong scope. Trả `undefined` khi path không có giá trị. */
+  read(scope: ActionScope, ref: EvidenceRef): unknown
 }
 
 /** Một kết quả mong đợi của test case. */
@@ -74,34 +91,64 @@ export interface JsonSchemaObject {
   [key: string]: unknown
 }
 
-/**
- * Phạm vi thực thi của một test case.
- *
- * Mỗi case có một scope riêng. Plugin gắn trạng thái riêng của mình vào scope
- * bằng `WeakMap<CaseScope, ...>` thay vì sửa đối tượng này.
- */
 export type CasePhase = 'setup' | 'agent' | 'teardown'
 
-export interface CaseScope {
+/**
+ * Loại phạm vi thực thi action.
+ * - `case`: một test case đang chạy.
+ * - `authoring`: một phiên soạn plan cùng agent.
+ * - `explore`: lời gọi khảo sát hệ thống từ phiên soạn plan; chỉ cho phép lời gọi chỉ đọc.
+ */
+export type ScopeKind = 'case' | 'authoring' | 'explore'
+
+/** Pha của lời gọi: chuẩn bị, agent, dọn dẹp, hoặc người dùng thao tác trực tiếp trên giao diện. */
+export type ActionPhase = CasePhase | 'user'
+
+/**
+ * Phạm vi thực thi chung của action.
+ *
+ * Plugin gắn trạng thái riêng vào scope bằng `WeakMap<ActionScope, ...>` thay vì sửa đối tượng này.
+ */
+export interface ActionScope {
+  kind: ScopeKind
+  /** Mã định danh để ghi log và hiển thị: mã case hoặc mã phiên soạn plan. */
+  id: string
+  /** Namespace action được phép dùng ở pha `agent`. */
+  namespaces: ReadonlySet<string>
+  /** Ngoài pha `agent`, mọi action cùng loại scope đều gọi được. */
+  phase: ActionPhase
+  signal: AbortSignal
+  /** Ghi một event vào log append-only của scope. */
+  log(type: string, data: unknown): void
+}
+
+/** Phạm vi của một test case trong lượt chạy. */
+export interface CaseScope extends ActionScope {
+  kind: 'case'
   runId: string
   plan: TestPlan
   /** Case đã thay biến `{{...}}` bằng giá trị từ `vars` và fixture. */
   case: TestCase
   /** Biến của plan cộng biến lưu từ fixture. */
   vars: Record<string, unknown>
-  /** Pha hiện tại. Ngoài pha `agent`, mọi action đã đăng ký đều gọi được. */
   phase: CasePhase
-  /** Namespace action được phép dùng trong case này. */
-  namespaces: ReadonlySet<string>
-  signal: AbortSignal
-  /** Ghi một event vào run log (append-only). */
-  log(type: string, data: unknown): void
 }
 
 export interface ActionContext {
-  scope: CaseScope
+  scope: ActionScope
   callId: string
   signal: AbortSignal
+}
+
+/**
+ * Dữ liệu hiển thị một lời gọi action trên giao diện.
+ * `kind` chọn thành phần hiển thị phía client; kind không có thành phần riêng dùng thẻ mặc định.
+ */
+export interface ToolView {
+  kind: string
+  /** Tiêu đề ngắn của thẻ, ví dụ `POST /orders → 201`. */
+  title?: string
+  [key: string]: unknown
 }
 
 /** Định nghĩa một action mà agent gọi được thông qua MCP gateway. */
@@ -114,11 +161,23 @@ export interface ActionDefinition<A = any> {
   inputSchema: JsonSchemaObject
   /** Action luôn khả dụng, không phụ thuộc `requires` (ví dụ assertion). */
   always?: boolean
+  /** Loại scope được gọi action này. Mặc định `['case', 'explore']`. */
+  scopes?: ScopeKind[]
   /** Action chỉ đọc, không gây side effect. */
   readOnly?: boolean
+  /**
+   * Với action không chỉ đọc, cho biết một lời gọi cụ thể có chỉ đọc hay không.
+   * Ví dụ `http_request` với method GET. Dùng khi khảo sát hệ thống lúc soạn plan.
+   */
+  isReadOnlyCall?(args: Record<string, unknown>): boolean
   /** Kết quả có được lưu làm evidence cho assertion hay không. Mặc định là `true`. */
   evidence?: boolean
   execute(args: A, ctx: ActionContext): Promise<unknown>
+  /**
+   * Dựng dữ liệu hiển thị từ tham số và kết quả. Phải là hàm thuần: không I/O, không đọc trạng thái,
+   * vì được gọi cả lúc chạy lẫn lúc dựng lại từ log.
+   */
+  present?(args: A, outcome: ActionOutcome): ToolView | undefined
 }
 
 export interface ActionCall {
@@ -126,7 +185,7 @@ export interface ActionCall {
   name: string
   namespace: string
   args: Record<string, unknown>
-  scope: CaseScope
+  scope: ActionScope
   definition: ActionDefinition
 }
 
@@ -212,11 +271,18 @@ export interface AssertionRecord {
   message: string
   /** `plan`: tiêu chí lấy từ `check` của plan. `agent`: agent tự chọn tiêu chí vì plan không khai báo. */
   criteria: 'plan' | 'agent'
+  /** Công thức tính giá trị mong đợi, khi plan dùng `check.expr`. */
+  expr?: string
+  /** Giá trị thật của từng biến trong công thức, kèm nơi lấy. */
+  inputs?: Record<string, EvidenceRef & { value: unknown }>
 }
 
 export interface ActionRecord {
   callId: string
-  phase?: CasePhase
+  /** Loại scope thực hiện lời gọi; lời gọi `explore` lồng trong tool `explore` của phiên soạn plan. */
+  scope?: ScopeKind
+  phase?: ActionPhase
+  view?: ToolView
   name: string
   args: Record<string, unknown>
   status: ActionStatus
@@ -244,6 +310,8 @@ export interface CaseReport {
   actions: ActionRecord[]
   steps: StepNote[]
   agentSummary: string
+  /** Thông tin plugin gắn vào case qua event `case/annotation`, ví dụ `knownIssues`. */
+  annotations: Record<string, unknown>
 }
 
 export interface RunReport {

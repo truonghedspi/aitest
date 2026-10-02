@@ -12,6 +12,8 @@ aitest không chạy agent loop. aitest vừa là **ACP client** điều khiển
 4. Agent gọi `assert_expectation`; plugin `verdict` tự đọc giá trị thật trong evidence và so sánh.
 5. Runner chạy `teardown`, tính verdict, ghi `case/end`; cuối lượt chạy dựng `RunReport` từ run log và phát `run/report`.
 
+Soạn plan cùng agent theo mô hình giao diện của dsh: trình duyệt ⇄ WebSocket ⇄ `web-host` ⇄ `chat` ⇄ ACP ⇄ Kiro. Tool soạn plan (`@aitest/authoring/*`) có `scopes: ['authoring']` và đi qua cùng MCP gateway, pipeline, log. Giao diện dựng hoàn toàn từ log của cuộc chat (mục 7 của tài liệu kiến trúc).
+
 ## Sơ đồ thư mục
 
 ```
@@ -25,18 +27,30 @@ packages/            @aitest/<tên> — mỗi package là một hoặc nhiều p
   action-http/       http_request
   action-sqlite/     <namespace>_query cho SQLite
   action-mcp-proxy/  nối MCP server ngoài (Postgres, Playwright...) thành action
+  action-math/       calc, round_number: tính toán và làm tròn trên BigDecimal; biến lấy từ evidence
   action-wait/       wait_until cho xử lý bất đồng bộ
   action-webhook/    webhook_create, webhook_wait để nhận callback
   guard-basic/       chặn SQL ghi, giới hạn host, chặn action theo tên
   reporters/         console, markdown, junit (mỗi subpath là một plugin)
+  authoring/         soạn plan cùng agent: service lõi + plugin catalog, context-files, explore, validate, dry-run, save
+  chat/              cuộc chat soạn plan: log, cầu nối ACP sang event, duyệt quyền
+  web-host/          HTTP, WebSocket /ws, registry method
+  run-viewer/        trang Lượt chạy: danh sách, giải thích kết quả, dòng thời gian, theo dõi lượt chạy đang diễn ra
+  knowledge/         tri thức của nhóm trong kb/: tool kb_list/kb_read/kb_propose, quy ước vào hướng dẫn, đánh dấu lỗi đã biết
+  plugin-manager/    trang Plugin và Tool: bật/tắt, cấu hình, thêm/gỡ, thêm MCP server, tắt tool, chạy thử
+  web-client/        giao diện React + Vite; plugin client đăng ký vào slot (page, toolView, panel)
   cli/               lệnh aitest
 examples/
   order-api/         ứng dụng mẫu: API, giao diện web, SQLite, lỗi cố ý ở kiểm tra lô chẵn
   plans/             plan mẫu: API, integration, E2E giao diện
   plugins/           plugin mẫu nạp theo đường dẫn tương đối
 docs/                architecture.md, user-guide.md, plan.schema.json
+kb/                  tri thức của nhóm: bug/, convention/, lesson/ (Markdown + frontmatter)
 aitest.yml           cấu hình plugin mặc định
 aitest.e2e.yml       kế thừa aitest.yml, thêm Playwright MCP
+aitest.web.yml       kế thừa aitest.yml, thêm web host, chat, plugin-manager và agent Kiro cho chat
+aitest.*.patch.yml   patch layer do giao diện ghi (bị git bỏ qua)
+.kiro/agents/        profile Kiro: aitest-author (Kiro chat + aitest mcp), aitest-chat (agent cho giao diện)
 .aitest/             đầu ra lượt chạy (bị git bỏ qua)
 ```
 
@@ -44,7 +58,7 @@ aitest.e2e.yml       kế thừa aitest.yml, thêm Playwright MCP
 
 ```sh
 pnpm install                 # pnpm 11, node >=22.18
-pnpm run typecheck           # tsc --noEmit trên toàn workspace
+pnpm run typecheck           # tsc --noEmit cho Host và cho web-client
 pnpm test                    # vitest; agent kịch bản, không gọi LLM; khoảng 10 s
 AITEST_SKIP_BROWSER=1 pnpm test   # bỏ qua bài test trình duyệt khi máy không có Chrome
 pnpm demo:api                # Order API mẫu ở cổng 4100
@@ -52,6 +66,9 @@ pnpm aitest validate <plan>
 pnpm aitest run <plan> [--case A,B] [--agent kiro]          # gọi Kiro thật, tốn lượt dùng
 pnpm aitest -c aitest.e2e.yml run examples/plans/order-ui.plan.yaml
 pnpm aitest report .aitest/runs/<id>/events.jsonl           # dựng lại báo cáo từ log
+pnpm web:build && pnpm aitest -c aitest.web.yml serve       # giao diện soạn plan tại http://127.0.0.1:4300
+pnpm web:dev                 # Vite dev server cho web-client, chuyển /ws tới Host ở cổng 4300
+pnpm aitest mcp              # MCP server soạn plan qua stdio; stdout chỉ dành cho giao thức MCP
 ```
 
 Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. Chỉ chạy với Kiro thật khi thay đổi ảnh hưởng tới nội dung agent nhìn thấy: prompt, mô tả tool, định dạng kết quả tool. Báo cáo lại kết quả đã chạy, kể cả khi thất bại.
@@ -59,11 +76,17 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 ## Bất biến kiến trúc
 
 - **LLM không quyết định pass/fail.** Verdict chỉ được tính từ assertion do plugin `verdict` đánh giá trên evidence thật. Không thêm đường nào cho agent tự báo giá trị thực tế hoặc tự kết luận.
+- **Agent không tự tính.** Giá trị mong đợi cần tính dùng `check.expr`, do `verdict` tính từ giá trị thật trong evidence bằng `calculate` của core. Phép tính khác của agent đi qua tool `calc`, `round_number`. Bộ tính không dùng `eval`; tra hàm chỉ qua `Object.hasOwn`.
+- **Số là BigDecimal, làm tròn luôn tường minh.** Không đổi số sang `number` để tính hoặc so sánh (`toBigDecimal`, `compareTo`). Không thêm cách làm tròn mặc định; chia không hết là lỗi.
 - **Tiêu chí của plan là cố định.** Khi expectation có `check`, `op` và giá trị mong đợi luôn lấy từ plan; tham số của agent bị bỏ qua.
 - **Run log là nguồn sự thật.** Mọi thông tin xuất hiện trong báo cáo phải dựng lại được từ `events.jsonl` qua `deriveReport`. Thông tin mới trong báo cáo đòi hỏi một loại event mới, ghi qua `scope.log`.
 - **Mọi thao tác của agent đi qua gateway.** Không cấp cho agent MCP server nào khác ngoài endpoint của gateway. Tích hợp MCP server ngoài phải qua `action-mcp-proxy` để giữ guard, evidence và log.
 - **Thực thi quyết định tại nơi thực thi.** Giới hạn `requires` và guard được kiểm tra trong `ActionRegistry.invoke`, không chỉ ở danh sách tool hay prompt. Kiểm thử từ chối phải gọi qua `invoke`.
 - **Fixture không qua AI.** `setup`/`teardown` do runner chạy; lỗi setup cho verdict `error` và không gọi agent; teardown luôn chạy.
+- **Giao diện dựng từ log.** Mọi thứ giao diện hiển thị lâu dài phải là event trong log của cuộc chat; chỉ token đang stream đi qua `chat/live`. Thông tin hiển thị mới đòi hỏi event mới hoặc trường mới trong `view`.
+- **Thay đổi lúc chạy đi vào patch layer.** Bật/tắt, cấu hình, thêm/gỡ plugin và tắt tool chỉ đi qua `ctx.kernel`; kernel ghi `*.patch.yml` khi plugin nạp thành công. Không sửa file cấu hình gốc từ code.
+- **Agent chạy test không đọc tri thức.** Tool `kb_*` chỉ có scope `authoring`; lỗi đã biết chỉ được dùng để phân loại kết quả trong báo cáo, qua `case/annotation`.
+- **Duyệt trước khi ghi.** Tool soạn plan chỉ đọc được duyệt tự động; `dry_run`, `save_plan` và tool riêng của agent cần người dùng duyệt.
 - **Tính năng mới đi qua plugin.** Thêm hành vi bằng service, event hoặc action mới; chỉ sửa runner khi điểm mở rộng hiện có không đủ, và cập nhật docs/architecture.md cùng lúc.
 
 ## Quy ước

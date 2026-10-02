@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { parse as parseYaml } from 'yaml'
-import { interpolate, PlanError, z, type Context, type TestPlan } from '@aitest/core'
+import { checkExpression, interpolate, PlanError, z, type Context, type TestPlan } from '@aitest/core'
 
 /**
  * Định dạng test plan `*.plan.yaml`.
@@ -13,7 +14,9 @@ const AssertOp = z.union(['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains', 'mat
 const ExpectationSchema = z.object({
   id: z.string().required(),
   desc: z.string().required(),
-  check: z.object({ op: AssertOp.required(), value: z.any() }),
+  // `op` không đánh dấu required ở đây vì schemastery điền object rỗng khi thiếu `check`;
+  // trường hợp có `check` mà thiếu `op` được kiểm tra riêng trong `parsePlan`.
+  check: z.object({ op: AssertOp, value: z.any(), expr: z.string() }),
 })
 
 const FixtureSchema = z.object({
@@ -51,10 +54,14 @@ export const PlanSchema = z.object({
 export const name = 'plan-yaml'
 export const inject = ['plans']
 
+/** Hướng dẫn định dạng viết cho agent soạn plan. */
+const GUIDE = readFileSync(new URL('./guide.md', import.meta.url), 'utf8')
+
 export function apply(ctx: Context) {
   ctx.plans.registerFormat({
     name: 'yaml',
     extensions: ['.plan.yaml', '.plan.yml'],
+    guide: GUIDE,
     parse: (text, source) => parsePlan(text, source),
   })
 }
@@ -74,6 +81,22 @@ export function parsePlan(text: string, source: string): TestPlan {
   }
 
   const issues: string[] = []
+  const rawCases = (raw as { cases?: Array<{ expect?: Array<{ check?: unknown }> }> }).cases ?? []
+  const NUMERIC_OPS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte']
+  rawCases.forEach((c, i) => c?.expect?.forEach((e, j) => {
+    const check = e?.check as { op?: string; value?: unknown; expr?: unknown } | undefined
+    const where = `cases[${i}].expect[${j}].check`
+    if (check === undefined) return
+    if (!check?.op) issues.push(`${where}: missing op`)
+    if (check?.expr === undefined) return
+    if (check.value !== undefined) issues.push(`${where}: use either value or expr, not both`)
+    if (check.op && !NUMERIC_OPS.includes(check.op)) issues.push(`${where}: expr requires a numeric op (${NUMERIC_OPS.join(', ')})`)
+    try {
+      checkExpression(String(check.expr))
+    } catch (error) {
+      issues.push(`${where}.expr: ${(error as Error).message}`)
+    }
+  }))
   const caseIds = new Set<string>()
   for (const c of data.cases) {
     if (caseIds.has(c.id)) issues.push(`duplicate case id: ${c.id}`)
@@ -116,7 +139,7 @@ export function parsePlan(text: string, source: string): TestPlan {
       expect: c.expect.map((e) => ({
         id: e.id,
         desc: fill(e.desc),
-        check: e.check?.op ? { op: e.check.op, value: e.check.value } : undefined,
+        check: e.check?.op ? { op: e.check.op, value: e.check.value, ...(e.check.expr ? { expr: e.check.expr } : {}) } : undefined,
       })),
     })),
   }

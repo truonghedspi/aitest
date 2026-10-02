@@ -7,10 +7,12 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p packages/web-client/tsconfig.json --noEmit",
     "test": "vitest run",
     "aitest": "tsx --disable-warning=ExperimentalWarning packages/cli/src/bin.ts",
-    "demo:api": "tsx --disable-warning=ExperimentalWarning examples/order-api/server.ts"
+    "demo:api": "tsx --disable-warning=ExperimentalWarning examples/order-api/server.ts",
+    "web:build": "pnpm --filter @aitest/web-client build",
+    "web:dev": "pnpm --filter @aitest/web-client dev"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
@@ -18,23 +20,32 @@
     "@types/node": "^22.10.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "vitest": "^3.2.0",
+    "ws": "^8.22.0",
+    "@types/ws": "^8.18.0"
   },
   "dependencies": {
     "@aitest/action-http": "workspace:*",
+    "@aitest/action-math": "workspace:*",
     "@aitest/action-mcp-proxy": "workspace:*",
     "@aitest/action-sqlite": "workspace:*",
     "@aitest/action-wait": "workspace:*",
     "@aitest/action-webhook": "workspace:*",
     "@aitest/agent-acp": "workspace:*",
+    "@aitest/authoring": "workspace:*",
+    "@aitest/chat": "workspace:*",
     "@aitest/cli": "workspace:*",
     "@aitest/core": "workspace:*",
     "@aitest/guard-basic": "workspace:*",
+    "@aitest/knowledge": "workspace:*",
     "@aitest/mcp-gateway": "workspace:*",
     "@aitest/plan-yaml": "workspace:*",
+    "@aitest/plugin-manager": "workspace:*",
     "@aitest/reporters": "workspace:*",
+    "@aitest/run-viewer": "workspace:*",
     "@aitest/runner": "workspace:*",
     "@aitest/verdict": "workspace:*",
+    "@aitest/web-host": "workspace:*",
     "@deepseek-ai/cordis-plugin-logger-console": "~1.0.4"
   }
 }

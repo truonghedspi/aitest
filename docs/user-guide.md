@@ -64,6 +64,8 @@ Plan `order.plan.yaml` có case TC-03 cố ý **fail**, vì ứng dụng mẫu c
 | `pnpm aitest run <plan> --agent <tên>` | Chọn agent khác với cấu hình |
 | `pnpm aitest actions` | Liệt kê action agent có thể dùng |
 | `pnpm aitest report <events.jsonl>` | Dựng lại báo cáo từ run log |
+| `pnpm aitest -c aitest.web.yml serve` | Chạy giao diện web soạn plan cùng AI |
+| `pnpm aitest mcp` | MCP server soạn plan qua stdio (Kiro chat dùng lệnh này) |
 | `-c <file>` | Chọn file cấu hình, ví dụ `-c aitest.e2e.yml` |
 
 Mã thoát của `run` bằng 0 khi mọi case đạt, bằng 1 khi có case không đạt, bằng 2 khi lỗi cấu hình hoặc plan.
@@ -144,6 +146,50 @@ Có hai cách khai báo:
 - **Có `check`** (khuyến nghị): tiêu chí cố định, agent không thay đổi được. Báo cáo ghi `criteria: plan`.
 - **Không có `check`**: agent tự chọn toán tử và giá trị mong đợi dựa trên `desc`. Báo cáo ghi `criteria: agent`. Chỉ dùng khi tiêu chí khó biểu diễn bằng một giá trị.
 
+**Giá trị mong đợi cần tính toán** (phí, tổng tiền, phần trăm, làm tròn): viết công thức trong `expr` thay vì tự tính sẵn ra số.
+
+```yaml
+- id: fee-correct
+  desc: Phí trong response đúng công thức
+  check: { op: eq, expr: "round(qty * price / 1000 * 0.0015, 2, HALF_UP)" }
+```
+
+Khi chạy, agent chỉ ra nơi chứa giá trị thật của từng biến (`qty`, `price`); nền tảng tính trên **BigDecimal** (cùng cách tính với `java.math.BigDecimal`) rồi so sánh. Báo cáo ghi công thức, giá trị từng biến và kết quả tính. `op` của công thức phải là `eq`, `ne`, `gt`, `gte`, `lt`, `lte`.
+
+**Quy tắc tính:**
+
+| Phép tính | Hành vi |
+|---|---|
+| `+ - * %` | Luôn chính xác, giữ đủ phần thập phân: `1.50 * 1.0 = 1.500` |
+| `/` | Chính xác nếu chia hết (`1 / 8 = 0.125`); không chia hết (`1 / 3`) là lỗi, phải dùng `div(a, b, scale, MODE)` |
+| So sánh | Theo giá trị: `1.5`, `"1.50"`, `1.500` bằng nhau; không qua số thực |
+| Số lớn trong response API | Số có nhiều chữ số hơn kiểu number chứa được giữ dạng chuỗi, không mất chữ số |
+
+**Làm tròn: không có cách mặc định, mỗi test tự chọn theo đặc tả.**
+
+| Hàm | Ý nghĩa | Ví dụ |
+|---|---|---|
+| `round(x, scale, MODE)` | Làm tròn tới `scale` chữ số thập phân; scale âm làm tròn tới hàng chục, trăm | `round(1.545, 2, HALF_EVEN)` = 1.54 |
+| `roundStep(x, step, MODE)` | Làm tròn tới bội số của bước (bước giá, lô) | `roundStep(70000 * 1.07, 100, FLOOR)` = 74900 |
+| `roundSig(x, digits, MODE)` | Làm tròn tới số chữ số có nghĩa | `roundSig(123.456, 4, HALF_UP)` = 123.5 |
+| `floor`, `ceil`, `trunc(x, scale)` | Viết tắt của `FLOOR`, `CEILING`, `DOWN` | `ceil(2.123, 2)` = 2.13 |
+| `div(a, b, scale, MODE)`, `sqrt(x, scale, MODE)` | Phép chia, căn có làm tròn | `div(1, 3, 4, HALF_UP)` = 0.3333 |
+
+| MODE | Cách làm tròn | 1.545 → 2 chữ số | -1.545 → 2 chữ số |
+|---|---|---|---|
+| `HALF_UP` | Gần nhất; .5 làm tròn xa số 0 | 1.55 | -1.55 |
+| `HALF_DOWN` | Gần nhất; .5 làm tròn về số 0 | 1.54 | -1.54 |
+| `HALF_EVEN` | Gần nhất; .5 làm tròn về số chẵn (làm tròn ngân hàng) | 1.54 | -1.54 |
+| `UP` | Xa số 0 | 1.55 | -1.55 |
+| `DOWN` | Về số 0 (cắt bỏ) | 1.54 | -1.54 |
+| `CEILING` | Lên phía dương | 1.55 | -1.54 |
+| `FLOOR` | Xuống phía âm | 1.54 | -1.55 |
+| `UNNECESSARY` | Không được làm tròn; báo lỗi nếu cần | lỗi | lỗi |
+
+Hàm khác: `abs`, `min`, `max`, `sum`, `avg` (chính xác, hoặc báo lỗi nếu chia không hết), `pct(x, p)`.
+
+Agent có tool `calc` (tính biểu thức) và `round_number` (làm tròn một giá trị theo `scale`, `step` hoặc số chữ số có nghĩa, với MODE bắt buộc) cho mọi phép tính khác, và được hướng dẫn không tự tính nhẩm.
+
 Mỗi expectation chỉ nên kiểm tra **một giá trị**. Ví dụ, tách "status là NEW và qty là 100" thành hai expectation.
 
 ### 5.5. Kiểm tra trước khi chạy
@@ -153,6 +199,97 @@ pnpm aitest validate examples/plans/order.plan.yaml
 ```
 
 Lệnh báo lỗi khi YAML sai cú pháp, thiếu trường bắt buộc, trùng mã case hoặc mã expectation. Lệnh cũng cảnh báo khi `requires` chứa namespace chưa có action nào đăng ký.
+
+### 5.6. Soạn plan cùng AI
+
+Thay vì tự viết YAML, bạn có thể mô tả tính năng bằng lời và để agent soạn plan.
+
+#### Trên giao diện web
+
+```bash
+pnpm web:build
+pnpm aitest -c aitest.web.yml serve     # mở http://127.0.0.1:4300; đổi cổng bằng AITEST_WEB_PORT
+```
+
+| Vùng | Chức năng |
+|---|---|
+| Cột trái | Danh sách cuộc chat; tiêu đề tự đặt theo tin nhắn đầu tiên |
+| Cột giữa | Hội thoại; mỗi tool agent dùng hiện thành một thẻ, bấm để xem chi tiết |
+| Cột phải | "Plan đang soạn": YAML mới nhất, kết quả kiểm tra, kết quả chạy thử |
+
+Cách làm việc hiệu quả:
+
+1. Mô tả tính năng và các trường hợp cần kiểm thử. Ví dụ: "Soạn test plan cho mục 3 trong đặc tả: huỷ lệnh NEW thành công, huỷ lệnh đã huỷ bị từ chối 409."
+2. Trả lời câu hỏi của agent nếu có.
+3. Khi agent xin phép **chạy thử** hoặc **lưu plan**, thẻ duyệt hiện trong hội thoại. Bấm "Cho phép" hoặc "Từ chối". Các tool chỉ đọc (đọc tài liệu, khảo sát, kiểm tra) không cần duyệt.
+4. Góp ý bằng lời, hoặc sửa YAML trực tiếp ở cột phải rồi bấm "Kiểm tra", "Chạy thử", "Lưu". Agent được báo về phần bạn sửa ở tin nhắn tiếp theo.
+
+Khi chạy thử phát hiện case không đạt, agent phân biệt plan viết chưa rõ với lỗi thật của hệ thống. Plan không bị sửa để che lỗi của hệ thống.
+
+#### Trên terminal với Kiro chat
+
+```bash
+kiro-cli chat --agent aitest-author
+```
+
+Kiro dùng cùng bộ tool qua lệnh `aitest mcp`. Kiro hỏi xác nhận trước khi chạy thử và lưu plan.
+
+#### Cung cấp tài liệu cho agent
+
+Agent đọc tài liệu khai báo ở row `authoring-context` trong `aitest.yml`. Thêm đặc tả nghiệp vụ, mô tả API, mô tả dữ liệu của hệ thống bạn vào `sources`:
+
+```yaml
+- id: authoring-context
+  name: '@aitest/authoring/context-files'
+  config:
+    sources:
+      - id: payment-spec
+        title: Đặc tả thanh toán
+        paths: [docs/payment/SPEC.md, docs/payment/openapi.yaml]
+```
+
+Tài liệu càng rõ ràng, plan agent soạn càng ít phải sửa.
+
+### 5.7. Quản lý plugin và tool trên giao diện
+
+Khi chạy `pnpm aitest -c aitest.web.yml serve`, thanh điều hướng có thêm hai trang **Plugin** và **Tool**.
+
+**Trang Plugin:**
+
+| Thao tác | Cách làm |
+|---|---|
+| Xem trạng thái | Mỗi thẻ ghi "Đang chạy", "Đã tắt", "Lỗi" (kèm lý do) hoặc "Chờ service", cùng các tool plugin đóng góp |
+| Bật, tắt | Công tắc trên thẻ. Plugin giao diện phụ thuộc vào thì bị khoá |
+| Sửa cấu hình | "Cấu hình" → sửa theo form (có mô tả từng trường) hoặc chế độ JSON → "Lưu và nạp lại". Cấu hình sai thì plugin giữ cấu hình cũ và báo lỗi |
+| Thêm plugin | "+ Thêm plugin" → chọn từ danh mục → đặt mã row và cấu hình → "Thêm plugin" |
+| Thêm MCP server | "+ Thêm MCP server" → namespace, lệnh và tham số (stdio) hoặc URL (HTTP) → "Thêm MCP server". Tool của server hiện ngay trên trang Tool và dùng được trong plan với `requires: [<namespace>]` |
+| Gỡ | Chỉ plugin thêm từ giao diện mới gỡ được; plugin trong file cấu hình thì tắt |
+
+Ví dụ thêm MCP server bảng giá mẫu: namespace `quote`, lệnh `node`, tham số mỗi dòng một giá trị: `--import`, `tsx`, `examples/mcp/quote-server.ts`.
+
+**Trang Tool:** liệt kê mọi tool theo namespace, kèm plugin sở hữu, nhãn "chỉ đọc", loại scope (`case`: agent chạy test; `authoring`: agent soạn plan; `explore`: khảo sát).
+
+- Công tắc tắt một tool: tool biến mất với cả agent chạy test lẫn agent soạn plan.
+- Mở một tool để xem mô tả, input schema, và **chạy thử** với tham số JSON. Chỉ lời gọi chỉ đọc chạy thử được.
+
+**Thay đổi được lưu ở đâu.** Mọi thay đổi được ghi vào `aitest.web.patch.yml` cạnh file cấu hình. File cấu hình gốc không bị sửa. Xoá file patch rồi khởi động lại là quay về cấu hình gốc. Muốn đưa thay đổi thành cấu hình chung của nhóm, chép row từ file patch sang `aitest.yml`.
+
+### 5.8. Tri thức của nhóm (Knowledge)
+
+Trang **Knowledge** lưu những điều nhóm học được, để lần sau không phải phát hiện lại. Mỗi ghi chú là một file Markdown trong `kb/`, nên cũng sửa được trực tiếp trong repo và xem lại qua pull request.
+
+| Loại | Khi nào ghi | Tác dụng |
+|---|---|---|
+| **Lỗi đã biết** | Hệ thống sai so với đặc tả và chưa sửa | Khai báo case liên quan (`TP-ORDER-001/TC-03`). Case đó không đạt thì báo cáo ghi "lỗi đã biết" thay vì "lỗi mới". Khi lỗi được sửa, đổi trạng thái sang "Đã sửa" |
+| **Quy ước** | Nhóm thống nhất cách làm | Agent soạn plan luôn đọc và áp dụng |
+| **Bài học** | Điều rút ra khi soạn hoặc chạy thử | Agent soạn plan tra theo tính năng trước khi soạn |
+
+Ghi chú được tạo theo ba cách:
+- Tạo trên trang Knowledge: "+ Ghi chú mới".
+- Agent đề xuất trong cuộc chat soạn plan, thường sau khi chạy thử phát hiện lỗi hệ thống. Thẻ duyệt hiện ra; bấm "Cho phép" thì ghi chú mới được ghi.
+- Viết file trực tiếp trong `kb/<loại>/<id>.md` theo mẫu của các file có sẵn.
+
+Đọc báo cáo: cột "Ghi chú" của bảng tổng hợp ghi "lỗi đã biết: <mã>" hoặc "**lỗi mới**" cho case không đạt. Case đạt mà vẫn khớp một lỗi đang mở được ghi "có thể đã sửa": kiểm tra lại rồi đổi trạng thái ghi chú.
 
 ## 6. Chuẩn bị và dọn dữ liệu
 
@@ -277,7 +414,32 @@ Luôn kiểm tra cột "Thực tế" của case `pass` quan trọng. Cột này 
 
 Bảng "Chuỗi action" liệt kê theo thứ tự mọi action đã chạy, gồm cả fixture. Mã evidence (`ev1`, `ev2`...) dùng để đối chiếu với cột "Thực tế".
 
-### 8.4. Tra `events.jsonl`
+### 8.4. Xem log trên giao diện (trang Lượt chạy)
+
+Trang **Lượt chạy** (`pnpm aitest -c aitest.web.yml serve`) cho biết agent đã làm gì và vì sao case ra kết quả đó, không cần mở file log. Trang hiển thị cả lượt chạy từ CLI lẫn lượt chạy thử trong cuộc chat (nhãn "chạy thử"); lượt chạy đang diễn ra được cập nhật liên tục.
+
+Chọn một lượt chạy rồi chọn case. Case không đạt được mở sẵn.
+
+| Tab | Dùng để |
+|---|---|
+| **Giải thích kết quả** | Với mỗi expectation: tiêu chí (hoặc công thức), giá trị mong đợi, **giá trị thật nền tảng đọc được** và đọc ở đâu (mã evidence và path), kết luận, các lần agent thử lại. Bấm mã evidence (`ev2`) để xem nguyên văn tham số agent gửi và kết quả action trả về |
+| **Dòng thời gian** | Mọi việc theo thứ tự: fixture, prompt gửi agent, agent xin quyền, gọi tool, ghi chú từng bước, suy nghĩ và trả lời của agent, assertion, kết thúc case |
+| **Prompt gửi agent** | Nguyên văn chỉ dẫn agent nhận được, để kiểm tra plan có diễn đạt đúng ý không |
+| **Dữ liệu thô** | Từng event JSON, lọc theo loại; dùng khi cần điều tra sâu |
+
+Cách đọc nhanh khi case có vấn đề:
+
+| Hiện tượng trong tab Giải thích | Nguyên nhân thường gặp |
+|---|---|
+| Giá trị thật đúng với hệ thống nhưng khác mong đợi | Hệ thống có lỗi thật, hoặc tiêu chí trong plan sai |
+| Giá trị thật `undefined` | Agent đọc sai path hoặc sai evidence; xem lại mô tả cấu trúc dữ liệu trong `context` |
+| Evidence là kết quả của action không liên quan | Agent chọn nhầm dữ liệu để đối chiếu; mô tả expectation cụ thể hơn |
+| Nhiều lần thử | Agent mò path; mô tả rõ dữ liệu cần đối chiếu |
+| "Agent không assert expectation này" | Xem Dòng thời gian để biết agent dừng ở đâu |
+
+Từ kết quả chạy thử trong cuộc chat, bấm "Xem log chi tiết" để mở thẳng lượt chạy đó.
+
+### 8.5. Tra `events.jsonl`
 
 Mỗi dòng là một sự kiện JSON. Các loại sự kiện hay dùng:
 
@@ -338,6 +500,18 @@ Guard chặn action. Ví dụ, câu lệnh ghi (`DELETE`, `UPDATE`) qua `db_quer
 | `Browser "chrome-for-testing" is not installed` | Dùng Chrome: `AITEST_BROWSER=chrome`, hoặc cài trình duyệt bằng `npx @playwright/mcp install-browser chrome-for-testing` |
 | Agent không tìm thấy nút hoặc trường | Ghi tên trong bước đúng như hiển thị trên giao diện |
 | Thư mục `.playwright-mcp/` xuất hiện | File tạm của Playwright; có thể xoá |
+
+### 9.6. Lỗi khi soạn plan cùng AI
+
+| Hiện tượng | Cách xử lý |
+|---|---|
+| Trang báo "web client is not built" | Chạy `pnpm web:build` |
+| Gửi tin nhắn báo "agent is still working" | Chờ agent xong lượt hiện tại, hoặc bấm "Dừng" |
+| Agent dừng với lỗi `agent process exited` | Kiểm tra đăng nhập Kiro; tin nhắn tiếp theo tự kết nối lại |
+| `validate_plan` báo `namespace dbadmin is fixture-only` | Bỏ `dbadmin` khỏi `requires`; fixture vẫn dùng được `dbadmin_query` |
+| Thêm MCP server báo lỗi kết nối | Chạy thử lệnh trong terminal; kiểm tra đường dẫn lệnh và tham số; với HTTP kiểm tra URL kết thúc bằng `/mcp` |
+| Plugin ở trạng thái "Chờ service" | Plugin cần một service chưa có, ví dụ plugin bị tắt; bật plugin cung cấp service đó |
+| Muốn huỷ mọi thay đổi trên trang Plugin | Dừng Host, xoá `aitest.web.patch.yml`, khởi động lại |
 
 ## 10. Thực hành tốt
 

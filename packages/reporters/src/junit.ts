@@ -21,7 +21,8 @@ export function renderJUnit(report: RunReport) {
   const t = report.totals
   const cases = report.cases.map((c) => {
     const time = (c.durationMs / 1000).toFixed(3)
-    const message = esc(c.reasons.join('; '))
+    const known = (c.annotations.knownIssues as Array<{ id: string }> | undefined)?.map((i) => i.id)
+    const message = esc((known?.length ? `[known: ${known.join(', ')}] ` : '') + c.reasons.join('; '))
     let body = ''
     if (c.verdict === 'fail') body = `<failure message="${message}">${esc(c.reasons.join('\n'))}</failure>`
     else if (c.verdict === 'error') body = `<error message="${message}">${esc(c.reasons.join('\n'))}</error>`

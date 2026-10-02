@@ -1,5 +1,5 @@
 import type {} from '@aitest/mcp-gateway'
-import type { Context } from '@aitest/core'
+import { variablesOf, type Context, type Expectation } from '@aitest/core'
 
 /**
  * Các section prompt mặc định của runner.
@@ -50,10 +50,7 @@ export function registerDefaultSections(ctx: Context) {
       if (!c.expect.length) return undefined
       return [
         '### Kết quả mong đợi',
-        ...c.expect.map((e) => {
-          const fixed = e.check ? ` — tiêu chí cố định: \`${e.check.op}\`${e.check.value !== undefined ? ` \`${JSON.stringify(e.check.value)}\`` : ''}` : ''
-          return `- \`${e.id}\`: ${e.desc}${fixed}`
-        }),
+        ...c.expect.map((e) => `- \`${e.id}\`: ${e.desc}${criteria(e)}`),
       ].join('\n')
     },
   })
@@ -72,4 +69,12 @@ export function registerDefaultSections(ctx: Context) {
     order: 90,
     render: () => 'Khi đã assert xong mọi expectation, trả lời bằng một đoạn tóm tắt ngắn (tối đa 5 dòng) rồi kết thúc lượt.',
   })
+}
+
+function criteria(e: Expectation) {
+  if (!e.check) return ''
+  if (e.check.expr) {
+    return ` — tiêu chí cố định: \`${e.check.op}\` công thức \`${e.check.expr}\`; khi assert, gắn \`inputs\` cho biến: ${variablesOf(e.check.expr).map((v) => `\`${v}\``).join(', ')}`
+  }
+  return ` — tiêu chí cố định: \`${e.check.op}\`${e.check.value !== undefined ? ` \`${JSON.stringify(e.check.value)}\`` : ''}`
 }

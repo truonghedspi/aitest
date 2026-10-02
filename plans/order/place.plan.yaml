@@ -1,0 +1,57 @@
+id: TP-ORDER-PLACE-001
+name: Đặt lệnh qua Order API
+description: Kiểm tra mục 1 — đặt lệnh hợp lệ và từ chối lệnh vi phạm ràng buộc lô chẵn.
+requires: [http, db]
+vars:
+  base_url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}
+context: |
+  Bảng orders: id, symbol, side, qty, price, status, created_at, cancelled_at, filled_qty, filled_at, callback_url.
+  Lệnh hợp lệ trả HTTP 201, status = NEW.
+  Lệnh vi phạm ràng buộc trả HTTP 400, body {"error": "<lý do>"}, không lưu bản ghi.
+  Ràng buộc qty: lớn hơn 0 và là bội số của 100.
+setup:
+  - desc: Xoá dữ liệu kiểm thử cũ
+    action: dbadmin_query
+    args:
+      sql: "DELETE FROM orders WHERE symbol = 'VNM' AND price = 70000"
+cases:
+  - id: ORD-01
+    title: Đặt lệnh mua hợp lệ
+    steps:
+      - Gọi POST {{base_url}}/orders với body {"symbol":"VNM","side":"BUY","qty":100,"price":70000}.
+      - Lấy id lệnh từ response.
+      - Truy vấn bảng orders theo id vừa nhận.
+    expect:
+      - id: http-201
+        desc: API trả về HTTP 201
+        check: { op: eq, value: 201 }
+      - id: resp-status-new
+        desc: Response body có status = NEW
+        check: { op: eq, value: NEW }
+      - id: db-status-new
+        desc: Bản ghi trong DB có status = NEW
+        check: { op: eq, value: NEW }
+      - id: db-qty
+        desc: Bản ghi trong DB có qty = 100
+        check: { op: eq, value: 100 }
+    teardown:
+      - desc: Xoá lệnh vừa tạo
+        action: dbadmin_query
+        args:
+          sql: "DELETE FROM orders WHERE symbol = 'VNM' AND qty = 100 AND price = 70000"
+
+  - id: ORD-02
+    title: Từ chối lệnh lẻ lô qty 150
+    steps:
+      - Gọi POST {{base_url}}/orders với body {"symbol":"VNM","side":"BUY","qty":150,"price":70000}.
+      - Truy vấn bảng orders theo symbol VNM và qty 150 để xác nhận không có bản ghi.
+    expect:
+      - id: http-400
+        desc: API trả về HTTP 400
+        check: { op: eq, value: 400 }
+      - id: resp-error
+        desc: Response body có trường error
+        check: { op: exists }
+      - id: db-no-record
+        desc: Không có bản ghi nào trong DB với qty = 150
+        check: { op: eq, value: 0 }

@@ -1,0 +1,20 @@
+{
+  "name": "@aitest/authoring",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./catalog": "./src/catalog.ts",
+    "./context-files": "./src/context-files.ts",
+    "./explore": "./src/explore.ts",
+    "./validate": "./src/validate.ts",
+    "./dry-run": "./src/dry-run.ts",
+    "./save": "./src/save.ts"
+  },
+  "dependencies": {
+    "@aitest/core": "workspace:*",
+    "@aitest/runner": "workspace:*",
+    "@deepseek-ai/cordis": "~4.0.4"
+  }
+}

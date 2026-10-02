@@ -1,4 +1,4 @@
-import { compare, readPath, z, type AssertionRecord, type AssertOp, type CaseScope, type Context, type StepNote, type VerdictDecision } from '@aitest/core'
+import { calculate, compare, isCaseScope, readPath, variablesOf, z, type EvidenceRef, type EvidenceReader, type AssertionRecord, type AssertOp, type ActionScope, type CaseScope, type Context, type StepNote, type VerdictDecision } from '@aitest/core'
 
 /**
  * Plugin verdict.
@@ -39,12 +39,23 @@ interface CaseState {
 const OPS: AssertOp[] = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains', 'matches', 'exists', 'not_exists']
 
 export function apply(ctx: Context, config: Config) {
-  const states = new WeakMap<CaseScope, CaseState>()
-  const stateOf = (scope: CaseScope) => {
+  const states = new WeakMap<ActionScope, CaseState>()
+  const stateOf = (scope: ActionScope) => {
     let state = states.get(scope)
     if (!state) states.set(scope, state = { seq: 0, evidence: new Map(), assertions: new Map() })
     return state
   }
+
+  /** Đọc giá trị thật trong evidence; dùng chung cho assertion và cho plugin khác qua `ctx.evidence`. */
+  const reader: EvidenceReader = {
+    read(scope, ref) {
+      const state = stateOf(scope)
+      const evidence = state.evidence.get(ref.evidenceId)
+      if (!evidence) throw new Error(`unknown evidenceId ${ref.evidenceId}; collected: ${[...state.evidence.keys()].join(', ') || '(none)'}`)
+      return readPath(evidence.value, ref.path)
+    },
+  }
+  ctx.effect(() => ctx.provide('evidence', reader), 'verdict.evidence')
 
   // Ghi evidence cho mọi action có kết quả, trừ action tự khai báo `evidence: false`.
   ctx.on('action/after', async (call, outcome, next) => {
@@ -62,12 +73,14 @@ export function apply(ctx: Context, config: Config) {
     name: 'assert_expectation',
     namespace: 'verdict',
     always: true,
+    scopes: ['case'],
     evidence: false,
     readOnly: true,
     description: [
       'Đối chiếu một expectation của test case với evidence đã thu thập.',
       'Nền tảng tự đọc giá trị thật tại `path` trong evidence và so sánh; không tự báo giá trị.',
       'Nếu expectation đã có tiêu chí cố định trong plan, `op` và `expected` của bạn bị bỏ qua.',
+      'Nếu tiêu chí là công thức, truyền `inputs`: mỗi biến của công thức trỏ tới evidence và path chứa giá trị thật.',
     ].join(' '),
     inputSchema: {
       type: 'object',
@@ -80,11 +93,23 @@ export function apply(ctx: Context, config: Config) {
         },
         op: { type: 'string', enum: OPS, description: 'Chỉ dùng khi plan không khai báo tiêu chí.' },
         expected: { description: 'Giá trị mong đợi; chỉ dùng khi plan không khai báo tiêu chí.' },
+        inputs: {
+          type: 'object',
+          description: 'Chỉ dùng khi tiêu chí là công thức: tên biến → { evidenceId, path } chứa giá trị thật của biến đó.',
+          additionalProperties: {
+            type: 'object',
+            properties: { evidenceId: { type: 'string' }, path: { type: 'string' } },
+            required: ['evidenceId', 'path'],
+          },
+        },
       },
       required: ['expectId', 'evidenceId', 'path'],
       additionalProperties: false,
     },
-    async execute(args: { expectId: string; evidenceId: string; path: string; op?: AssertOp; expected?: unknown }, { scope }) {
+    async execute(args: {
+      expectId: string; evidenceId: string; path: string; op?: AssertOp; expected?: unknown; inputs?: Record<string, EvidenceRef>
+    }, { scope }) {
+      if (!isCaseScope(scope)) throw new Error('assert_expectation is only available inside a test case')
       const expectation = scope.case.expect.find((e) => e.id === args.expectId)
       if (!expectation) throw new Error(`unknown expectId ${args.expectId}; valid: ${scope.case.expect.map((e) => e.id).join(', ')}`)
       const state = stateOf(scope)
@@ -96,17 +121,30 @@ export function apply(ctx: Context, config: Config) {
       }
       const criteria = expectation.check ? 'plan' : 'agent'
       const op = expectation.check?.op ?? args.op
-      const expected = expectation.check ? expectation.check.value : args.expected
+      let expected = expectation.check ? expectation.check.value : args.expected
       if (!op || !OPS.includes(op)) throw new Error(`expectation ${expectation.id} has no criteria in plan; provide a valid op`)
+
+      // Tiêu chí dạng công thức: giá trị mong đợi được tính chính xác từ giá trị thật trong evidence.
+      const expr = expectation.check?.expr
+      let inputs: AssertionRecord['inputs']
+      if (expr) {
+        const names = variablesOf(expr)
+        const missing = names.filter((n) => !args.inputs?.[n])
+        if (missing.length) throw new Error(`expectation ${expectation.id} uses formula ${expr}; provide inputs for: ${missing.join(', ')}`)
+        inputs = Object.fromEntries(names.map((n) => [n, { ...args.inputs![n], value: reader.read(scope, args.inputs![n]) }]))
+        const values = Object.fromEntries(Object.entries(inputs).map(([n, i]) => [n, i.value]))
+        expected = calculate(expr, values).text
+      }
 
       const actual = readPath(evidence.value, args.path)
       const { passed, message } = compare(op, actual, expected)
       const record: AssertionRecord = {
         expectId: expectation.id, evidenceId: evidence.id, path: args.path, op, expected, actual, passed, message, criteria,
+        ...(expr ? { expr, inputs } : {}),
       }
       state.assertions.set(expectation.id, record)
       scope.log('assert/result', record)
-      return { expectId: record.expectId, passed, actual, expected, op, criteria, message }
+      return { expectId: record.expectId, passed, actual, expected, op, criteria, message, ...(expr ? { expr, inputs } : {}) }
     },
   })
 
@@ -114,6 +152,7 @@ export function apply(ctx: Context, config: Config) {
     name: 'note_step',
     namespace: 'verdict',
     always: true,
+    scopes: ['case'],
     evidence: false,
     readOnly: true,
     description: 'Ghi nhận trạng thái của một bước trong test case (đánh số từ 1). Chỉ phục vụ báo cáo, không ảnh hưởng verdict.',
@@ -145,6 +184,8 @@ export function apply(ctx: Context, config: Config) {
       '## Quy trình xác nhận kết quả',
       '- Mỗi kết quả action có trường `evidenceId` (ví dụ `ev3`).',
       '- Với MỖI expectation, gọi `assert_expectation` kèm `expectId`, `evidenceId` và `path` trỏ đúng vào giá trị cần kiểm tra.',
+      '- Expectation có tiêu chí là công thức: truyền thêm `inputs`, mỗi biến của công thức trỏ tới evidence và path chứa giá trị thật. Không tự tính giá trị mong đợi.',
+      '- Cần tính toán (tổng, phần trăm, làm tròn): dùng tool `calc`, không tự tính nhẩm.',
       '- Không tự kết luận pass/fail bằng lời; chỉ assertion được tính.',
       '- Nếu một bước không thực hiện được, vẫn gọi `note_step` với `status: failed` và giải thích.',
     ].join('\n'),

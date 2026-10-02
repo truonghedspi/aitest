@@ -18,6 +18,8 @@ export interface RunOptions {
   cases?: string[]
   /** Tên agent driver; mặc định lấy từ cấu hình. */
   agent?: string
+  /** Mã lượt chạy; mặc định sinh từ thời điểm và mã plan. */
+  runId?: string
 }
 
 export interface RunnerConfig {
@@ -55,7 +57,7 @@ export class Runner extends Service {
     const cases = options.cases?.length ? plan.cases.filter((c) => options.cases!.includes(c.id)) : plan.cases
     const agentName = options.agent ?? this.config.agent
     const cwd = this.config.cwd ?? process.cwd()
-    const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
+    const runId = options.runId ?? `${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
     const log = await this.ctx.runlog.create(runId)
     log.append('run/start', { plan: { id: plan.id, name: plan.name, source: plan.source }, agent: agentName })
 
@@ -87,6 +89,8 @@ export class Runner extends Service {
     const started = performance.now()
     const controller = new AbortController()
     const scope: CaseScope = {
+      kind: 'case',
+      id: testCase.id,
       runId: log.runId,
       plan,
       case: testCase,
@@ -213,12 +217,23 @@ function createTranscript(scope: CaseScope) {
       }
       flush()
       const raw = update.raw as Record<string, unknown>
+      // Tham số và kết quả của tool riêng của agent (đọc file, tìm kiếm...) chỉ có trong cập nhật ACP;
+      // tool của gateway đã có bản ghi `action/call` đầy đủ.
       scope.log('agent/update', {
         kind: update.kind, text: update.text,
-        toolCallId: raw?.toolCallId, status: raw?.status, title: raw?.title,
+        toolCallId: raw?.toolCallId, status: raw?.status, title: raw?.title, toolKind: raw?.kind,
+        input: clip(raw?.rawInput), output: clip(raw?.rawOutput),
       })
     },
   }
+}
+
+/** Rút gọn giá trị lớn trước khi ghi log, để log không phình vì kết quả tool của agent. */
+function clip(value: unknown, max = 4000): unknown {
+  if (value === undefined) return undefined
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  if (text.length <= max) return value
+  return `${text.slice(0, max)}… [đã cắt ${text.length - max} ký tự]`
 }
 
 /**

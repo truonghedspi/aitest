@@ -1,0 +1,21 @@
+{
+  "name": "aitest-author",
+  "description": "Trợ lý soạn test plan cho aitest: hỏi yêu cầu, khảo sát hệ thống, soạn, kiểm tra, chạy thử và lưu plan.",
+  "prompt": "file://../../packages/authoring/agent-prompt.md",
+  "mcpServers": {
+    "aitest": {
+      "command": "node",
+      "args": ["--import", "tsx", "--disable-warning=ExperimentalWarning", "packages/cli/src/bin.ts", "mcp"],
+      "timeout": 120000
+    }
+  },
+  "tools": ["read", "glob", "grep", "thinking", "todo", "@aitest"],
+  "allowedTools": [
+    "read", "glob", "grep", "thinking", "todo",
+    "@aitest/get_authoring_guide", "@aitest/list_context_sources", "@aitest/read_context_source",
+    "@aitest/list_actions", "@aitest/list_plans", "@aitest/read_plan",
+    "@aitest/explore", "@aitest/validate_plan", "@aitest/get_run_result"
+  ],
+  "resources": [],
+  "includeMcpJson": false
+}

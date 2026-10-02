@@ -1,0 +1,26 @@
+# Giao diện web soạn plan cùng agent: kế thừa aitest.yml, thêm web host và service chat.
+# Chạy: pnpm web:build && pnpm aitest -c aitest.web.yml serve
+extends: ./aitest.yml
+
+plugins:
+  # Agent cho cuộc chat: Kiro với profile riêng, không nạp MCP server cá nhân của người dùng.
+  - id: agent-kiro-chat
+    name: '@aitest/agent-acp'
+    config:
+      name: kiro-chat
+      command: kiro-cli
+      args: [acp, --agent, aitest-chat]
+  - id: chat
+    name: '@aitest/chat'
+    config:
+      agent: kiro-chat
+  - id: web
+    name: '@aitest/web-host'
+    config:
+      port: ${env.AITEST_WEB_PORT:-4300}
+  # Quản lý plugin và tool từ giao diện; thay đổi ghi vào aitest.web.patch.yml.
+  - id: plugin-manager
+    name: '@aitest/plugin-manager'
+  # Xem log của các lượt chạy: tại sao agent ra kết quả như vậy
+  - id: run-viewer
+    name: '@aitest/run-viewer'

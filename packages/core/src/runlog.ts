@@ -22,7 +22,9 @@ export class RunLog {
   private seq = 0
   private stream: WriteStream
 
-  constructor(private readonly ctx: Context, readonly runId: string, readonly dir: string) {
+  constructor(private readonly ctx: Context, readonly runId: string, readonly dir: string, existing: RunEvent[] = []) {
+    this.events.push(...existing)
+    this.seq = existing.at(-1)?.seq ?? 0
     this.stream = createWriteStream(join(dir, 'events.jsonl'), { flags: 'a' })
   }
 
@@ -52,10 +54,18 @@ export class RunLogService extends Service {
     super(ctx, 'runlog')
   }
 
-  async create(runId: string) {
-    const dir = resolve(this.config.dir, runId)
+  /** Tạo log mới trong `<root>/<runId>`; `root` mặc định là `config.dir`. */
+  async create(runId: string, root = this.config.dir) {
+    const dir = resolve(root, runId)
     await mkdir(dir, { recursive: true })
     return new RunLog(this.ctx, runId, dir)
+  }
+
+  /** Mở lại log đã có trong `<root>/<runId>` để ghi tiếp; `seq` tiếp nối event cuối cùng. */
+  async open(runId: string, root = this.config.dir) {
+    const dir = resolve(root, runId)
+    const existing = await this.read(join(dir, 'events.jsonl'))
+    return new RunLog(this.ctx, runId, dir, existing)
   }
 
   /** Đọc lại một run log đã ghi, phục vụ dựng lại báo cáo. */

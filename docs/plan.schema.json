@@ -108,7 +108,17 @@
                         "not_exists"
                       ]
                     },
-                    "value": {}
+                    "value": {},
+                    "expr": {
+                      "type": "string",
+                      "description": "Công thức tính giá trị mong đợi, thay cho value. Biến lấy từ evidence khi assert. Ví dụ: round(qty * price * 0.0015, 2)."
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "value",
+                      "expr"
+                    ]
                   }
                 }
               }

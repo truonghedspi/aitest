@@ -3,10 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "dependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
     "@deepseek-ai/schemastery": "~3.18.4",
-    "yaml": "^2.8.0"
+    "yaml": "^2.8.0",
+    "bigdecimal.js": "^1.7.1"
   }
 }

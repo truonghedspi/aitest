@@ -55,6 +55,9 @@ plugins:
       namespace: dbadmin
       file: ${env.ORDER_DB:-examples/order-api/orders.db}
       readonly: false
+  # Tính toán chính xác cho agent (tool `calc`), luôn khả dụng
+  - id: action-math
+    name: '@aitest/action-math'
   # Integration: chờ điều kiện bất đồng bộ và nhận callback
   - id: action-wait
     name: '@aitest/action-wait'
@@ -76,6 +79,42 @@ plugins:
     name: '@aitest/guard-basic'
     config:
       readOnlyNamespaces: [db]
+
+  # Soạn plan cùng agent: chỉ dùng trong phiên soạn plan (scope `authoring`), không ảnh hưởng lượt chạy test.
+  - id: authoring
+    name: '@aitest/authoring'
+  - id: authoring-catalog
+    name: '@aitest/authoring/catalog'
+    config:
+      planDirs: [plans, examples/plans]
+  - id: authoring-context
+    name: '@aitest/authoring/context-files'
+    config:
+      sources:
+        - id: order-spec
+          title: Đặc tả Order API
+          description: Yêu cầu nghiệp vụ, ràng buộc dữ liệu và giao diện của ứng dụng mẫu.
+          paths: [examples/order-api/SPEC.md]
+  - id: authoring-explore
+    name: '@aitest/authoring/explore'
+  - id: authoring-validate
+    name: '@aitest/authoring/validate'
+    config:
+      fixtureOnlyNamespaces: [dbadmin]
+  - id: authoring-dry-run
+    name: '@aitest/authoring/dry-run'
+    config:
+      maxCases: 3
+  - id: authoring-save
+    name: '@aitest/authoring/save'
+    config:
+      dir: plans
+
+  # Tri thức của nhóm: lỗi đã biết, quy ước, bài học (thư mục kb/)
+  - id: knowledge
+    name: '@aitest/knowledge'
+    config:
+      dir: kb
 
   # Reporter
   - id: reporter-console

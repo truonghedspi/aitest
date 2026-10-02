@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { z, type CaseScope, type Context } from '@aitest/core'
+import { z, type ActionScope, type Context } from '@aitest/core'
 
 /**
  * Webhook sink: nền tảng tự host endpoint HTTP để nhận callback từ hệ thống đích.
@@ -40,7 +40,7 @@ interface CapturedRequest {
 
 interface Sink {
   id: string
-  scope: CaseScope
+  scope: ActionScope
   requests: CapturedRequest[]
   waiters: Set<() => void>
 }
@@ -88,6 +88,7 @@ export function apply(ctx: Context, config: Config) {
   ctx.actions.register({
     name: 'webhook_create',
     namespace: 'webhook',
+    scopes: ['case'],
     evidence: false,
     description: 'Tạo một URL webhook để hệ thống đích gọi callback tới. Trả về `id` và `url`.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -102,6 +103,7 @@ export function apply(ctx: Context, config: Config) {
   ctx.actions.register({
     name: 'webhook_wait',
     namespace: 'webhook',
+    scopes: ['case'],
     readOnly: true,
     description: [
       'Chờ tới khi webhook nhận đủ `count` request (mặc định 1) hoặc hết thời gian.',

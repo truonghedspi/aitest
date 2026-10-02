@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=../../docs/plan.schema.json
+id: TP-ORDER-FEE-001
+name: Phí giao dịch của lệnh
+description: Kiểm tra phí giao dịch API trả về đúng công thức trong đặc tả, kể cả ở giá trị làm tròn biên.
+requires: [http, db]
+vars:
+  base_url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}
+context: |
+  Phí giao dịch (`fee`, nghìn đồng) = 0,15% × qty × price / 1000, làm tròn nửa lên tới 2 chữ số thập phân.
+  `qty` và `price` của lệnh lưu trong bảng `orders`; `fee` chỉ có trong response của API.
+
+setup:
+  - desc: Xoá lệnh REE cũ
+    action: dbadmin_query
+    args: { sql: "DELETE FROM orders WHERE symbol = 'REE'" }
+
+cases:
+  - id: FEE-01
+    title: Phí của lệnh giá chẵn
+    timeout: 180
+    steps:
+      - Gọi POST {{base_url}}/orders với body {"symbol":"REE","side":"BUY","qty":100,"price":70000}.
+      - Truy vấn bảng orders theo id vừa nhận để lấy qty và price đã lưu.
+    expect:
+      - id: http-201
+        desc: API nhận lệnh với HTTP 201
+        check: { op: eq, value: 201 }
+      - id: fee-correct
+        desc: Trường fee trong response đúng công thức phí, tính từ qty và price lưu trong DB
+        check: { op: eq, expr: "round(qty * price / 1000 * 0.0015, 2, HALF_UP)" }
+
+  - id: FEE-02
+    title: Phí ở giá trị làm tròn biên
+    timeout: 180
+    steps:
+      - Gọi POST {{base_url}}/orders với body {"symbol":"REE","side":"SELL","qty":100,"price":10300}.
+      - Truy vấn bảng orders theo id vừa nhận để lấy qty và price đã lưu.
+    expect:
+      - id: http-201
+        desc: API nhận lệnh với HTTP 201
+        check: { op: eq, value: 201 }
+      - id: fee-correct
+        desc: Trường fee trong response đúng công thức phí, tính từ qty và price lưu trong DB
+        check: { op: eq, expr: "round(qty * price / 1000 * 0.0015, 2, HALF_UP)" }

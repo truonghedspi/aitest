@@ -1,3 +1,4 @@
+import { isSafeNumber, parse as parseLossless } from 'lossless-json'
 import { z, type Context } from '@aitest/core'
 
 /**
@@ -40,6 +41,7 @@ export function apply(ctx: Context, config: Config) {
       'Gửi một HTTP request và trả về status, headers, body (đã parse JSON nếu được).',
       config.baseUrl ? `URL tương đối được ghép với ${config.baseUrl}.` : '',
     ].join(' ').trim(),
+    isReadOnlyCall: (args) => ['GET', 'HEAD'].includes(String(args.method ?? 'GET').toUpperCase()),
     inputSchema: {
       type: 'object',
       properties: {
@@ -82,8 +84,16 @@ export function apply(ctx: Context, config: Config) {
 function parseBody(text: string, max: number) {
   if (!text) return null
   try {
-    return JSON.parse(text)
+    return parseJson(text)
   } catch {
     return text.length > max ? text.slice(0, max) + '…' : text
   }
+}
+
+/**
+ * Parse JSON mà không mất chữ số: số đổi sang `number` vẫn giữ nguyên giá trị thì trả về `number`;
+ * số vượt độ chính xác của `number` (ví dụ `12345678901234567.89`) được giữ dạng chuỗi để so sánh bằng BigDecimal.
+ */
+export function parseJson(text: string): unknown {
+  return parseLossless(text, null, (value: string) => (isSafeNumber(value) ? Number(value) : value))
 }

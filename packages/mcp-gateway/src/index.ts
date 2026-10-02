@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, isInitializeRequest, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { Service, z, type CaseScope, type Context, type McpEndpoint } from '@aitest/core'
+import { Service, z, type ActionScope, type Context, type McpEndpoint } from '@aitest/core'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -18,7 +18,7 @@ export interface Exposure {
 }
 
 interface Binding {
-  scope: CaseScope
+  scope: ActionScope
   transports: Map<string, StreamableHTTPServerTransport>
 }
 
@@ -49,7 +49,7 @@ export class McpGateway extends Service {
   }
 
   /** Mở một endpoint MCP cho case. Gọi `close()` khi case kết thúc. */
-  async expose(scope: CaseScope): Promise<Exposure> {
+  async expose(scope: ActionScope): Promise<Exposure> {
     const baseUrl = await this.start()
     const token = randomUUID()
     const binding: Binding = { scope, transports: new Map() }
@@ -115,36 +115,46 @@ export class McpGateway extends Service {
     await transport.handleRequest(req, res, body)
   }
 
-  private createServer(scope: CaseScope) {
-    const server = new Server({ name: this.config.serverName, version: '0.1.0' }, { capabilities: { tools: {} } })
-
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: this.ctx.actions.list(scope).map((def) => ({
-        name: def.name,
-        description: def.description,
-        inputSchema: def.inputSchema,
-        annotations: { readOnlyHint: def.readOnly ?? false },
-      })),
-    }))
-
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params
-      const outcome = await this.ctx.actions.invoke(scope, name, (args ?? {}) as Record<string, unknown>)
-      // `outcome` thay vì `status` để không nhầm với HTTP status bên trong `result`.
-      const payload = {
-        outcome: outcome.status,
-        ...outcome.annotations,
-        ...(outcome.status === 'ok' ? { result: outcome.value } : { error: outcome.error }),
-      }
-      let text = JSON.stringify(payload, null, 2)
-      if (text.length > this.config.maxResultChars) {
-        text = text.slice(0, this.config.maxResultChars) + `\n... [truncated ${text.length - this.config.maxResultChars} chars]`
-      }
-      return { content: [{ type: 'text' as const, text }], isError: outcome.status !== 'ok' }
-    })
-
-    return server
+  private createServer(scope: ActionScope) {
+    return createToolServer(this.ctx, scope, this.config)
   }
+}
+
+/**
+ * Dựng một MCP server liệt kê và thực thi action được phép trong `scope`.
+ * Dùng chung cho endpoint HTTP của gateway và cho transport stdio (`aitest mcp`).
+ */
+export function createToolServer(
+  ctx: Context, scope: ActionScope, options: { serverName: string; maxResultChars: number },
+) {
+  const server = new Server({ name: options.serverName, version: '0.1.0' }, { capabilities: { tools: {} } })
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: ctx.actions.list(scope).map((def) => ({
+      name: def.name,
+      description: def.description,
+      inputSchema: def.inputSchema,
+      annotations: { readOnlyHint: def.readOnly ?? false },
+    })),
+  }))
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params
+    const outcome = await ctx.actions.invoke(scope, name, (args ?? {}) as Record<string, unknown>)
+    // `outcome` thay vì `status` để không nhầm với HTTP status bên trong `result`.
+    const payload = {
+      outcome: outcome.status,
+      ...outcome.annotations,
+      ...(outcome.status === 'ok' ? { result: outcome.value } : { error: outcome.error }),
+    }
+    let text = JSON.stringify(payload, null, 2)
+    if (text.length > options.maxResultChars) {
+      text = text.slice(0, options.maxResultChars) + `\n... [truncated ${text.length - options.maxResultChars} chars]`
+    }
+    return { content: [{ type: 'text' as const, text }], isError: outcome.status !== 'ok' }
+  })
+
+  return server
 }
 
 export default McpGateway

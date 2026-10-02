@@ -3,7 +3,7 @@
  */
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { root, promptVars, setupHarness, type Harness, type Script } from './support.ts'
+import { caseScope, root, promptVars, setupHarness, type Harness, type Script } from './support.ts'
 
 const PORT = 4198
 const BASE = `http://127.0.0.1:${PORT}`
@@ -66,11 +66,8 @@ describe('integration capabilities (scripted agent)', () => {
     expect(phases).toEqual(['setup', 'setup', 'teardown'])
 
     // Teardown đã xoá lệnh tạo trong setup.
-    const scope = {
-      runId: 'probe', plan: await ctx.plans.load(join(root, 'examples/plans/order-integration.plan.yaml')),
-      vars: {}, phase: 'setup' as const, namespaces: new Set<string>(), signal: new AbortController().signal, log: () => {},
-    }
-    const left = await ctx.actions.invoke({ ...scope, case: scope.plan.cases[1] }, 'dbadmin_query', {
+    const plan = await ctx.plans.load(join(root, 'examples/plans/order-integration.plan.yaml'))
+    const left = await ctx.actions.invoke(caseScope(plan, 1, { phase: 'setup' }), 'dbadmin_query', {
       sql: "SELECT COUNT(*) AS n FROM orders WHERE symbol = 'MWG' AND side = 'SELL'",
     })
     expect(left.value).toMatchObject({ rows: [{ n: 0 }] })
@@ -91,11 +88,7 @@ describe('integration capabilities (scripted agent)', () => {
     const { ctx } = harness.kernel
     const plan = await ctx.plans.load(join(root, 'examples/plans/order-integration.plan.yaml'))
     const logged: Array<{ type: string; data: any }> = []
-    const scope = {
-      runId: 'wait-test', plan, case: plan.cases[0], vars: {}, phase: 'agent' as const,
-      namespaces: new Set(plan.requires), signal: new AbortController().signal,
-      log: (type: string, data: unknown) => { logged.push({ type, data }) },
-    }
+    const scope = caseScope(plan, 0, { log: (type, data) => { logged.push({ type, data }) } })
     const hook = await ctx.actions.invoke(scope, 'webhook_create', {})
     const created = await ctx.actions.invoke(scope, 'http_request', {
       method: 'POST', url: `${BASE}/orders`,

@@ -14,6 +14,8 @@ export interface PlanFormat {
   name: string
   /** Phần đuôi file mà format này nhận, ví dụ `.plan.yaml`. */
   extensions: string[]
+  /** Hướng dẫn viết plan theo định dạng này, viết cho agent đọc (Markdown). */
+  guide?: string
   parse(text: string, source: string): TestPlan
 }
 
@@ -44,6 +46,11 @@ export class PlanService extends Service {
   /** Chọn format theo đuôi file dài nhất khớp, rồi parse nội dung. */
   async load(file: string): Promise<TestPlan> {
     const source = resolve(file)
+    return this.parse(await readFile(source, 'utf8'), source)
+  }
+
+  /** Parse nội dung plan; `source` quyết định format theo đuôi file và được ghi vào `TestPlan.source`. */
+  parse(text: string, source: string): TestPlan {
     const format = this.listFormats()
       .flatMap((f) => f.extensions.map((ext) => ({ f, ext })))
       .filter(({ ext }) => source.endsWith(ext))
@@ -52,6 +59,6 @@ export class PlanService extends Service {
       const known = this.listFormats().flatMap((f) => f.extensions).join(', ') || '(none)'
       throw new PlanError(source, [`no plan format accepts this file; known extensions: ${known}`])
     }
-    return format.parse(await readFile(source, 'utf8'), source)
+    return format.parse(text, source)
   }
 }

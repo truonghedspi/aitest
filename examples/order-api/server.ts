@@ -5,8 +5,10 @@
  *   status chuyển sang FILLED, rồi API gọi POST tới callback_url. Dùng cho test integration.
  * - `GET /` là giao diện web đặt lệnh. Dùng cho test E2E qua trình duyệt.
  *
- * Ứng dụng có một lỗi cố ý: không kiểm tra lô chẵn 100 cổ phiếu.
- * Test case TC-03 trong `examples/plans/order.plan.yaml` phải phát hiện lỗi này.
+ * Ứng dụng có hai lỗi cố ý:
+ * - không kiểm tra lô chẵn 100 cổ phiếu (TC-03 trong `examples/plans/order.plan.yaml` phát hiện);
+ * - tính phí bằng số thực rồi `toFixed(2)`, nên làm tròn sai ở giá trị biên như 1,545
+ *   (FEE-02 trong `examples/plans/order-fee.plan.yaml` phát hiện).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { DatabaseSync } from 'node:sqlite'
@@ -50,7 +52,18 @@ async function readBody(req: IncomingMessage) {
   try { return JSON.parse(Buffer.concat(chunks).toString() || '{}') } catch { return undefined }
 }
 
-const findOrder = (id: number) => db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as Order | undefined
+/**
+ * Phí giao dịch theo đặc tả: 0,15% × qty × price, đơn vị nghìn đồng, làm tròn nửa lên tới 2 chữ số thập phân.
+ * LỖI CỐ Ý: dùng số thực và `toFixed(2)`, nên 1,545 thành 1,54 thay vì 1,55.
+ */
+const feeOf = (qty: number, price: number) => Number((qty * price / 1000 * 0.0015).toFixed(2))
+
+const withFee = (row: unknown) => {
+  const order = row as (Order & { price: number }) | undefined
+  return order && { ...order, fee: feeOf(order.qty, order.price) }
+}
+
+const findOrder = (id: number) => withFee(db.prepare('SELECT * FROM orders WHERE id = ?').get(id)) as Order | undefined
 
 /** Mô phỏng sàn khớp lệnh: sau một khoảng trễ, khớp toàn bộ rồi gọi callback. */
 function scheduleExecution(id: number) {
@@ -80,7 +93,7 @@ createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && url.pathname === '/orders') {
-    return send(res, 200, db.prepare('SELECT * FROM orders ORDER BY id DESC LIMIT 50').all())
+    return send(res, 200, db.prepare('SELECT * FROM orders ORDER BY id DESC LIMIT 50').all().map(withFee))
   }
 
   if (req.method === 'POST' && url.pathname === '/orders') {

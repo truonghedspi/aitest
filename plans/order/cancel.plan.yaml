@@ -1,0 +1,75 @@
+id: TP-ORDER-CANCEL-001
+name: Huỷ lệnh qua Order API
+description: Kiểm tra ba luồng huỷ lệnh - huỷ thành công, từ chối khi lệnh đã huỷ, và lệnh không tồn tại.
+requires: [http, db]
+vars:
+  base_url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}
+context: |
+  Bảng orders gồm các cột: id, symbol, side (BUY/SELL), qty, price, status, created_at, cancelled_at, filled_qty, filled_at, callback_url.
+  Trạng thái lệnh: NEW (vừa đặt), FILLED (đã khớp), CANCELLED (đã huỷ).
+  Chỉ lệnh NEW được huỷ. Huỷ lệnh không ở trạng thái NEW trả HTTP 409. Lệnh không tồn tại trả HTTP 404.
+
+cases:
+  - id: CAN-01
+    title: Huỷ lệnh NEW thành công
+    setup:
+      - desc: Tạo lệnh NEW để huỷ
+        action: dbadmin_query
+        args:
+          sql: "INSERT INTO orders (symbol, side, qty, price, status) VALUES ('VNM', 'BUY', 100, 70000, 'NEW') RETURNING id"
+        save:
+          order_id: "$.rows[0].id"
+    steps:
+      - "Gọi POST {{base_url}}/orders/{{order_id}}/cancel."
+      - "Truy vấn bảng orders: SELECT status, cancelled_at FROM orders WHERE id = {{order_id}}."
+    expect:
+      - id: http-200
+        desc: API trả về HTTP 200
+        check: { op: eq, value: 200 }
+      - id: db-status-cancelled
+        desc: Bản ghi trong DB có status CANCELLED
+        check: { op: eq, value: CANCELLED }
+      - id: db-cancelled-at
+        desc: Bản ghi trong DB có cancelled_at không rỗng
+        check: { op: exists }
+    teardown:
+      - desc: Dọn lệnh đã tạo
+        action: dbadmin_query
+        args:
+          sql: "DELETE FROM orders WHERE id = ?"
+          params: ["{{order_id}}"]
+
+  - id: CAN-02
+    title: Huỷ lệnh đã CANCELLED bị từ chối 409
+    setup:
+      - desc: Tạo lệnh ở trạng thái CANCELLED
+        action: dbadmin_query
+        args:
+          sql: "INSERT INTO orders (symbol, side, qty, price, status, cancelled_at) VALUES ('HPG', 'SELL', 200, 30000, 'CANCELLED', datetime('now')) RETURNING id"
+        save:
+          order_id: "$.rows[0].id"
+    steps:
+      - "Gọi POST {{base_url}}/orders/{{order_id}}/cancel."
+      - "Truy vấn bảng orders: SELECT status FROM orders WHERE id = {{order_id}}."
+    expect:
+      - id: http-409
+        desc: API trả về HTTP 409
+        check: { op: eq, value: 409 }
+      - id: db-status-unchanged
+        desc: Trạng thái lệnh trong DB vẫn là CANCELLED
+        check: { op: eq, value: CANCELLED }
+    teardown:
+      - desc: Dọn lệnh đã tạo
+        action: dbadmin_query
+        args:
+          sql: "DELETE FROM orders WHERE id = ?"
+          params: ["{{order_id}}"]
+
+  - id: CAN-03
+    title: Huỷ lệnh không tồn tại trả 404
+    steps:
+      - "Gọi POST {{base_url}}/orders/999999/cancel."
+    expect:
+      - id: http-404
+        desc: API trả về HTTP 404
+        check: { op: eq, value: 404 }

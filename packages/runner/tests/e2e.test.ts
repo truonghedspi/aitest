@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { deriveReport, type Kernel } from '@aitest/core'
-import { root, setupHarness, type Harness, type Script } from './support.ts'
+import { caseScope, root, setupHarness, type Harness, type Script } from './support.ts'
 
 const PORT = 4199
 const BASE = `http://127.0.0.1:${PORT}`
@@ -73,17 +73,14 @@ describe('aitest e2e (scripted agent)', () => {
 
   it('guard blocks write SQL on read-only namespace', async () => {
     const plan = await kernel.ctx.plans.load(join(root, 'examples/plans/order.plan.yaml'))
-    const scope = {
-      runId: 'guard-test', plan, case: plan.cases[0], vars: {}, phase: 'agent' as const,
-      namespaces: new Set(plan.requires), signal: new AbortController().signal, log: () => {},
-    }
+    const scope = caseScope(plan)
     const outcome = await kernel.ctx.actions.invoke(scope, 'db_query', { sql: 'DELETE FROM orders' })
     expect(outcome.status).toBe('denied')
     expect(outcome.error).toMatch(/read-only/)
   })
 
   it('hides actions outside the plan requires from the agent', () => {
-    const names = kernel.ctx.actions.list({ namespaces: new Set(['http']), phase: 'agent' }).map((a) => a.name)
+    const names = kernel.ctx.actions.list({ kind: 'case', namespaces: new Set(['http']), phase: 'agent' }).map((a) => a.name)
     expect(names).toContain('http_request')
     expect(names).toContain('assert_expectation')
     expect(names).toContain('wait_until')

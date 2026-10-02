@@ -35,23 +35,43 @@ export function renderMarkdown(report: RunReport) {
     '',
     '## Tổng hợp',
     '',
-    '| Case | Tiêu đề | Kết quả | Thời lượng |',
-    '|---|---|---|---|',
-    ...report.cases.map((c) => `| ${c.id} | ${c.title} | ${ICON[c.verdict]} ${c.verdict} | ${(c.durationMs / 1000).toFixed(1)} s |`),
+    '| Case | Tiêu đề | Kết quả | Thời lượng | Ghi chú |',
+    '|---|---|---|---|---|',
+    ...report.cases.map((c) => `| ${c.id} | ${c.title} | ${ICON[c.verdict]} ${c.verdict} | ${(c.durationMs / 1000).toFixed(1)} s | ${knownLabel(c)} |`),
     '',
     ...report.cases.flatMap(renderCase),
   ]
   return lines.join('\n') + '\n'
 }
 
+type Issue = { id: string; title: string }
+
+/** Phân loại case không đạt: lỗi đã biết (khớp ghi chú `bug` đang mở) hay lỗi mới. */
+function knownLabel(c: CaseReport) {
+  const known = c.annotations.knownIssues as Issue[] | undefined
+  const fixed = c.annotations.possiblyFixed as Issue[] | undefined
+  if (known?.length) return `lỗi đã biết: ${known.map((i) => i.id).join(', ')}`
+  if (c.verdict === 'fail' || c.verdict === 'error') return '**lỗi mới**'
+  if (fixed?.length) return `có thể đã sửa: ${fixed.map((i) => i.id).join(', ')}`
+  return ''
+}
+
 function renderCase(c: CaseReport) {
   const lines = [`## ${ICON[c.verdict]} ${c.id} — ${c.title}`, '']
   if (c.reasons.length) lines.push('**Lý do:**', '', ...c.reasons.map((r) => `- ${r}`), '')
+  const known = c.annotations.knownIssues as Issue[] | undefined
+  const fixed = c.annotations.possiblyFixed as Issue[] | undefined
+  if (known?.length) lines.push('**Lỗi đã biết:**', '', ...known.map((i) => `- \`${i.id}\`: ${i.title}`), '')
+  if (fixed?.length) lines.push('**Có thể đã được sửa** (case đạt nhưng ghi chú lỗi vẫn mở):', '', ...fixed.map((i) => `- \`${i.id}\`: ${i.title}`), '')
 
   lines.push('### Expectation', '', '| Mã | Mô tả | Tiêu chí | Thực tế | Kết quả |', '|---|---|---|---|---|')
   for (const e of c.expectations) {
     const a = e.assertion
-    const criteria = a ? `${a.op} ${fmt(a.expected)} (${a.criteria})` : e.check ? `${e.check.op} ${fmt(e.check.value)}` : '—'
+    const formula = a?.expr ?? e.check?.expr
+    const inputs = a?.inputs ? ` với ${Object.entries(a.inputs).map(([n, i]) => `${n}=${JSON.stringify(i.value)}`).join(', ')}` : ''
+    const criteria = formula
+      ? `${a?.op ?? e.check?.op} \`${formula}\`${a ? ` = ${fmt(a.expected)}${inputs}` : ''}`
+      : a ? `${a.op} ${fmt(a.expected)} (${a.criteria})` : e.check ? `${e.check.op} ${fmt(e.check.value)}` : '—'
     const actual = a ? `${fmt(a.actual)} tại ${a.evidenceId} \`${a.path}\`` : '—'
     const retries = e.attempts.length > 1 ? ` (${e.attempts.length} lần thử)` : ''
     lines.push(`| ${e.id} | ${e.desc} | ${criteria} | ${actual} | ${a ? (a.passed ? '✅' : '❌') : 'chưa assert'}${retries} |`)

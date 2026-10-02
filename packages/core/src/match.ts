@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util'
+import { toBigDecimal } from './calc.ts'
 import type { AssertOp } from './types.ts'
 
 /**
@@ -64,11 +65,12 @@ export function compare(op: AssertOp, actual: unknown, expected: unknown): Compa
     case 'ne':
       return result(!looseEqual(actual, expected), `expected ${show(actual)} to differ from ${show(expected)}`)
     case 'gt': case 'gte': case 'lt': case 'lte': {
-      const a = Number(actual)
-      const b = Number(expected)
-      if (Number.isNaN(a) || Number.isNaN(b)) return result(false, `cannot compare ${show(actual)} ${op} ${show(expected)} as numbers`)
-      const ok = op === 'gt' ? a > b : op === 'gte' ? a >= b : op === 'lt' ? a < b : a <= b
-      return result(ok, `expected ${a} ${op} ${b}`)
+      const a = toBigDecimal(actual)
+      const b = toBigDecimal(expected)
+      if (!a || !b) return result(false, `cannot compare ${show(actual)} ${op} ${show(expected)} as numbers`)
+      const c = a.compareTo(b)
+      const ok = op === 'gt' ? c > 0 : op === 'gte' ? c >= 0 : op === 'lt' ? c < 0 : c <= 0
+      return result(ok, `expected ${a.toPlainString()} ${op} ${b.toPlainString()}`)
     }
     case 'contains': {
       if (typeof actual === 'string') return result(actual.includes(String(expected)), `expected ${show(actual)} to contain ${show(expected)}`)
@@ -85,12 +87,12 @@ function result(passed: boolean, failure: string): CompareResult {
 }
 
 /**
- * Bằng nhau theo cấu trúc, nới lỏng một điểm: số so với chuỗi số được coi là bằng nhau.
- * Lý do: nhiều driver DB trả cột số dưới dạng chuỗi.
+ * Bằng nhau theo cấu trúc, với số so sánh bằng BigDecimal: `100`, `"100"`, `"100.00"` bằng nhau,
+ * và không qua số thực nên không có sai số làm tròn. Lý do: API và driver DB hay trả số dưới dạng chuỗi.
  */
 function looseEqual(actual: unknown, expected: unknown): boolean {
   if (isDeepStrictEqual(actual, expected)) return true
-  if (typeof expected === 'number' && typeof actual === 'string' && actual.trim() !== '') return Number(actual) === expected
-  if (typeof actual === 'number' && typeof expected === 'string' && expected.trim() !== '') return Number(expected) === actual
-  return false
+  const a = toBigDecimal(actual)
+  const b = toBigDecimal(expected)
+  return !!a && !!b && a.compareTo(b) === 0
 }
