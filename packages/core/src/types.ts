@@ -303,6 +303,11 @@ export interface AgentSession {
 export interface AgentConnection {
   info: { name: string; version?: string; raw?: unknown }
   newSession(options: AgentSessionOptions): Promise<AgentSession>
+  /**
+   * Khôi phục phiên đã có (ACP `session/load`), giữ nguyên ngữ cảnh của agent: tin nhắn, kết quả tool, lập luận.
+   * Chỉ có khi agent hỗ trợ. Lịch sử agent phát lại khi khôi phục không được chuyển cho `onUpdate`.
+   */
+  loadSession?(sessionId: string, options: AgentSessionOptions): Promise<AgentSession>
   close(): Promise<void>
 }
 

@@ -100,77 +100,89 @@ async function connect(config: Config, cwd: string, logger: ReturnType<Context['
 
   return {
     info: { name: init.agentInfo?.name ?? config.name, version: init.agentInfo?.version, raw: init },
-    async newSession(options): Promise<AgentSession> {
-      const created = await Promise.race([
-        conn.newSession({
-          cwd: options.cwd,
-          mcpServers: options.mcpServers.map((s) => ({
-            type: 'http' as const,
-            name: s.name,
-            url: s.url,
-            headers: Object.entries(s.headers).map(([name, value]) => ({ name, value })),
-          })),
-        }),
-        exited,
-      ])
-      const { sessionId } = created
-      sessions.set(sessionId, options)
-      if (config.mode) await conn.setSessionMode({ sessionId, modeId: config.mode })
-
-      // Danh sách model nằm trong phần mở rộng chưa ổn định của ACP (`models`); Kiro đổi model bằng `session/set_model`.
-      const announced = (created as { models?: { currentModelId?: string; availableModels?: Array<{ modelId: string; name?: string; description?: string }> } }).models
-      const models: AgentSession['models'] = announced?.availableModels
-        ? {
-          current: announced.currentModelId,
-          available: announced.availableModels.map((m) => ({ id: m.modelId, name: m.name ?? m.modelId, description: m.description ?? undefined })),
-        }
-        : undefined
-      const setModel = async (modelId: string) => {
-        if (models && !models.available.some((m) => m.id === modelId)) {
-          throw new Error(`model ${modelId} is not offered by the agent; available: ${models.available.map((m) => m.id).join(', ')}`)
-        }
-        await conn.extMethod('session/set_model', { sessionId, modelId })
-        if (models) models.current = modelId
-      }
-      // Model chọn riêng cho session phải có thật; model mặc định của cấu hình thì được bỏ qua khi agent không có.
-      if (options.model) {
-        if (options.model !== models?.current) await setModel(options.model)
-      } else if (config.model && config.model !== models?.current) {
-        if (models && !models.available.some((m) => m.id === config.model)) {
-          logger.warn('default model %s is not offered by the agent; using %s', config.model, models.current)
-          models.fallbackFrom = config.model
-        } else {
-          await setModel(config.model)
-        }
-      }
-
-      return {
-        id: sessionId,
-        models,
-        setModel,
-        async prompt(text, signal) {
-          const onAbort = () => { conn.cancel({ sessionId }).catch(() => {}) }
-          signal.addEventListener('abort', onAbort, { once: true })
-          try {
-            const result = await Promise.race([
-              conn.prompt({ sessionId, prompt: [{ type: 'text', text }] }),
-              exited,
-            ])
-            return { stopReason: result.stopReason }
-          } finally {
-            signal.removeEventListener('abort', onAbort)
-          }
-        },
-        async close() {
-          sessions.delete(sessionId)
-        },
-      }
-    },
+    newSession: (options) => open(options),
+    // Agent lưu phiên (Kiro): mở lại phiên cũ sau khi Host hoặc process agent khởi động lại, giữ nguyên ngữ cảnh.
+    ...(init.agentCapabilities?.loadSession ? { loadSession: (sessionId: string, options: AgentSessionOptions) => open(options, sessionId) } : {}),
     async close() {
       sessions.clear()
       child.stdin.end()
       child.kill()
     },
+  }
+
+  /** Mở phiên mới, hoặc khôi phục phiên `restore`; lịch sử agent phát lại khi khôi phục không được chuyển cho `onUpdate`. */
+  async function open(options: AgentSessionOptions, restore?: string): Promise<AgentSession> {
+    const mcpServers = options.mcpServers.map((s) => ({
+      type: 'http' as const,
+      name: s.name,
+      url: s.url,
+      headers: Object.entries(s.headers).map(([name, value]) => ({ name, value })),
+    }))
+    let created: { sessionId: string; models?: unknown }
+    if (restore) {
+      sessions.set(restore, { ...options, onUpdate: () => {} })
+      try {
+        const loaded = await Promise.race([conn.loadSession({ sessionId: restore, cwd: options.cwd, mcpServers }), exited])
+        created = { ...(loaded as object), sessionId: restore }
+      } catch (error) {
+        sessions.delete(restore)
+        throw error
+      }
+    } else {
+      created = await Promise.race([conn.newSession({ cwd: options.cwd, mcpServers }), exited])
+    }
+    const { sessionId } = created
+    sessions.set(sessionId, options)
+    if (config.mode) await conn.setSessionMode({ sessionId, modeId: config.mode })
+
+    // Danh sách model nằm trong phần mở rộng chưa ổn định của ACP (`models`); Kiro đổi model bằng `session/set_model`.
+    const announced = (created as { models?: { currentModelId?: string; availableModels?: Array<{ modelId: string; name?: string; description?: string }> } }).models
+    const models: AgentSession['models'] = announced?.availableModels
+      ? {
+        current: announced.currentModelId,
+        available: announced.availableModels.map((m) => ({ id: m.modelId, name: m.name ?? m.modelId, description: m.description ?? undefined })),
+      }
+      : undefined
+    const setModel = async (modelId: string) => {
+      if (models && !models.available.some((m) => m.id === modelId)) {
+        throw new Error(`model ${modelId} is not offered by the agent; available: ${models.available.map((m) => m.id).join(', ')}`)
+      }
+      await conn.extMethod('session/set_model', { sessionId, modelId })
+      if (models) models.current = modelId
+    }
+    // Model chọn riêng cho session phải có thật; model mặc định của cấu hình thì được bỏ qua khi agent không có.
+    if (options.model) {
+      if (options.model !== models?.current) await setModel(options.model)
+    } else if (config.model && config.model !== models?.current) {
+      if (models && !models.available.some((m) => m.id === config.model)) {
+        logger.warn('default model %s is not offered by the agent; using %s', config.model, models.current)
+        models.fallbackFrom = config.model
+      } else {
+        await setModel(config.model)
+      }
+    }
+
+    return {
+      id: sessionId,
+      models,
+      setModel,
+      async prompt(text, signal) {
+        const onAbort = () => { conn.cancel({ sessionId }).catch(() => {}) }
+        signal.addEventListener('abort', onAbort, { once: true })
+        try {
+          const result = await Promise.race([
+            conn.prompt({ sessionId, prompt: [{ type: 'text', text }] }),
+            exited,
+          ])
+          return { stopReason: result.stopReason }
+        } finally {
+          signal.removeEventListener('abort', onAbort)
+        }
+      },
+      async close() {
+        sessions.delete(sessionId)
+      },
+    }
   }
 }
 

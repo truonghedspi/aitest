@@ -31,7 +31,10 @@ export function App() {
   return (
     <div className="layout">
       <aside className="sidebar">
-        <div className="brand">aitest <span className={`online ${online ? 'on' : ''}`} title={online ? 'Đã kết nối' : 'Mất kết nối'} /></div>
+        <div className="brand">
+          aitest <span className={`online ${online ? 'on' : ''}`} title={online ? 'Đã kết nối' : 'Mất kết nối'} />
+          <HostVersion />
+        </div>
         <nav className="pages">
           {pages.filter((p) => !p.parent).map((p) => (
             <button key={p.id} className={p.id === (page.parent ?? page.id) ? 'active' : ''} onClick={() => navigate(p.id)}>{p.title}</button>
@@ -74,6 +77,19 @@ function useStaleUi() {
     return () => { stop(); clearInterval(timer) }
   }, [])
   return stale
+}
+
+/** Phiên bản Host đang chạy (commit git) và thời điểm khởi động. */
+function HostVersion() {
+  const [info, setInfo] = useState<{ version?: string; startedAt?: string }>()
+  useEffect(() => {
+    const load = () => { connection.call<{ version?: string; startedAt?: string }>('web.build').then(setInfo, () => setInfo({})) }
+    load()
+    return connection.onOpen(load)
+  }, [])
+  if (!info?.version) return null
+  const started = info.startedAt ? new Date(info.startedAt).toLocaleString('vi-VN') : ''
+  return <span className="host-version" title={`Host chạy mã commit ${info.version}${info.version.endsWith('*') ? ' (có thay đổi chưa commit)' : ''}, khởi động ${started}`}>{info.version}</span>
 }
 
 function parseRoute() {

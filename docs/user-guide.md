@@ -243,6 +243,8 @@ Cách làm việc hiệu quả:
 
 Khi chạy thử phát hiện case không đạt, agent phân biệt plan viết chưa rõ với lỗi thật của hệ thống. Plan không bị sửa để che lỗi của hệ thống.
 
+**Khởi động lại Host không làm agent quên.** Cuộc chat mở lại tiếp tục đúng phiên cũ của agent: agent vẫn nhớ tin nhắn, kết quả khảo sát và kế hoạch đang làm. Dòng thời gian ghi "Đã khôi phục phiên của agent". Nếu agent không còn phiên cũ, cuộc chat mở phiên mới, gửi lại lịch sử, bản nháp plan và môi trường, rồi ghi chú điều này trên dòng thời gian. Phiên bản Host đang chạy (mã commit) hiện cạnh chữ "aitest" ở cột trái.
+
 **Sửa hoặc chạy thử plan có sẵn.**
 
 1. Bấm "Mở plan có sẵn" ở cột phải, gõ để lọc theo tên, mã plan, mã hoặc tên case, đường dẫn, rồi chọn plan. Mỗi dòng ghi tên, mã, danh sách case; đường dẫn file ở cuối. Plan đang lỗi cú pháp vẫn mở được để sửa.

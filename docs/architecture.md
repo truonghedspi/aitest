@@ -413,7 +413,13 @@ Quy tắc duyệt: tool soạn plan chỉ đọc được duyệt tự động. 
 
 Người dùng thao tác trực tiếp trên bảng "Plan đang soạn": mở plan có sẵn, sửa YAML, bấm Kiểm tra, Chạy thử (chọn case), Lưu. `chats.listPlans` và `chats.openPlan` gọi `list_plans`, `read_plan` với scope không ghi log, vì đây là thao tác duyệt; `draft/open` mang nội dung plan nên bản nháp vẫn dựng lại được từ log. Sau khi mở, Host gọi `validate_plan` (pha `user`) để bảng plan có danh sách case. Các thao tác này gọi cùng tool soạn plan với pha `user`, được ghi log, và được báo cho agent ở lượt kế tiếp. Nhờ vậy, agent không làm việc trên bản nháp cũ.
 
-Khi Host khởi động lại, cuộc chat được dựng lại từ log. Lượt kế tiếp mở session agent mới và gửi kèm lịch sử hội thoại.
+**Giữ ngữ cảnh của agent khi Host khởi động lại.** Cuộc chat được dựng lại từ log. Ngữ cảnh LLM nằm trong agent bên ngoài (Kiro), nên aitest không tự dựng lại ngữ cảnh như dsh. dsh tự chạy vòng lặp agent: event log của session là nguồn sự thật, `Session.fromRestore` dựng lại toàn bộ tin nhắn, kết quả tool và điểm compaction. aitest dùng `session/load` của ACP thay thế:
+
+1. Mỗi lần mở phiên, log ghi `agent/session` kèm `sessionId` và tên agent.
+2. Khi mở lại cuộc chat, hoặc sau khi process agent chết, chat gọi `AgentConnection.loadSession(sessionId)` với endpoint MCP mới của Host. Agent khôi phục toàn bộ ngữ cảnh: tin nhắn, kết quả tool, lập luận. Lịch sử agent phát lại khi khôi phục không được ghi lặp vào log. Lượt kế tiếp chỉ gửi tin nhắn mới.
+3. Agent không hỗ trợ `loadSession` (`agentCapabilities.loadSession`), hoặc không còn phiên đó: chat mở phiên mới, gửi chỉ dẫn vai trò, lịch sử hội thoại (tối đa `historyChars`) và "Trạng thái hiện tại" (môi trường, plan đang mở, bản nháp mới nhất). `agent/session` ghi `restored`, `previous`, `restoreError`; giao diện hiện một dòng ghi chú tương ứng.
+
+Lượt chạy test không cần khôi phục: mỗi case chạy trong một phiên mới, độc lập.
 
 ### 7.4. Kênh Kiro chat
 
@@ -496,6 +502,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | File | Nội dung |
 |---|---|
 | `packages/authoring/tests/authoring.test.ts` | Giới hạn tool theo scope, hướng dẫn, nguồn context, explore chỉ đọc, quy tắc kiểm tra, chạy thử, lưu |
+| `packages/chat/tests/restore.test.ts` | Khôi phục phiên agent sau khi Host khởi động lại; agent mất phiên thì gửi lại lịch sử, bản nháp, môi trường; agent không hỗ trợ `loadSession` |
 | `packages/chat/tests/chat.test.ts` | Giao thức WebSocket thật với agent giả lập: stream, tool call kèm `view`, duyệt quyền, thao tác của người dùng, mở plan có sẵn, follow theo `seq`, khôi phục từ log |
 | `packages/web-client/tests/derive.test.ts` | Trạng thái bản nháp khi mở plan trong và ngoài thư mục lưu, sửa sau khi mở |
 | `packages/core/tests/calc.test.ts` | BigDecimal: chính xác với số lớn, giữ phần thập phân, chia không hết phải chọn cách làm tròn, đủ 8 cách làm tròn, so sánh không qua số thực, từ chối biểu thức không hợp lệ |
@@ -627,6 +634,7 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Kiro soạn plan huỷ lệnh đã khớp trong cuộc chat | Tự gọi `kb_list`, áp dụng bài học về độ trễ callback, theo quy ước mã plan và `dbadmin`; chạy thử 2/2 pass; đề xuất một bài học mới, ghi sau khi được duyệt |
 | Khởi động lại Host rồi nhờ Kiro dùng tool vừa thêm | MCP server nạp lại từ patch layer, `quote_list` vẫn tắt; Kiro gọi `quote_get` qua `explore` và trả đúng giá trần |
 | Kiro chạy `order-events.plan.yaml` (02/10/2026, Kafka 4.1.0, RabbitMQ 4.3) | EV-01 (Kafka, có expectation dạng công thức) pass, EV-02 (tap RabbitMQ tạo trước khi gọi API) pass; tổng 64,8 s |
+| Cuộc chat với Kiro qua một lần tắt và mở lại Host | Trước khi tắt: agent gọi `list_actions` và nhớ một mã. Sau khi mở lại: chat khôi phục đúng phiên (`restored: true`), prompt chỉ có câu hỏi mới (78 ký tự), agent trả lời đúng mã và số namespace đã lấy trước đó |
 | Kiro chạy `order.plan.yaml --env staging --case TC-01` | Agent gọi API staging (cổng 4101) theo `base_url` của môi trường, `db_query` đọc DB riêng của staging; run log ghi `env/resolved` với `action-db@staging`; TC-01 pass, 38,1 s |
 | Kiro chạy `order-inputs.plan.yaml` với `--input side=SELL` | Đầu vào: `symbol` mặc định, `side` người chạy điền, `new_order` từ fill, `cancelled_order` agent chuẩn bị (tra `orders` không có, tự đặt rồi huỷ lệnh, trả giá trị qua evidence). INP-01, INP-02 pass; bước dọn chạy sau cùng; tổng 54,9 s |
 | Cuộc chat với Kiro: mở `order.plan.yaml` rồi nhờ thêm case huỷ lệnh đã huỷ | Kiro giữ TC-01 tới TC-03, thêm TC-04 theo đặc tả, kiểm tra plan, chạy thử riêng `[TC-04]`: pass |

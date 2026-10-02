@@ -200,7 +200,6 @@ export class Chat {
   async send(text: string) {
     if (!text.trim()) throw new Error('message is empty')
     if (this.status !== 'idle') throw new Error('agent is still working on the previous message')
-    const isFirstTurn = !this.agentSession
     const untitled = !this.log.events.some((e) => e.type === 'user/message')
     this.log.append('user/message', { text })
     if (untitled && chatTitle(this.log.events) === DEFAULT_TITLE) {
@@ -210,7 +209,10 @@ export class Chat {
     this.controller = new AbortController()
     try {
       const session = await this.ensureAgentSession()
-      const prompt = this.buildPrompt(text, isFirstTurn)
+      // Phiên mới cần chỉ dẫn vai trò và lịch sử; phiên khôi phục bằng `loadSession` đã có sẵn ngữ cảnh.
+      const intro = this.needsIntro
+      this.needsIntro = false
+      const prompt = this.buildPrompt(text, intro)
       this.log.append('agent/prompt', { text: prompt })
       this.log.append('turn/start', {})
       const result = await session.prompt(prompt, this.controller.signal)
@@ -365,6 +367,8 @@ export class Chat {
   }
 
   private opening?: Promise<AgentSession>
+  /** Phiên agent hiện tại là phiên mới (không khôi phục được), lượt kế tiếp phải gửi chỉ dẫn vai trò và lịch sử. */
+  private needsIntro = false
 
   /** Mở session agent một lần; các lời gọi đồng thời (đổi model, gửi tin nhắn) dùng chung một lần mở. */
   private ensureAgentSession(): Promise<AgentSession> {
@@ -378,15 +382,33 @@ export class Chat {
     const exposure = await this.ctx.gateway.expose(authoring.scope)
     this.closeExposure = () => exposure.close()
     const connection = await this.service.agentConnection()
-    this.agentSession = await connection.newSession({
+    const options = {
       cwd: this.service.config.cwd ?? process.cwd(),
       mcpServers: [exposure.endpoint],
-      onUpdate: (update) => this.onUpdate(update),
-      onPermission: (request) => this.onPermission(request),
+      onUpdate: (update: AgentUpdate) => this.onUpdate(update),
+      onPermission: (request: { title: string; raw: unknown }) => this.onPermission(request),
       model: this.preferredModel(),
+    }
+    // Phiên agent trước của cuộc chat (ví dụ trước khi Host khởi động lại): khôi phục để agent giữ nguyên ngữ cảnh.
+    const previous = this.log.events.findLast((e) => e.type === 'agent/session')?.data as { sessionId?: string; agent?: string } | undefined
+    let session: AgentSession | undefined
+    let restoreError: string | undefined
+    if (previous?.sessionId && previous.agent === connection.info.name && connection.loadSession) {
+      try {
+        session = await connection.loadSession(previous.sessionId, options)
+      } catch (error) {
+        restoreError = errorMessage(error)
+      }
+    }
+    const restored = !!session
+    session ??= await connection.newSession(options)
+    this.agentSession = session
+    this.needsIntro = !restored
+    this.log.append('agent/session', {
+      sessionId: session.id, agent: connection.info.name, model: session.models?.current, restored,
+      ...(previous?.sessionId && !restored ? { previous: previous.sessionId, ...(restoreError ? { restoreError } : {}) } : {}),
     })
-    this.log.append('agent/session', { sessionId: this.agentSession.id, agent: connection.info.name, model: this.agentSession.models?.current })
-    return this.agentSession
+    return session
   }
 
   private async dropAgentSession() {
@@ -397,19 +419,42 @@ export class Chat {
   }
 
   /**
-   * Lượt đầu của một session agent gửi kèm chỉ dẫn vai trò; nếu cuộc chat đã có lịch sử
-   * (khôi phục sau khi Host khởi động lại), gửi kèm lịch sử để agent nối tiếp.
+   * Lượt đầu của một phiên agent mới gửi kèm chỉ dẫn vai trò; nếu cuộc chat đã có lịch sử mà không khôi phục được
+   * phiên cũ, gửi kèm lịch sử, bản nháp plan và môi trường để agent nối tiếp.
    */
   private buildPrompt(text: string, isFirstTurn: boolean) {
     const parts: string[] = []
     if (isFirstTurn) {
       parts.push(AGENT_PROMPT.trim())
       const history = this.transcript()
-      if (history) parts.push(`## Lịch sử hội thoại trước đó\n\n${history}`)
+      if (history) {
+        parts.push(`## Lịch sử hội thoại trước đó\n\n${history}`)
+        const state = this.workingState()
+        if (state) parts.push(`## Trạng thái hiện tại\n\n${state}`)
+      }
     }
     if (this.notes.length) parts.push(`## Thao tác của người dùng trên giao diện\n\n${this.notes.splice(0).join('\n\n')}`)
     parts.push(isFirstTurn ? `## Tin nhắn của người dùng\n\n${text}` : text)
     return parts.join('\n\n')
+  }
+
+  /** Bản nháp plan mới nhất, đường dẫn đã lưu, môi trường: những gì agent cần để làm tiếp khi phải mở phiên mới. */
+  private workingState() {
+    let draft: string | undefined
+    let saved: string | undefined
+    for (const e of this.log.events) {
+      const d = e.data as { name?: string; args?: { content?: unknown; path?: string }; status?: string; content?: string; path?: string }
+      if (e.type === 'action/start' && ['validate_plan', 'dry_run', 'save_plan'].includes(d.name ?? '') && typeof d.args?.content === 'string') draft = d.args.content
+      if (e.type === 'draft/edit' || e.type === 'draft/open') draft = d.content
+      if (e.type === 'draft/open') saved = d.path
+      if (e.type === 'action/call' && d.name === 'save_plan' && d.status === 'ok') saved = d.args?.path
+    }
+    const lines: string[] = []
+    const env = this.env()
+    if (env) lines.push(`Môi trường: \`${env}\`.`)
+    if (saved) lines.push(`Plan đã lưu hoặc đang mở: \`${saved}\`.`)
+    if (draft) lines.push('Bản nháp plan mới nhất:', '```yaml', draft.trim(), '```')
+    return lines.join('\n')
   }
 
   /** Lịch sử tin nhắn trước tin nhắn mới nhất, cắt theo `historyChars` tính từ cuối. */

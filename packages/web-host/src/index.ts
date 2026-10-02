@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
@@ -60,9 +61,12 @@ export class WebHost extends Service {
     }, 'web.http')
     // Bản giao diện Host đang phục vụ (đường dẫn script trong `index.html`, có mã băm của bản build).
     // Giao diện so với bản của chính nó để nhắc người dùng tải lại trang sau khi build mới.
+    // Phiên bản mã Host đã nạp: commit git lúc Host khởi động, để người dùng biết Host đang chạy bản nào.
+    const startedAt = new Date().toISOString()
+    const version = gitVersion()
     this.method('web.build', async () => {
       const html = await readFile(join(resolve(this.config.staticDir), 'index.html'), 'utf8').catch(() => '')
-      return { script: /<script[^>]+src="([^"]+)"/.exec(html)?.[1] }
+      return { script: /<script[^>]+src="([^"]+)"/.exec(html)?.[1], version, startedAt }
     })
   }
 
@@ -166,4 +170,15 @@ const MIME: Record<string, string> = {
   '.png': 'image/png',
   '.json': 'application/json',
   '.ico': 'image/x-icon',
+}
+
+/** Commit git hiện tại (`abc1234`, thêm `*` khi có thay đổi chưa commit); không có git thì trả `undefined`. */
+function gitVersion(): string | undefined {
+  try {
+    const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    return dirty ? `${commit}*` : commit
+  } catch {
+    return undefined
+  }
 }
