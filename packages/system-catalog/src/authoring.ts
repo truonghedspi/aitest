@@ -57,6 +57,7 @@ export function apply(ctx: Context) {
           })),
           consumers: s.consumers.map((c) => c.group),
           data: s.data.map((d) => ({ namespace: d.namespace, tables: d.tables })),
+          formulas: Object.entries(s.formulas).map(([name, f]) => `${name}(${f.params.join(', ')})${f.desc ? `: ${f.desc}` : ''}`),
           docs: s.docs,
         })),
         ...(catalog.issues.length ? { issues: catalog.issues } : {}),
@@ -103,7 +104,9 @@ export function apply(ctx: Context) {
       const found = system.events.find((e) => e.id === args.item)
       const channel = found && channelIn(found, system.id, catalog.env)
       if (channel) return { system: system.id, env: catalog.env.name, channel: { ...channel, tool: toolStatus(channel, catalog, installed(scope.env)) } }
-      throw new Error(`${system.id} has no operation or event channel ${args.item}; items: ${itemIds(system).join(', ')}`)
+      const formula = Object.hasOwn(system.formulas, args.item) ? system.formulas[args.item] : undefined
+      if (formula) return { system: system.id, formula: { name: args.item, ...formula } }
+      throw new Error(`${system.id} has no operation, event channel or formula ${args.item}; items: ${[...itemIds(system), ...Object.keys(system.formulas)].join(', ')}`)
     },
     present: (args) => ({ kind: 'code', title: `Hệ thống ${args.system}${args.item ? `.${args.item}` : ''}` }),
   })

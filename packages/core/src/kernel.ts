@@ -9,6 +9,7 @@ import { ActionRegistry } from './actions.ts'
 import { AgentRegistry } from './agents.ts'
 import { PlanService } from './plans.ts'
 import { PromptService } from './prompt.ts'
+import { FormulaService } from './formulas.ts'
 import { RunLogService } from './runlog.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -46,6 +47,7 @@ export const builtins: Record<string, Plugin> = {
   'aitest:agents': AgentRegistry,
   'aitest:prompt': PromptService,
   'aitest:runlog': RunLogService,
+  'aitest:formulas': FormulaService,
 }
 
 /** Giá trị của `FiberState` trong cordis; enum gốc chỉ có trong file khai báo kiểu, không có lúc chạy. */

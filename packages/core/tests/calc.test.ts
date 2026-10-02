@@ -63,17 +63,21 @@ describe('calculate (BigDecimal)', () => {
   })
 
   it('rejects unsafe or invalid input', () => {
-    expect(() => calculate('process.exit()')).toThrow(/unexpected character/)
+    // Không có lời gọi phương thức: `process.exit()` là lỗi cú pháp, `process` chỉ là một biến chưa có giá trị.
+    expect(() => calculate('process.exit()')).toThrow(/unexpected "\(" at position 12/)
+    expect(() => calculate('process')).toThrow(/variable process has no value/)
     expect(() => calculate('constructor(1)')).toThrow(/unknown function constructor/)
     expect(() => calculate('toString()')).toThrow(/unknown function toString/)
     expect(() => calculate('__proto__ + 1')).toThrow(/variable __proto__ has no value/)
     expect(() => calculate('HALF_UP + 1')).toThrow(/only allowed as a function argument/)
     expect(() => calculate('1 / 0')).toThrow(/division by zero/)
-    expect(() => calculate('a', { a: 'abc' })).toThrow(/not a number/)
+    // Biến được là chuỗi (trường chữ của bản ghi); chỉ lỗi khi dùng chuỗi không phải số để tính.
+    expect(() => calculate('a', { a: 'abc' })).toThrow(/expected a number, got string abc/)
+    expect(() => calculate('a + 1', { a: 'abc' })).toThrow(/\+ at position 2: expected a number, got string abc/)
     expect(() => checkExpression('round(x, 2, HALF_UP)')).not.toThrow()
     expect(() => checkExpression('round(x, 2, 3)')).toThrow(/expected a rounding mode/)
     expect(() => checkExpression('foo(1)')).toThrow(/unknown function foo/)
-    expect(() => calculate('1'.repeat(3000))).toThrow(/longer than/)
+    expect(() => calculate('1'.repeat(30000))).toThrow(/longer than/)
   })
 })
 

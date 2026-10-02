@@ -306,6 +306,23 @@ Một Host chạy plan trên nhiều môi trường cùng lúc. Môi trường l
 
 Plan-yaml không thay `{{biến}}` lúc đọc file. Runner thay lúc chạy, khi đã có biến của môi trường, nên một plan dùng được cho mọi môi trường. Bản sao theo môi trường dùng cùng plugin với row gốc, nên mọi tool (kể cả MCP server qua `action-mcp-proxy`) có thể khác nhau theo môi trường mà không cần sửa plugin.
 
+#### Mạng của `http_request`
+
+`action-http` gọi `fetch` của undici với dispatcher riêng của mỗi row (`action-http/src/network.ts`), vì `fetch` có sẵn của Node bỏ qua `HTTP_PROXY` và kho chứng chỉ của hệ điều hành, nên chạy khác `curl` trên cùng máy: request treo tới hết thời gian chờ khi mạng bắt buộc đi qua proxy. Dispatcher đọc proxy theo `proxy` (`env` như curl, `none`, hoặc URL) và `NO_PROXY`/`noProxy`; tin kho chứng chỉ của Node, của hệ điều hành (`tls.getCACertificates('system')`) và file `ca`; tách `connectTimeout` khỏi `timeout`. Lỗi được dịch theo mã trong chuỗi `cause` sang bước bị lỗi (DNS, kết nối, TLS, chờ header, proxy từ chối đường hầm) kèm đường đi. Dùng `fetch` thay vì gọi lệnh `curl` để giữ kết quả có cấu trúc, tham số an toàn, huỷ được, dùng lại kết nối và chạy giống nhau trên mọi hệ điều hành.
+
+#### Công thức nghiệp vụ phức tạp
+
+Giá trị mong đợi phức tạp được tính bởi nền tảng, không bởi agent. Ngôn ngữ biểu thức (`core/expr.ts`) có kiểu số BigDecimal, chuỗi, đúng/sai, `null`, danh sách, bản ghi; truy cập trường, chỉ số; so sánh, logic, điều kiện; hàm ẩn danh làm tham số của hàm danh sách (`sum`, `filter`, `groupBy`, `cumsum`, `scan`…). Không dùng `eval`; số bước tính và độ sâu gọi công thức bị giới hạn; đọc trường chỉ qua `Object.hasOwn`. `calc.ts` giữ API cũ (`calculate`, `checkExpression`, `variablesOf`) trên engine mới.
+
+| Thành phần | Vai trò |
+|---|---|
+| `check.let`, `check.expr` | Bước có tên rồi biểu thức kết quả. Verdict ghi `steps` vào `assert/result`; kết quả danh sách so từng phần tử (`compareLists`) |
+| `readPath` | `[*]` lấy cả cột, `[-1]` phần tử cuối; `[*]` lồng nhau được làm phẳng |
+| Service lõi `formulas` | Gộp công thức của plan (`formulas`) và của các nguồn đăng ký; catalog hệ thống đăng ký công thức của service trong `systems/<id>/formulas.yml`. `check` chạy `examples` |
+| Kiểm tra plan | Plan-yaml kiểm cú pháp, và kiểm tên hàm khi plan không dùng catalog; `authoring/validate` kiểm tên hàm với công thức của service và chạy `examples` |
+
+Công thức tự định nghĩa là hàm thuần: chỉ thấy tham số và bước của chính nó, gọi được công thức khác, không gọi vòng. Nhờ vậy, một công thức có `examples` đúng thì cho cùng kết quả ở mọi plan.
+
 ### 6.3. E2E qua trình duyệt
 
 File `aitest.e2e.yml` kế thừa `aitest.yml` qua khoá `extends`, rồi thêm row Playwright MCP:
@@ -512,6 +529,9 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | `packages/action-math/tests/math.test.ts` | `calc` với biến từ evidence; expectation dạng công thức bắt lỗi làm tròn số thực; kiểm tra công thức trong plan |
 | `packages/knowledge/tests/knowledge.test.ts` | Tra và đề xuất ghi chú, quy ước trong hướng dẫn, đánh dấu lỗi đã biết, có thể đã sửa, lỗi mới; method cho trang Knowledge |
 | `packages/run-viewer/tests/run-viewer.test.ts` | Danh sách, snapshot, các lần thử và evidence trong log, theo dõi file đang ghi dở ở process khác, chặn mã lượt chạy không hợp lệ |
+| `packages/action-http/tests/network.test.ts` | Proxy qua đường hầm CONNECT, `NO_PROXY` theo host, miền, cổng; lỗi DNS, từ chối kết nối, server im lặng, proxy trả 502; CA nội bộ từ file, `insecure` |
+| `packages/core/tests/expr.test.ts` | Ngôn ngữ biểu thức: gộp trên bảng có số dạng chuỗi, nhóm, sắp xếp, làm tròn, bước có tên, công thức lồng nhau, cộng dồn và số dư, lỗi kèm vị trí, kiểm tra thư viện công thức, giới hạn an toàn, path `[*]` |
+| `packages/runner/tests/formulas.test.ts` | Plan `order-formulas` với Order API thật: tổng hợp, tiền ròng với `let`, vị thế cộng dồn so từng phần tử, báo phần tử lệch, kiểm tra ví dụ công thức khi soạn |
 | `packages/environments/tests/environments.test.ts` | Hai Order API thật: hai lượt chạy song song trên hai môi trường kết nối đúng API, DB của mình; môi trường chỉ đọc chặn ghi; tắt tool theo môi trường; giới hạn `envs`; nạp lại khi file đổi |
 | `packages/plan-manager/tests/plan-manager.test.ts` | Danh sách gồm plan lỗi, chi tiết plan, giới hạn thư mục, chạy plan ở nền với case và đầu vào, lọc lượt chạy theo plan |
 | `packages/plugin-manager/tests/mcp-import.test.ts` | Đọc các định dạng cấu hình MCP, namespace, che bí mật, đổi tham chiếu biến môi trường |
@@ -636,6 +656,7 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Kiro soạn plan huỷ lệnh đã khớp trong cuộc chat | Tự gọi `kb_list`, áp dụng bài học về độ trễ callback, theo quy ước mã plan và `dbadmin`; chạy thử 2/2 pass; đề xuất một bài học mới, ghi sau khi được duyệt |
 | Khởi động lại Host rồi nhờ Kiro dùng tool vừa thêm | MCP server nạp lại từ patch layer, `quote_list` vẫn tắt; Kiro gọi `quote_get` qua `explore` và trả đúng giá trần |
 | Kiro chạy `order-events.plan.yaml` (02/10/2026, Kafka 4.1.0, RabbitMQ 4.3) | EV-01 (Kafka, có expectation dạng công thức) pass, EV-02 (tap RabbitMQ tạo trước khi gọi API) pass; tổng 64,8 s |
+| Kiro chạy `order-formulas.plan.yaml` (công thức của service, `let`, so danh sách) | FML-01, FML-02 pass ngay lần đầu; 78,1 s. Kiro gắn biến bảng `orders` vào `$.rows` của truy vấn DB và tự dùng path cột `$.body[*].position` cho vị thế cộng dồn; giá trị mong đợi: 4 lệnh, phí 28.05, tiền ròng −6328050.00, vị thế 300…500 |
 | Cuộc chat với Kiro qua một lần tắt và mở lại Host | Trước khi tắt: agent gọi `list_actions` và nhớ một mã. Sau khi mở lại: chat khôi phục đúng phiên (`restored: true`), prompt chỉ có câu hỏi mới (78 ký tự), agent trả lời đúng mã và số namespace đã lấy trước đó |
 | Kiro chạy `order.plan.yaml --env staging --case TC-01` | Agent gọi API staging (cổng 4101) theo `base_url` của môi trường, `db_query` đọc DB riêng của staging; run log ghi `env/resolved` với `action-db@staging`; TC-01 pass, 38,1 s |
 | Kiro chạy `order-inputs.plan.yaml` với `--input side=SELL` | Đầu vào: `symbol` mặc định, `side` người chạy điền, `new_order` từ fill, `cancelled_order` agent chuẩn bị (tra `orders` không có, tự đặt rồi huỷ lệnh, trả giá trị qua evidence). INP-01, INP-02 pass; bước dọn chạy sau cùng; tổng 54,9 s |

@@ -32,6 +32,20 @@ Phí không lưu trong bảng `orders`; API tính khi trả bản ghi.
 - `GET /orders/{id}`: HTTP 200 kèm bản ghi; không tồn tại thì HTTP 404.
 - `GET /orders`: 50 lệnh mới nhất.
 
+### Tổng hợp theo mã
+
+`GET /orders/summary?symbol=<mã>`: tổng hợp các lệnh của mã, **bỏ lệnh đã huỷ**:
+
+| Trường | Ý nghĩa |
+|---|---|
+| `orders` | Số lệnh |
+| `buyQty`, `sellQty` | Tổng khối lượng mua, bán |
+| `buyValue`, `sellValue` | Tổng `qty × price` của lệnh mua, bán (đồng) |
+| `totalFee` | Tổng phí của từng lệnh (nghìn đồng), mỗi lệnh tính phí như mục 1 rồi mới cộng |
+| `netCash` | `sellValue − buyValue − totalFee × 1000` (đồng) |
+
+`GET /orders/positions?symbol=<mã>`: danh sách theo thứ tự lệnh (bỏ lệnh đã huỷ), mỗi phần tử `{id, side, qty, position}`; `position` là vị thế cộng dồn sau lệnh đó: lệnh mua cộng `qty`, lệnh bán trừ `qty`.
+
 ## 3. Huỷ lệnh
 
 `POST /orders/{id}/cancel`:

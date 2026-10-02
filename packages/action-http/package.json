@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@aitest/core": "workspace:*",
-    "@deepseek-ai/cordis": "~4.0.4"
+    "@deepseek-ai/cordis": "~4.0.4",
+    "undici": "^7.30.0"
   }
 }

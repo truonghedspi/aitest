@@ -1,4 +1,4 @@
-import { calculate, compare, isCaseScope, readPath, variablesOf, z, type EvidenceRef, type EvidenceReader, type AssertionRecord, type AssertOp, type ActionScope, type CaseScope, type Context, type StepNote, type VerdictDecision } from '@aitest/core'
+import { compare, evaluateFormula, isCaseScope, readPath, valuesEqual, variablesOf, z, type EvidenceRef, type EvidenceReader, type AssertionRecord, type AssertOp, type ActionScope, type CaseScope, type Context, type StepNote, type VerdictDecision } from '@aitest/core'
 
 /**
  * Plugin verdict.
@@ -9,7 +9,7 @@ import { calculate, compare, isCaseScope, readPath, variablesOf, z, type Evidenc
  * 3. Verdict của case được tính từ assertion cuối cùng của mỗi expectation.
  */
 export const name = 'verdict'
-export const inject = ['actions', 'prompt']
+export const inject = ['actions', 'prompt', 'formulas']
 
 export interface Config {
   allowRetry: boolean
@@ -81,6 +81,8 @@ export function apply(ctx: Context, config: Config) {
       'Nền tảng tự đọc giá trị thật tại `path` trong evidence và so sánh; không tự báo giá trị.',
       'Nếu expectation đã có tiêu chí cố định trong plan, `op` và `expected` của bạn bị bỏ qua.',
       'Nếu tiêu chí là công thức, truyền `inputs`: mỗi biến của công thức trỏ tới evidence và path chứa giá trị thật.',
+      'Biến dạng danh sách trỏ path tới cả danh sách (`$.rows`, mỗi phần tử là một bản ghi) hoặc một cột (`$.rows[*].qty`).',
+      'Giá trị mong đợi dạng danh sách (ví dụ số dư cộng dồn) được so từng phần tử với `path` trỏ tới cột tương ứng, ví dụ `$.rows[*].balance`.',
     ].join(' '),
     inputSchema: {
       type: 'object',
@@ -125,26 +127,41 @@ export function apply(ctx: Context, config: Config) {
       if (!op || !OPS.includes(op)) throw new Error(`expectation ${expectation.id} has no criteria in plan; provide a valid op`)
 
       // Tiêu chí dạng công thức: giá trị mong đợi được tính chính xác từ giá trị thật trong evidence.
+      // Biến có thể là danh sách (path `$.rows` hoặc `$.rows[*].qty`); các bước `let` được ghi lại cho báo cáo.
       const expr = expectation.check?.expr
+      const lets = expectation.check?.let
       let inputs: AssertionRecord['inputs']
+      let steps: AssertionRecord['steps']
       if (expr) {
-        const names = variablesOf(expr)
+        const formulas = await ctx.formulas.for(scope.plan)
+        const names = variablesOf(expr, { let: lets }).filter((n) => !(n in scope.vars) || args.inputs?.[n])
         const missing = names.filter((n) => !args.inputs?.[n])
         if (missing.length) throw new Error(`expectation ${expectation.id} uses formula ${expr}; provide inputs for: ${missing.join(', ')}`)
-        inputs = Object.fromEntries(names.map((n) => [n, { ...args.inputs![n], value: reader.read(scope, args.inputs![n]) }]))
-        const values = Object.fromEntries(Object.entries(inputs).map(([n, i]) => [n, i.value]))
-        expected = calculate(expr, values).text
+        inputs = Object.fromEntries(names.map((n) => {
+          const value = reader.read(scope, args.inputs![n])
+          if (value === undefined) throw new Error(`input ${n}: path ${args.inputs![n].path} has no value in ${args.inputs![n].evidenceId}`)
+          return [n, { ...args.inputs![n], value }]
+        }))
+        // Biến của lượt chạy (đầu vào, biến dựng sẵn) dùng được trong công thức mà agent không phải chỉ ra.
+        const values = { ...scope.vars, ...Object.fromEntries(Object.entries(inputs).map(([n, i]) => [n, i.value])) }
+        try {
+          const result = evaluateFormula(expr, values, { let: lets, formulas })
+          expected = result.value
+          if (lets) steps = result.steps
+        } catch (error) {
+          throw new Error(`expectation ${expectation.id}: formula failed: ${(error as Error).message}`)
+        }
       }
 
       const actual = readPath(evidence.value, args.path)
-      const { passed, message } = compare(op, actual, expected)
+      const { passed, message } = Array.isArray(expected) ? compareLists(op, actual, expected) : compare(op, actual, expected)
       const record: AssertionRecord = {
         expectId: expectation.id, evidenceId: evidence.id, path: args.path, op, expected, actual, passed, message, criteria,
-        ...(expr ? { expr, inputs } : {}),
+        ...(expr ? { expr, inputs, ...(steps ? { steps } : {}) } : {}),
       }
       state.assertions.set(expectation.id, record)
       scope.log('assert/result', record)
-      return { expectId: record.expectId, passed, actual, expected, op, criteria, message, ...(expr ? { expr, inputs } : {}) }
+      return { expectId: record.expectId, passed, actual, expected, op, criteria, message, ...(expr ? { expr, inputs, ...(steps ? { steps } : {}) } : {}) }
     },
   })
 
@@ -211,4 +228,29 @@ function decide(scope: CaseScope, state: CaseState): VerdictDecision {
   if (failed) return { verdict: 'fail', reasons }
   if (missing) return { verdict: 'inconclusive', reasons }
   return { verdict: 'pass', reasons: [] }
+}
+
+/**
+ * So sánh danh sách mong đợi với giá trị thật theo từng phần tử (ví dụ cột số dư cộng dồn):
+ * cùng độ dài, phần tử thứ i thoả `op`; báo phần tử lệch đầu tiên.
+ */
+export function compareLists(op: AssertOp, actual: unknown, expected: unknown[]) {
+  if (!Array.isArray(actual)) return { passed: false, message: `expected a list of ${expected.length} items, got ${JSON.stringify(actual)}` }
+  if (op === 'eq' || op === 'ne') {
+    if (actual.length !== expected.length) {
+      return { passed: op === 'ne', message: `list length ${actual.length}, expected ${expected.length}` }
+    }
+    const index = expected.findIndex((e, i) => !valuesEqual(actual[i], e))
+    const equal = index < 0
+    if (op === 'ne') return { passed: !equal, message: equal ? 'lists are equal' : `lists differ at index ${index}` }
+    return equal
+      ? { passed: true, message: `all ${expected.length} items equal` }
+      : { passed: false, message: `item ${index}: expected ${JSON.stringify(expected[index])}, got ${JSON.stringify(actual[index])} (first of ${expected.filter((e, i) => !valuesEqual(actual[i], e)).length} mismatches)` }
+  }
+  if (actual.length !== expected.length) return { passed: false, message: `list length ${actual.length}, expected ${expected.length}` }
+  for (const [i, e] of expected.entries()) {
+    const r = compare(op, actual[i], e)
+    if (!r.passed) return { passed: false, message: `item ${i}: ${r.message}` }
+  }
+  return { passed: true, message: `all ${expected.length} items ${op}` }
 }

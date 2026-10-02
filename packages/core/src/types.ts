@@ -17,6 +17,11 @@ export interface ExpectationCheck {
    * Agent chỉ chỉ ra evidence chứa từng biến; nền tảng đọc giá trị thật và tính chính xác.
    */
   expr?: string
+  /**
+   * Các bước trung gian có tên của công thức, tính theo thứ tự trước `expr`; bước sau dùng kết quả bước trước.
+   * Báo cáo ghi giá trị từng bước.
+   */
+  let?: Record<string, string>
 }
 
 /** Tham chiếu tới một giá trị trong evidence: mã evidence và path. */
@@ -94,6 +99,8 @@ export interface TestPlan {
   format: string
   /** Các namespace action mà plan được phép dùng, ví dụ `http`, `db`. */
   requires: string[]
+  /** Công thức tự định nghĩa của plan, dùng trong `check.expr`, `check.let` và tool `calc`. */
+  formulas?: Record<string, import('./formulas.ts').FormulaDefinition>
   /** Đầu vào của lượt chạy, theo thứ tự khai báo; input sau được dùng giá trị của input trước. */
   inputs?: PlanInput[]
   /** Môi trường được chạy plan; không khai báo thì chạy được mọi môi trường. */
@@ -350,6 +357,8 @@ export interface AssertionRecord {
   expr?: string
   /** Giá trị thật của từng biến trong công thức, kèm nơi lấy. */
   inputs?: Record<string, EvidenceRef & { value: unknown }>
+  /** Giá trị từng bước `let` của công thức. */
+  steps?: Record<string, unknown>
 }
 
 export interface ActionRecord {

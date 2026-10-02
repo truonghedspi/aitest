@@ -1,0 +1,66 @@
+# Công thức nghiệp vụ của Order API, viết theo đặc tả (examples/order-api/SPEC.md).
+# Dùng trong check.expr, check.let của plan khai báo systems: [order-service] và trong tool calc.
+# `examples` lấy từ đặc tả; `aitest validate` chạy và báo lỗi nếu công thức cho kết quả khác.
+
+notional:
+  desc: Giá trị lệnh (đồng) = qty × price
+  params: [o]
+  expr: o.qty * o.price
+  examples:
+    - { args: { o: { qty: 100, price: 70000 } }, result: '7000000' }
+
+fee:
+  desc: Phí của một lệnh (nghìn đồng) = 0,15% × qty × price / 1000, làm tròn nửa lên 2 chữ số
+  params: [o]
+  expr: round(notional(o) * 0.0015 / 1000, 2, HALF_UP)
+  examples:
+    - { args: { o: { qty: 100, price: 70000 } }, result: '10.50' }
+    - { args: { o: { qty: 100, price: 10300 } }, result: '1.55' }
+
+active:
+  desc: Các lệnh tính vào tổng hợp (bỏ lệnh đã huỷ), theo thứ tự lệnh
+  params: [orders]
+  expr: sortBy(filter(orders, o -> o.status != 'CANCELLED'), o -> o.id)
+
+summary:
+  desc: Tổng hợp theo mã như GET /orders/summary, tính từ các bản ghi lệnh
+  params: [orders]
+  let:
+    rows: active(orders)
+    buys: filter(rows, o -> o.side == 'BUY')
+    sells: filter(rows, o -> o.side == 'SELL')
+    buyValue: sum(buys, o -> notional(o))
+    sellValue: sum(sells, o -> notional(o))
+    totalFee: sum(rows, o -> fee(o))
+  expr: |
+    {
+      orders: len(rows),
+      buyQty: sum(buys, o -> o.qty),
+      sellQty: sum(sells, o -> o.qty),
+      buyValue: buyValue,
+      sellValue: sellValue,
+      totalFee: totalFee,
+      netCash: sellValue - buyValue - totalFee * 1000
+    }
+  examples:
+    - args:
+        orders:
+          - { id: 1, side: BUY, qty: 300, price: 25000, status: NEW }
+          - { id: 2, side: SELL, qty: 100, price: 25500, status: NEW }
+          - { id: 3, side: BUY, qty: 500, price: 25000, status: CANCELLED }
+      result: { orders: 2, buyQty: 300, sellQty: 100, buyValue: 7500000, sellValue: 2550000, totalFee: 15.08, netCash: -4965080 }
+
+positions:
+  desc: Vị thế cộng dồn sau từng lệnh (mua cộng, bán trừ), như cột position của GET /orders/positions
+  params: [orders]
+  # Biểu thức có `: ` (toán tử ? :) phải viết trong khối `|` hoặc trong dấu nháy để YAML không hiểu nhầm.
+  expr: |
+    cumsum(active(orders), o -> o.side == 'BUY' ? o.qty : -o.qty)
+  examples:
+    - args:
+        orders:
+          - { id: 1, side: BUY, qty: 300, status: NEW }
+          - { id: 2, side: SELL, qty: 100, status: NEW }
+          - { id: 3, side: BUY, qty: 200, status: CANCELLED }
+          - { id: 4, side: SELL, qty: 50, status: FILLED }
+      result: ['300', '200', '150']

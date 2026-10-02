@@ -1,4 +1,4 @@
-import { BUILTIN_VARS, PLACEHOLDER, z, type Context, type FixtureStep, type TestPlan } from '@aitest/core'
+import { BUILTIN_VARS, checkExpression, PLACEHOLDER, z, type Context, type FixtureStep, type TestPlan } from '@aitest/core'
 import type { LintIssue, ValidationResult } from './index.ts'
 
 /**
@@ -7,7 +7,7 @@ import type { LintIssue, ValidationResult } from './index.ts'
  * Mỗi quy tắc là một listener của `authoring/lint`; plugin khác thêm quy tắc riêng theo cùng cách.
  */
 export const name = 'authoring-validate'
-export const inject = ['actions', 'authoring']
+export const inject = ['actions', 'authoring', 'formulas']
 
 export interface Config {
   fixtureOnlyNamespaces: string[]
@@ -49,6 +49,20 @@ export function apply(ctx: Context, config: Config) {
       content: args.content,
       ...(outcome.value as object | undefined),
     }),
+  })
+
+  // Công thức: ví dụ kiểm chứng của công thức (plan và service) phải đúng; expectation chỉ gọi hàm có thật.
+  ctx.on('authoring/lint', async (plan, issues) => {
+    for (const message of await ctx.formulas.check(plan)) issues.push({ level: 'error', path: 'formulas', message })
+    const formulas = await ctx.formulas.for(plan)
+    plan.cases.forEach((c, i) => c.expect.forEach((e, j) => {
+      if (!e.check?.expr) return
+      try {
+        checkExpression(e.check.expr, { let: e.check.let, formulas })
+      } catch (error) {
+        issues.push({ level: 'error', path: `cases[${i}].expect[${j}].check`, message: (error as Error).message })
+      }
+    }))
   })
 
   // Đầu vào: namespace agent dùng khi chuẩn bị phải có tool; input bắt buộc nên có cách lấy giá trị.

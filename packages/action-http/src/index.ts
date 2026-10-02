@@ -1,16 +1,19 @@
+import { fetch } from 'undici'
 import { parseJson, z, type Context } from '@aitest/core'
+import { createDispatcher, explainNetworkError, proxyFor, redact, type NetworkConfig } from './network.ts'
 
 export { parseJson }
+export { resolveProxy, proxyFor } from './network.ts'
 
 /**
  * Action gọi HTTP API. Namespace mặc định là `http`.
  * Có thể nạp nhiều instance với `namespace` khác nhau để gắn `baseUrl` và header riêng cho từng hệ thống.
+ * Mạng đi giống `curl` trên cùng máy: proxy theo biến môi trường, kho chứng chỉ của hệ điều hành (`network.ts`).
  */
-export interface Config {
+export interface Config extends NetworkConfig {
   namespace: string
   baseUrl?: string
   headers: Record<string, string>
-  timeout: number
   maxBodyChars: number
 }
 
@@ -22,6 +25,14 @@ export const Config = z.object({
   baseUrl: z.string().description('Ghép với `url` tương đối, ví dụ `/orders`.'),
   headers: z.dict(z.string()).default({}).description('Header mặc định, ví dụ token xác thực.'),
   timeout: z.natural().default(30).description('Giới hạn thời gian mỗi request, đơn vị giây.'),
+  connectTimeout: z.natural().default(10).description('Giới hạn thời gian mở kết nối (kể cả qua proxy), đơn vị giây.'),
+  proxy: z.string().default('env').description(
+    '`env`: dùng HTTP_PROXY, HTTPS_PROXY, NO_PROXY như curl; `none`: kết nối thẳng; hoặc URL proxy, ví dụ `http://proxy.corp:8080`.',
+  ),
+  noProxy: z.array(z.string()).default([]).description('Host không đi qua proxy, cộng thêm với NO_PROXY, ví dụ `.corp.local`, `10.1.2.3`.'),
+  systemCa: z.boolean().default(true).description('Tin kho chứng chỉ của hệ điều hành như curl, ngoài kho có sẵn của Node.'),
+  ca: z.array(z.string()).default([]).description('File chứng chỉ PEM tin thêm, ví dụ CA nội bộ.'),
+  insecure: z.boolean().default(false).description('Bỏ kiểm tra chứng chỉ TLS (như curl -k); chỉ dùng cho môi trường thử nghiệm.'),
   maxBodyChars: z.natural().default(100000),
 })
 
@@ -34,6 +45,12 @@ interface Args {
 }
 
 export function apply(ctx: Context, config: Config) {
+  const logger = ctx.logger(`http:${config.namespace}`)
+  const { dispatcher, proxy } = createDispatcher(config)
+  ctx.effect(() => () => { void dispatcher.close().catch(() => {}) }, `http(${config.namespace}).dispatcher`)
+  if (proxy.source !== 'none') {
+    logger.info('proxy from %s: http=%s https=%s no_proxy=%s', proxy.source, redact(proxy.http ?? '-'), redact(proxy.https ?? '-'), proxy.noProxy || '-')
+  }
   const actionName = config.namespace === 'http' ? 'http_request' : `${config.namespace}_http_request`
   ctx.actions.register({
     name: actionName,
@@ -65,17 +82,34 @@ export function apply(ctx: Context, config: Config) {
         if (typeof args.body !== 'string') headers['content-type'] ??= 'application/json'
       }
       const started = performance.now()
+      const via = proxyFor(url, proxy)
+      const method = args.method ?? 'GET'
+      // Báo lỗi nêu rõ bước bị lỗi (DNS, kết nối, TLS, chờ phản hồi) và đường đi (qua proxy hay kết nối thẳng).
+      const fail = (error: Error & { name?: string; cause?: { code?: string; message?: string } }): never => {
+        const elapsed = `${Math.round(performance.now() - started)} ms`
+        if (error.name === 'TimeoutError') {
+          throw new Error(`${method} ${url.href} timed out after ${config.timeout} s (${via ? `via proxy ${redact(via)}` : 'direct connection'})`)
+        }
+        if (error.name === 'AbortError') throw new Error(`${method} ${url.href} was cancelled after ${elapsed}`)
+        // Nguyên nhân thật có thể nằm sâu trong chuỗi `cause` (ví dụ proxy từ chối CONNECT).
+        const chain: Array<{ code?: unknown; message?: string }> = []
+        for (let c: any = error.cause; c && chain.length < 5; c = c.cause) chain.push(c)
+        const code = chain.map((c) => c.code).find((c): c is string => typeof c === 'string' && c !== '0')
+        const tunnel = chain.map((c) => /Proxy response \((\d+)\)/.exec(c.message ?? '')).find(Boolean)
+        if (tunnel) {
+          throw new Error(`${method} ${url.href} failed after ${elapsed}: proxy refused the tunnel (${tunnel[1]}) (via proxy ${redact(via ?? '')}); check proxy credentials and whether the proxy can reach the host`)
+        }
+        const detail = error.cause?.message && error.cause.message !== code ? `: ${error.cause.message}` : ''
+        throw new Error(`${method} ${url.href} failed after ${elapsed}: ${explainNetworkError(code, via)}${detail}`)
+      }
       const response = await fetch(url, {
-        method: args.method ?? 'GET',
+        method,
         headers,
         body,
+        dispatcher,
         signal: AbortSignal.any([signal, AbortSignal.timeout(config.timeout * 1000)]),
-      }).catch((error: Error & { cause?: { code?: string; message?: string } }) => {
-        // `fetch failed` của Node không nêu nguyên nhân; đưa mã lỗi gốc vào thông báo để log chẩn đoán được.
-        const cause = error.cause ? ` (${error.cause.code ?? ''} ${error.cause.message ?? ''})`.replace(/\(\s+/, '(') : ''
-        throw new Error(`${args.method ?? 'GET'} ${url.href} failed: ${error.message}${cause}`)
-      })
-      const text = await response.text()
+      }).catch(fail)
+      const text = await response.text().catch(fail)
       return {
         status: response.status,
         headers: Object.fromEntries(response.headers),

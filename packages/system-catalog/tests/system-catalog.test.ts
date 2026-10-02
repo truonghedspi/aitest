@@ -29,7 +29,8 @@ describe('catalog model', () => {
     expect(issues).toEqual([])
     const order = systems.find((s) => s.id === 'order-service')!
     expect(order.operations.map((o) => `${o.id} ${o.method} ${o.path}`)).toEqual([
-      'listOrders GET /orders', 'createOrder POST /orders', 'getOrder GET /orders/{id}', 'cancelOrder POST /orders/{id}/cancel',
+      'listOrders GET /orders', 'createOrder POST /orders', 'getSummary GET /orders/summary', 'getPositions GET /orders/positions',
+      'getOrder GET /orders/{id}', 'cancelOrder POST /orders/{id}/cancel',
     ])
     const create = order.operations.find((o) => o.id === 'createOrder')!
     expect(create.requestBody).toMatchObject({ required: ['symbol', 'side', 'qty', 'price'], properties: { qty: { multipleOf: 100 } } })

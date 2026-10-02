@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { parse as parseYaml } from 'yaml'
-import { checkExpression, interpolate, PlanError, z, type Context, type TestPlan } from '@aitest/core'
+import { checkExpression, interpolate, parseExpression, PlanError, z, type Context, type TestPlan } from '@aitest/core'
 
 /**
  * Định dạng test plan `*.plan.yaml`.
@@ -16,7 +16,15 @@ const ExpectationSchema = z.object({
   desc: z.string().required(),
   // `op` không đánh dấu required ở đây vì schemastery điền object rỗng khi thiếu `check`;
   // trường hợp có `check` mà thiếu `op` được kiểm tra riêng trong `parsePlan`.
-  check: z.object({ op: AssertOp, value: z.any(), expr: z.string() }),
+  check: z.object({ op: AssertOp, value: z.any(), expr: z.string(), let: z.dict(z.string()) }),
+})
+
+const FormulaSchema = z.object({
+  params: z.array(z.string()).default([]),
+  expr: z.string().required(),
+  let: z.dict(z.string()),
+  desc: z.string(),
+  examples: z.array(z.object({ args: z.dict(z.any()).default({}), result: z.any() })).default([]),
 })
 
 const FixtureSchema = z.object({
@@ -58,6 +66,7 @@ export const PlanSchema = z.object({
   systems: z.array(z.string()).default([]),
   envs: z.array(z.string()).default([]),
   inputs: z.dict(InputSchema).default({}),
+  formulas: z.dict(FormulaSchema).default({}),
   vars: z.dict(z.any()).default({}),
   context: z.string(),
   setup: Fixtures,
@@ -97,20 +106,41 @@ export function parsePlan(text: string, source: string): TestPlan {
   const issues: string[] = []
   const rawCases = (raw as { cases?: Array<{ expect?: Array<{ check?: unknown }> }> }).cases ?? []
   const NUMERIC_OPS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte']
+  const rawSystems = ((raw as { systems?: unknown }).systems as unknown[] | undefined) ?? []
+  const rawFormulas = Object.fromEntries(Object.entries(((raw as { formulas?: unknown }).formulas ?? {}) as Record<string, { params?: string[]; expr?: string }>)
+    .map(([name, f]) => [name, { params: f?.params ?? [], expr: String(f?.expr ?? '0') }]))
   rawCases.forEach((c, i) => c?.expect?.forEach((e, j) => {
-    const check = e?.check as { op?: string; value?: unknown; expr?: unknown } | undefined
+    const check = e?.check as { op?: string; value?: unknown; expr?: unknown; let?: Record<string, unknown> } | undefined
     const where = `cases[${i}].expect[${j}].check`
     if (check === undefined) return
     if (!check?.op) issues.push(`${where}: missing op`)
+    if (check?.let !== undefined && check?.expr === undefined) issues.push(`${where}: let requires expr`)
     if (check?.expr === undefined) return
     if (check.value !== undefined) issues.push(`${where}: use either value or expr, not both`)
     if (check.op && !NUMERIC_OPS.includes(check.op)) issues.push(`${where}: expr requires a numeric op (${NUMERIC_OPS.join(', ')})`)
-    try {
-      checkExpression(String(check.expr))
-    } catch (error) {
-      issues.push(`${where}.expr: ${(error as Error).message}`)
+    // Plan dùng catalog hệ thống có thể gọi công thức của service, chỉ biết khi soạn plan (`validate`):
+    // khi đó chỉ kiểm tra cú pháp. Plan khác kiểm tra luôn tên hàm với hàm dựng sẵn và công thức trong plan.
+    const known = rawSystems.length ? undefined : rawFormulas
+    const verify = (expr: string, path: string) => {
+      try {
+        if (known) checkExpression(expr, { formulas: known })
+        else parseExpression(expr)
+      } catch (error) {
+        issues.push(`${path}: ${(error as Error).message}`)
+      }
     }
+    for (const [step, expr] of Object.entries(check.let ?? {})) verify(String(expr), `${where}.let.${step}`)
+    verify(String(check.expr), `${where}.expr`)
   }))
+  for (const [name, f] of Object.entries(data.formulas)) {
+    for (const [step, expr] of Object.entries({ ...(f.let ?? {}), expr: f.expr })) {
+      try {
+        parseExpression(String(expr))
+      } catch (error) {
+        issues.push(`formulas.${name}.${step === 'expr' ? 'expr' : `let.${step}`}: ${(error as Error).message}`)
+      }
+    }
+  }
   const caseIds = new Set<string>()
   for (const c of data.cases) {
     if (caseIds.has(c.id)) issues.push(`duplicate case id: ${c.id}`)
@@ -145,6 +175,7 @@ export function parsePlan(text: string, source: string): TestPlan {
     requires: data.requires,
     systems: data.systems,
     envs: data.envs.length ? data.envs : undefined,
+    formulas: Object.keys(data.formulas).length ? data.formulas : undefined,
     inputs: Object.entries(data.inputs).map(([name, i]) => ({
       name,
       desc: i.desc,
@@ -171,7 +202,11 @@ export function parsePlan(text: string, source: string): TestPlan {
       expect: c.expect.map((e) => ({
         id: e.id,
         desc: e.desc,
-        check: e.check?.op ? { op: e.check.op, value: e.check.value, ...(e.check.expr ? { expr: e.check.expr } : {}) } : undefined,
+        check: e.check?.op ? {
+          op: e.check.op, value: e.check.value,
+          ...(e.check.expr ? { expr: e.check.expr } : {}),
+          ...(e.check.let && Object.keys(e.check.let).length ? { let: e.check.let } : {}),
+        } : undefined,
       })),
     })),
   }

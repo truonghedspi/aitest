@@ -89,6 +89,7 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 
 - **LLM không quyết định pass/fail.** Verdict chỉ được tính từ assertion do plugin `verdict` đánh giá trên evidence thật. Không thêm đường nào cho agent tự báo giá trị thực tế hoặc tự kết luận.
 - **Agent không tự tính.** Giá trị mong đợi cần tính dùng `check.expr`, do `verdict` tính từ giá trị thật trong evidence bằng `calculate` của core. Phép tính khác của agent đi qua tool `calc`, `round_number`. Bộ tính không dùng `eval`; tra hàm chỉ qua `Object.hasOwn`.
+- **Công thức là hàm thuần, xác định.** Ngôn ngữ biểu thức (`core/expr.ts`) không dùng `eval`, giới hạn số bước tính, chỉ đọc thuộc tính riêng của bản ghi. Công thức tự định nghĩa chỉ thấy tham số của nó; công thức của service có `examples` và được kiểm khi `validate`.
 - **Số là BigDecimal, làm tròn luôn tường minh.** Không đổi số sang `number` để tính hoặc so sánh (`toBigDecimal`, `compareTo`). Không thêm cách làm tròn mặc định; chia không hết là lỗi.
 - **Tiêu chí của plan là cố định.** Khi expectation có `check`, `op` và giá trị mong đợi luôn lấy từ plan; tham số của agent bị bỏ qua.
 - **Run log là nguồn sự thật.** Mọi thông tin xuất hiện trong báo cáo phải dựng lại được từ `events.jsonl` qua `deriveReport`. Thông tin mới trong báo cáo đòi hỏi một loại event mới, ghi qua `scope.log`.

@@ -89,7 +89,7 @@ function renderCase(c: CaseReport) {
   for (const e of c.expectations) {
     const a = e.assertion
     const formula = a?.expr ?? e.check?.expr
-    const inputs = a?.inputs ? ` với ${Object.entries(a.inputs).map(([n, i]) => `${n}=${JSON.stringify(i.value)}`).join(', ')}` : ''
+    const inputs = a?.inputs ? ` với ${Object.entries(a.inputs).map(([n, i]) => `${n}=${brief(i.value)}`).join(', ')}` : ''
     const criteria = formula
       ? `${a?.op ?? e.check?.op} \`${formula}\`${a ? ` = ${fmt(a.expected)}${inputs}` : ''}`
       : a ? `${a.op} ${fmt(a.expected)} (${a.criteria})` : e.check ? `${e.check.op} ${fmt(e.check.value)}` : '—'
@@ -98,6 +98,16 @@ function renderCase(c: CaseReport) {
     lines.push(`| ${e.id} | ${e.desc} | ${criteria} | ${actual} | ${a ? (a.passed ? '✅' : '❌') : 'chưa assert'}${retries} |`)
   }
   lines.push('')
+
+  // Công thức có bước trung gian: giá trị từng bước, để thấy sai lệch bắt đầu từ bước nào.
+  for (const e of c.expectations) {
+    const steps = e.assertion?.steps
+    if (!steps || !Object.keys(steps).length) continue
+    const lets = e.check?.let ?? {}
+    lines.push(`**Các bước công thức của \`${e.id}\`:**`, '', '| Bước | Biểu thức | Giá trị |', '|---|---|---|')
+    for (const [name, value] of Object.entries(steps)) lines.push(`| ${name} | \`${(lets[name] ?? '').replace(/\|/g, '\\|')}\` | ${brief(value)} |`)
+    lines.push(`| **kết quả** | \`${e.assertion!.expr}\` | ${brief(e.assertion!.expected)} |`, '')
+  }
 
   if (c.steps.length) {
     lines.push('### Ghi chú theo bước', '', ...c.steps.map((s) => `- Bước ${s.step}: ${s.status}${s.note ? ` — ${s.note}` : ''}`), '')
@@ -116,4 +126,14 @@ function fmt(value: unknown) {
   if (value === undefined) return ''
   const s = JSON.stringify(value)
   return '`' + (s.length > 60 ? s.slice(0, 57) + '...' : s).replace(/\|/g, '\\|') + '`'
+}
+
+/** Giá trị ngắn gọn cho bảng: danh sách dài chỉ ghi số phần tử và vài phần tử đầu. */
+function brief(value: unknown): string {
+  if (Array.isArray(value)) {
+    const head = value.slice(0, 3).map((v) => (typeof v === 'object' && v !== null ? '{…}' : JSON.stringify(v))).join(', ')
+    return `[${value.length} phần tử${value.length ? `: ${head}${value.length > 3 ? ', …' : ''}` : ''}]`
+  }
+  const text = JSON.stringify(value)
+  return text && text.length > 80 ? `${text.slice(0, 77)}…` : String(text)
 }

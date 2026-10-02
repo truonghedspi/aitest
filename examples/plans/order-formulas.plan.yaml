@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=../../docs/plan.schema.json
+# Mẫu kiểm tra số liệu tổng hợp bằng công thức nghiệp vụ (systems/order-service/formulas.yml):
+# tổng phí, tiền ròng, vị thế cộng dồn; dữ liệu nhiều dòng, bỏ lệnh đã huỷ, bước trung gian có tên.
+id: TP-ORDER-FORMULA-001
+name: Tổng hợp và vị thế theo mã đúng công thức
+description: Đối chiếu số liệu API tổng hợp với công thức nghiệp vụ tính lại từ bản ghi lệnh trong DB.
+requires: [http, db]
+systems: [order-service]
+inputs:
+  symbol: { desc: Mã chứng khoán riêng cho plan này, default: FML }
+context: |
+  Mỗi case đặt sẵn 4 lệnh của mã {{symbol}} và 1 lệnh đã huỷ. Công thức tính trên mọi lệnh của mã trong DB,
+  nên số liệu vẫn đúng khi DB còn lệnh của lượt chạy trước.
+setup:
+  - { desc: Mua 300 giá 25.000, action: http_request, args: { method: POST, url: '{{order-service.url}}/orders', body: { symbol: '{{symbol}}', side: BUY, qty: 300, price: 25000 } } }
+  - { desc: Bán 100 giá 26.000, action: http_request, args: { method: POST, url: '{{order-service.url}}/orders', body: { symbol: '{{symbol}}', side: SELL, qty: 100, price: 26000 } } }
+  - { desc: Mua 200 giá 25.000, action: http_request, args: { method: POST, url: '{{order-service.url}}/orders', body: { symbol: '{{symbol}}', side: BUY, qty: 200, price: 25000 } } }
+  - { desc: Bán 150 giá 24.000, action: http_request, args: { method: POST, url: '{{order-service.url}}/orders', body: { symbol: '{{symbol}}', side: SELL, qty: 150, price: 24000 } } }
+  - desc: Đặt lệnh mua 500 để huỷ
+    action: http_request
+    args: { method: POST, url: '{{order-service.url}}/orders', body: { symbol: '{{symbol}}', side: BUY, qty: 500, price: 25000 } }
+    save: { cancel_id: $.body.id }
+  - { desc: Huỷ lệnh vừa đặt, action: http_request, args: { method: POST, url: '{{order-service.url}}/orders/{{cancel_id}}/cancel' } }
+
+cases:
+  - id: FML-01
+    title: Tổng hợp theo mã khớp công thức nghiệp vụ
+    steps:
+      - Gọi order-service.getSummary (GET {{order-service.url}}/orders/summary?symbol={{symbol}}).
+      - Truy vấn mọi lệnh của mã {{symbol}} trong bảng orders (id, side, qty, price, status).
+    expect:
+      - id: order-count
+        desc: Số lệnh không tính lệnh đã huỷ
+        check: { op: eq, expr: summary(orders).orders }
+      - id: total-fee
+        desc: Tổng phí bằng tổng phí từng lệnh, mỗi lệnh làm tròn trước khi cộng
+        check: { op: eq, expr: summary(orders).totalFee }
+      - id: net-cash
+        desc: Tiền ròng bằng giá trị bán trừ giá trị mua trừ tổng phí quy ra đồng
+        check:
+          op: eq
+          let:
+            s: summary(orders)
+            gross: s.sellValue - s.buyValue
+            fees: s.totalFee * 1000
+          expr: gross - fees
+
+  - id: FML-02
+    title: Vị thế cộng dồn sau từng lệnh
+    steps:
+      - Gọi order-service.getPositions (GET {{order-service.url}}/orders/positions?symbol={{symbol}}).
+      - Truy vấn mọi lệnh của mã {{symbol}} trong bảng orders (id, side, qty, status).
+    expect:
+      - id: positions
+        desc: Cột position bằng vị thế cộng dồn (mua cộng, bán trừ, bỏ lệnh đã huỷ)
+        check: { op: eq, expr: positions(orders) }

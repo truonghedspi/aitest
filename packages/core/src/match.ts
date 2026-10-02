@@ -3,7 +3,8 @@ import { toBigDecimal } from './calc.ts'
 import type { AssertOp } from './types.ts'
 
 /**
- * Đọc giá trị theo path dạng JSONPath rút gọn: `$.body.items[0].id`, `$["x-header"]`.
+ * Đọc giá trị theo path dạng JSONPath rút gọn: `$.body.items[0].id`, `$["x-header"]`, `$.rows[-1]` (phần tử cuối).
+ * `[*]` lấy mọi phần tử của danh sách: `$.rows[*].qty` trả về danh sách `qty` của từng dòng; nhiều `[*]` được làm phẳng.
  * Trả về `undefined` khi path không tồn tại.
  */
 export function readPath(root: unknown, path: string): unknown {
@@ -13,11 +14,29 @@ export function readPath(root: unknown, path: string): unknown {
   return normalized === path.trim() ? undefined : walk(root, tokenize(normalized))
 }
 
-function walk(root: unknown, tokens: Array<string | number>): unknown {
+const ALL = Symbol('all')
+type PathToken = string | number | typeof ALL
+
+function walk(root: unknown, tokens: PathToken[]): unknown {
   let current: any = root
-  for (const token of tokens) {
+  for (const [i, token] of tokens.entries()) {
     if (current === null || current === undefined) return undefined
-    current = current[token]
+    if (token === ALL) {
+      if (!Array.isArray(current)) return undefined
+      const rest = tokens.slice(i + 1)
+      const nested = rest.includes(ALL)
+      const items = current.map((item) => walk(item, rest))
+      // Giữ vị trí phần tử thiếu (null) để danh sách khớp từng dòng; `[*]` lồng nhau được làm phẳng,
+      // dòng không có danh sách con thì không đóng góp phần tử nào.
+      return nested ? items.flatMap((x) => (Array.isArray(x) ? x : [])) : items.map((x) => x ?? null)
+    }
+    if (typeof token === 'number') {
+      if (!Array.isArray(current)) return undefined
+      current = current[token < 0 ? current.length + token : token]
+      continue
+    }
+    // Chỉ đọc thuộc tính của chính object, không đọc thuộc tính kế thừa như `constructor`.
+    current = typeof current === 'object' && Object.hasOwn(current, token) ? current[token] : undefined
   }
   return current
 }
@@ -31,16 +50,17 @@ export function normalizePath(path: string) {
   return path.trim().replace(/^\$?\.result(?=$|[.[])/, '$')
 }
 
-function tokenize(path: string): Array<string | number> {
+function tokenize(path: string): PathToken[] {
   const source = path.trim().replace(/^\$/, '')
-  const tokens: Array<string | number> = []
-  const re = /\.([A-Za-z_$][\w$-]*)|\[(\d+)\]|\[(['"])(.*?)\3\]/gy
+  const tokens: PathToken[] = []
+  const re = /\.([A-Za-z_$][\w$-]*)|\[(-?\d+)\]|\[(['"])(.*?)\3\]|\[(\*)\]/gy
   let match: RegExpExecArray | null
   let consumed = 0
   while ((match = re.exec(source))) {
     consumed = re.lastIndex
     if (match[1] !== undefined) tokens.push(match[1])
     else if (match[2] !== undefined) tokens.push(Number(match[2]))
+    else if (match[5] !== undefined) tokens.push(ALL)
     else tokens.push(match[4])
   }
   if (consumed !== source.length) throw new Error(`invalid path: ${path}`)

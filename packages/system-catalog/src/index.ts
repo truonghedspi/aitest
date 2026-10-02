@@ -24,7 +24,7 @@ export interface Config {
  * Catalog được đọc lại ở đầu mỗi case, nên sửa file có hiệu lực ngay ở case kế tiếp.
  */
 export class SystemCatalogService extends Service {
-  static inject = ['prompt']
+  static inject = ['prompt', 'formulas']
   static Config = z.object({
     dirs: z.array(z.string()).default(['systems']).description('Thư mục chứa `<id>/service.yml`, tương đối với thư mục làm việc.'),
     envDir: z.string().default('envs').description('Thư mục chứa `<tên môi trường>.yml`.'),
@@ -55,6 +55,14 @@ export class SystemCatalogService extends Service {
       // Biến của plan được ưu tiên, để plan vẫn ghi đè được địa chỉ khi cần.
       for (const [key, value] of Object.entries(vars)) if (!(key in scope.vars)) scope.vars[key] = value
       scope.log('systems/resolved', { env: catalog.env.name, systems: ids, vars, ...(missing.length ? { missing } : {}) })
+    })
+
+    // Công thức của các service mà plan khai báo trong `systems`.
+    ctx.formulas.provide(async (plan) => {
+      const ids = plan.systems ?? []
+      if (!ids.length) return {}
+      const { systems } = await loadSystems(this.config.dirs)
+      return Object.assign({}, ...systems.filter((s) => ids.includes(s.id)).map((s) => s.formulas))
     })
 
     ctx.prompt.section({
@@ -106,6 +114,11 @@ function renderSystem(system: SystemSpec, catalog: Catalog) {
     for (const c of system.consumers) {
       lines.push(`- \`${c.group}\`${c.description ? `: ${c.description}` : ''}${c.effects.length ? ` Hệ quả: ${c.effects.join('; ')}.` : ''}`)
     }
+  }
+  const formulas = Object.entries(system.formulas)
+  if (formulas.length) {
+    lines.push('', 'Công thức nghiệp vụ (dùng trong công thức của expectation và tool `calc`):')
+    for (const [name, f] of formulas) lines.push(`- \`${name}(${f.params.join(', ')})\`${f.desc ? `: ${f.desc}` : ''}`)
   }
   if (system.data.length) {
     lines.push('', 'Dữ liệu:')

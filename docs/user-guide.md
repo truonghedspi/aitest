@@ -208,6 +208,64 @@ Agent có tool `calc` (tính biểu thức) và `round_number` (làm tròn một
 
 Mỗi expectation chỉ nên kiểm tra **một giá trị**. Ví dụ, tách "status là NEW và qty là 100" thành hai expectation.
 
+#### Công thức phức tạp: dữ liệu nhiều dòng, cộng dồn, nhiều bước
+
+Khi giá trị mong đợi phải tính từ cả bảng dữ liệu (tổng theo điều kiện, phí theo bậc, tiền ròng, số dư cộng dồn), tổ chức theo ba tầng:
+
+| Tầng | Đặt ở đâu | Dùng cho |
+|---|---|---|
+| **Công thức nghiệp vụ** | `systems/<id>/formulas.yml` (theo service), hoặc `formulas` trong plan | Công thức dùng lại: phí, thuế, tổng hợp. Có `examples` lấy từ đặc tả; `validate` chạy ví dụ và báo lỗi khi công thức cho kết quả khác |
+| **Các bước của expectation** | `check.let` | Chia công thức dài thành bước có tên; báo cáo ghi giá trị từng bước |
+| **Dữ liệu** | Agent chỉ ra evidence | Biến có thể là cả bảng (`$.rows`) hoặc một cột (`$.rows[*].qty`) |
+
+```yaml
+# systems/order-service/formulas.yml
+fee:
+  desc: Phí một lệnh (nghìn đồng), làm tròn nửa lên 2 chữ số
+  params: [o]
+  expr: round(o.qty * o.price * 0.0015 / 1000, 2, HALF_UP)
+  examples:
+    - { args: { o: { qty: 100, price: 10300 } }, result: '1.55' }
+positions:
+  params: [orders]
+  expr: |
+    cumsum(filter(orders, o -> o.status != 'CANCELLED'), o -> o.side == 'BUY' ? o.qty : -o.qty)
+```
+
+```yaml
+# Trong plan (systems: [order-service])
+expect:
+  - id: net-cash
+    desc: Tiền ròng = giá trị bán − giá trị mua − tổng phí quy ra đồng
+    check:
+      op: eq
+      let:
+        rows: "filter(orders, o -> o.status != 'CANCELLED')"
+        gross: "sum(rows, o -> o.side == 'SELL' ? o.qty * o.price : -(o.qty * o.price))"
+        fees: sum(rows, o -> fee(o)) * 1000
+      expr: gross - fees
+  - id: positions
+    desc: Cột position bằng vị thế cộng dồn
+    check: { op: eq, expr: positions(orders) }      # so từng dòng với path $.body[*].position
+```
+
+Ngôn ngữ biểu thức:
+
+| Nhóm | Cú pháp |
+|---|---|
+| Dữ liệu | Trường `o.qty`, chỉ số `xs[0]`, `xs[-1]`; danh sách `[a, b]`; bản ghi `{ total: a, fee: b }`; chuỗi `'BUY'`; `true`, `false`, `null` |
+| Điều kiện | `== != < <= > >=`, `and` `or` `not`, `c ? a : b`, `if(c, a, b)`, `coalesce(a, b)` |
+| Hàm ẩn danh | `o -> o.qty * o.price`, `(acc, o) -> acc + o.amount` |
+| Gộp | `sum`, `count`, `avg`, `min`, `max`: nhận nhiều số, hoặc danh sách kèm hàm chiếu `sum(rows, o -> o.qty)` |
+| Biến đổi | `map`, `filter`, `find`, `any`, `all`, `distinct`, `sortBy(xs, x -> khoá, 'desc')`, `groupBy(xs, x -> khoá)` → `{ key, items }`, `first`, `last`, `len` |
+| Lũy kế | `cumsum(xs, x -> …)`: tổng cộng dồn; `scan(xs, init, (acc, x) -> …)`: giá trị sau từng phần tử (số dư); `reduce(xs, init, (acc, x) -> …)` |
+
+- Số trong bảng dạng chuỗi (DECIMAL từ DB) được dùng như số; mọi phép tính vẫn trên BigDecimal, không làm tròn ngầm.
+- Kết quả dạng danh sách được so **từng phần tử**; báo cáo chỉ ra phần tử lệch đầu tiên, ví dụ `item 3: expected "250", got 300`.
+- Biến của lượt chạy (đầu vào, `$run.*`) dùng thẳng trong công thức, agent không phải chỉ ra.
+- Công thức trong YAML có `: ` (toán tử `? :`) phải đặt trong dấu nháy kép hoặc khối `|`.
+- Xem ví dụ đầy đủ: `examples/plans/order-formulas.plan.yaml`, `systems/order-service/formulas.yml`.
+
 ### 5.5. Kiểm tra trước khi chạy
 
 ```bash
@@ -788,7 +846,35 @@ Guard chặn action. Ví dụ, câu lệnh ghi (`DELETE`, `UPDATE`) qua `db_quer
 | Agent không tìm thấy nút hoặc trường | Ghi tên trong bước đúng như hiển thị trên giao diện |
 | Thư mục `.playwright-mcp/` xuất hiện | File tạm của Playwright; có thể xoá |
 
-### 9.6. Lỗi khi soạn plan cùng AI
+### 9.6. Gọi API chậm hoặc lỗi trong khi `curl` chạy được
+
+`http_request` đi theo cấu hình mạng của máy giống `curl`: dùng proxy trong `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` (cả tên viết thường), và tin kho chứng chỉ của hệ điều hành. Lỗi ghi rõ bước bị lỗi và đường đi, ví dụ `connect timed out (direct connection)` hoặc `proxy refused the tunnel (407) (via proxy http://proxy.corp:8080/)`.
+
+| Thông báo | Cách xử lý |
+|---|---|
+| `connect timed out (direct connection)`, trong khi `curl` chạy được | Máy cần proxy. Đặt `HTTP_PROXY`/`HTTPS_PROXY` trước khi chạy `pnpm serve`, hoặc khai báo `proxy` trong row `action-http` |
+| `... (via proxy …)` với địa chỉ nội bộ | Địa chỉ nội bộ không nên đi qua proxy: thêm vào `NO_PROXY` hoặc `noProxy` của row, ví dụ `.corp.local` |
+| `proxy refused the tunnel (407)` | Proxy cần đăng nhập: `proxy: 'http://user:${env.PROXY_PASSWORD}@proxy.corp:8080'` |
+| `TLS certificate rejected` | Chứng chỉ do CA nội bộ cấp: khai báo file PEM trong `ca`. `insecure: true` chỉ dùng trên môi trường thử nghiệm |
+| `DNS lookup failed` | Tên máy không phân giải được trên máy chạy Host; kiểm tra bằng `nslookup` trên chính máy đó |
+| `no response headers before timeout`, `timed out after N s` | Đã kết nối nhưng server không trả lời kịp; tăng `timeout` nếu API vốn chậm |
+
+Cấu hình trong row `action-http` (ghi đè theo môi trường được, mục 5.10):
+
+```yaml
+- id: action-http
+  name: '@aitest/action-http'
+  config:
+    proxy: env                 # env (mặc định, như curl) | none | http://proxy.corp:8080
+    noProxy: [.corp.local]     # cộng thêm với NO_PROXY
+    ca: [/etc/ssl/corp-ca.pem] # CA nội bộ
+    connectTimeout: 10         # giây, chờ mở kết nối
+    timeout: 30                # giây, chờ cả request
+```
+
+Khi khởi động, log của Host ghi proxy đang dùng (`proxy from env: http=… https=… no_proxy=…`), mật khẩu trong URL proxy được che.
+
+### 9.7. Lỗi khi soạn plan cùng AI
 
 | Hiện tượng | Cách xử lý |
 |---|---|

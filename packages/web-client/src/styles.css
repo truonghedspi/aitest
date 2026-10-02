@@ -348,3 +348,5 @@ table.matrix .current { background: var(--surface-2); }
 .archived-banner { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--surface-2); font-size: 13px; }
 .host-version.mismatch { color: var(--warn); font-weight: 600; }
 .chat-list-footer .chat-list, .chat-list-footer .chat-item { width: 100%; }
+.formula-steps { margin-top: 6px; }
+.value-list { display: inline-block; vertical-align: top; }

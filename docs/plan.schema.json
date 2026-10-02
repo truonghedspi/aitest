@@ -95,6 +95,54 @@
         }
       }
     },
+    "formulas": {
+      "type": "object",
+      "description": "Công thức nghiệp vụ của plan, gọi như hàm trong check.expr, check.let và tool calc. Công thức của service đặt ở systems/<id>/formulas.yml.",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "expr"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expr": {
+            "type": "string"
+          },
+          "let": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "desc": {
+            "type": "string"
+          },
+          "examples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "args": {
+                  "type": "object"
+                },
+                "result": {}
+              },
+              "required": [
+                "args",
+                "result"
+              ]
+            },
+            "description": "Ví dụ lấy từ đặc tả; validate báo lỗi khi công thức cho kết quả khác."
+          }
+        }
+      }
+    },
     "vars": {
       "type": "object",
       "description": "Biến dùng trong steps qua cú pháp {{tên}}. Hỗ trợ ${env.NAME:-mặc định}."
@@ -179,7 +227,14 @@
                     "value": {},
                     "expr": {
                       "type": "string",
-                      "description": "Công thức tính giá trị mong đợi, thay cho value. Biến lấy từ evidence khi assert. Ví dụ: round(qty * price * 0.0015, 2)."
+                      "description": "Công thức tính giá trị mong đợi (số hoặc danh sách). Hỗ trợ trường r.qty, chỉ số xs[0], danh sách, bản ghi {a: 1}, so sánh, and/or/not, c ? a : b, hàm ẩn danh r -> r.qty * r.price, sum/count/avg/min/max/map/filter/reduce/cumsum/scan/sortBy/groupBy và công thức trong formulas."
+                    },
+                    "let": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Bước trung gian có tên của công thức, tính theo thứ tự trước expr; báo cáo ghi giá trị từng bước."
                     }
                   },
                   "not": {

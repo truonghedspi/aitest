@@ -73,6 +73,38 @@ Khi giá trị mong đợi phụ thuộc dữ liệu lúc chạy (phí, tổng t
 - Viết công thức đúng như đặc tả, kể cả quy tắc làm tròn; không tính sẵn ra số.
 - Cần thử một phép tính khi soạn plan: dùng tool `calc` hoặc `round_number`, không tự tính nhẩm.
 
+### Công thức phức tạp trên dữ liệu nhiều dòng
+
+Biến của công thức có thể là cả bảng (`$.rows`, mỗi dòng là một bản ghi) hoặc một cột (`$.rows[*].qty`).
+Ngôn ngữ biểu thức có:
+
+- trường `r.qty`, chỉ số `xs[0]` / `xs[-1]`, danh sách `[a, b]`, bản ghi `{ total: a, fee: b }`, chuỗi `'BUY'`, `true`, `false`, `null`;
+- so sánh `== != < <= > >=`, `and` `or` `not`, `c ? a : b`, `if(c, a, b)`, `coalesce(a, b)`;
+- hàm ẩn danh `r -> r.qty * r.price`, `(acc, r) -> acc + r.amount`;
+- trên danh sách: `sum`, `count`, `avg`, `min`, `max` (nhận danh sách và hàm chiếu), `map`, `filter`, `find`, `any`, `all`,
+  `reduce`, `cumsum` (cộng dồn), `scan` (giữ giá trị sau từng phần tử, ví dụ số dư), `sortBy`, `groupBy` (trả `{ key, items }`),
+  `distinct`, `first`, `last`, `len`.
+
+Chia công thức dài thành bước có tên bằng `let`; báo cáo ghi giá trị từng bước:
+
+```yaml
+- id: net-cash
+  desc: Tiền ròng của các lệnh khớp
+  check:
+    op: eq
+    let:
+      rows: "filter(orders, o -> o.status == 'FILLED')"
+      gross: "sum(rows, o -> o.side == 'SELL' ? o.qty * o.price : -(o.qty * o.price))"
+      fees: sum(rows, o -> fee(o)) * 1000
+    expr: gross - fees
+```
+
+- Kết quả là danh sách (ví dụ vị thế cộng dồn) được so từng phần tử với cột tương ứng, ví dụ path `$.body[*].position`.
+- **Công thức nghiệp vụ dùng lại** (phí, thuế, tổng hợp) đặt ở `formulas` của plan hoặc `systems/<id>/formulas.yml` của service,
+  có `examples` lấy từ đặc tả; gọi như hàm: `fee(o)`, `summary(orders).netCash`. Xem bằng `describe_system`.
+- Công thức của service chỉ thấy tham số của nó, không đọc biến bên ngoài.
+- **YAML:** biểu thức có `: ` (toán tử `? :`) hoặc bắt đầu bằng `{`, `[`, `'` phải đặt trong dấu nháy kép hoặc khối `|`.
+
 ### Fixture (`setup`, `teardown`)
 
 - Thứ tự: `setup` của plan → `setup` của case → agent → `teardown` của case → `teardown` của plan.

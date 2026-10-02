@@ -82,13 +82,14 @@ interface Evidence { id: string; call: ActionCallData }
 interface Assertion {
   seq: number; expectId: string; evidenceId?: string; path?: string; op: string; expected?: unknown; actual?: unknown
   passed: boolean; message: string; criteria: string; expr?: string; inputs?: Record<string, { evidenceId: string; path: string; value: unknown }>
+  steps?: Record<string, unknown>
 }
 
 interface CaseView {
   id: string
   title: string
   steps: string[]
-  expect: Array<{ id: string; desc: string; check?: { op: string; value?: unknown; expr?: string } }>
+  expect: Array<{ id: string; desc: string; check?: { op: string; value?: unknown; expr?: string; let?: Record<string, string> } }>
   events: RunEvent[]
   evidence: Map<string, Evidence>
   assertions: Assertion[]
@@ -374,10 +375,20 @@ function Explanation({ item, onEvidence }: { item: CaseView; onEvidence(id: stri
                     <>
                       <dt>Giá trị mong đợi</dt>
                       <dd>
-                        <code>{String(final.expected)}</code> = <code>{final.expr}</code> với{' '}
+                        <Value value={final.expected} /> = <code>{final.expr}</code> với{' '}
                         {Object.entries(final.inputs ?? {}).map(([n, i]) => (
-                          <span key={n}><code>{n} = {JSON.stringify(i.value)}</code> (<EvidenceLink id={i.evidenceId} onOpen={onEvidence} /> <code>{i.path}</code>) </span>
+                          <span key={n}><code>{n}</code> = <Value value={i.value} /> (<EvidenceLink id={i.evidenceId} onOpen={onEvidence} /> <code>{i.path}</code>) </span>
                         ))}
+                        {final.steps && Object.keys(final.steps).length > 0 && (
+                          <table className="plain formula-steps">
+                            <thead><tr><th>Bước</th><th>Biểu thức</th><th>Giá trị</th></tr></thead>
+                            <tbody>
+                              {Object.entries(final.steps).map(([name, value]) => (
+                                <tr key={name}><td><code>{name}</code></td><td><code>{e.check?.let?.[name]}</code></td><td><Value value={value} /></td></tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
                         {[...new Set(Object.values(final.inputs ?? {}).map((i) => i.evidenceId))].map((id) => (
                           <div key={id} className="muted small">{id}: <Why call={item.evidence.get(id)?.call} /></div>
                         ))}
@@ -386,7 +397,7 @@ function Explanation({ item, onEvidence }: { item: CaseView; onEvidence(id: stri
                   )}
                   <dt>Giá trị thật</dt>
                   <dd>
-                    <code>{JSON.stringify(final.actual) ?? 'undefined'}</code> đọc tại <EvidenceLink id={final.evidenceId} onOpen={onEvidence} /> <code>{final.path}</code>
+                    <Value value={final.actual} /> đọc tại <EvidenceLink id={final.evidenceId} onOpen={onEvidence} /> <code>{final.path}</code>
                     {final.evidenceId && item.evidence.get(final.evidenceId) && <span className="muted small"> — kết quả của <code>{item.evidence.get(final.evidenceId)!.call.name}</code></span>}
                   </dd>
                   <dt>Vì sao lấy dữ liệu này</dt>
@@ -421,6 +432,19 @@ function Explanation({ item, onEvidence }: { item: CaseView; onEvidence(id: stri
 }
 
 /** Lý do agent khai báo khi gọi action tạo ra evidence; fixture do nền tảng chạy nên không có lý do. */
+/** Giá trị trong phần giải thích: danh sách dài hiện số phần tử, bấm để xem đầy đủ. */
+function Value({ value }: { value: unknown }) {
+  if (Array.isArray(value) && (value.length > 5 || JSON.stringify(value).length > 120)) {
+    return (
+      <details className="value-list">
+        <summary><code>[{value.length} phần tử]</code></summary>
+        <pre className="code">{JSON.stringify(value, null, 1).slice(0, 8000)}</pre>
+      </details>
+    )
+  }
+  return <code>{JSON.stringify(value) ?? 'undefined'}</code>
+}
+
 function Why({ call }: { call?: ActionCallData }) {
   if (!call) return <span className="muted">—</span>
   if (call.phase && call.phase !== 'agent') return <span className="muted">Dữ liệu từ fixture do nền tảng chạy{call.reason ? `: ${call.reason}` : '.'}</span>

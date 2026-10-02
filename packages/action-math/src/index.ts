@@ -1,6 +1,6 @@
 import {
-  calculate, FUNCTIONS, ROUNDING_MODE_DESC, ROUNDING_MODES, roundDecimal,
-  type ActionScope, type Context, type EvidenceRef, type RoundingModeName,
+  evaluateFormula, FUNCTIONS, ROUNDING_MODE_DESC, ROUNDING_MODES, roundDecimal,
+  type ActionScope, type Context, type EvidenceRef, type RoundingModeName, type TestPlan,
 } from '@aitest/core'
 
 /**
@@ -12,7 +12,7 @@ import {
  * giá trị thật (agent không phải chép lại số). Kết quả được lưu thành evidence.
  */
 export const name = 'action-math'
-export const inject = ['actions']
+export const inject = ['actions', 'formulas']
 
 type Input = number | string | EvidenceRef
 
@@ -49,28 +49,41 @@ export function apply(ctx: Context) {
       'Không có làm tròn mặc định: làm tròn phải ghi rõ cách làm tròn theo yêu cầu của test.',
       'Hàm:', Object.values(FUNCTIONS).map((f) => f.desc).join('; ') + '.',
       'Cách làm tròn (MODE):', MODES + '.',
-      'Biến: số, chuỗi số, hoặc { evidenceId, path }. Kết quả: `result` (đầy đủ phần thập phân), `normalized` (bỏ số 0 thừa ở cuối), `scale`.',
+      'Biểu thức còn có: chuỗi, true/false, null, danh sách `[a, b]`, trường `r.qty`, chỉ số `xs[0]`, so sánh `== != < <= > >=`,',
+      '`and`/`or`/`not`, `c ? a : b`, hàm ẩn danh `r -> r.qty * r.price`; công thức nghiệp vụ của plan và service gọi như hàm.',
+      'Biến: số, chuỗi số, hoặc { evidenceId, path }; path trỏ được tới cả danh sách (`$.rows`) hoặc một cột (`$.rows[*].qty`).',
+      '`let`: các bước có tên, tính lần lượt; kết quả trả về giá trị từng bước.',
+      'Kết quả: `result` (số giữ đầy đủ phần thập phân; hoặc danh sách, chuỗi…), `normalized`, `scale` khi kết quả là số.',
     ].join(' '),
     inputSchema: {
       type: 'object',
       properties: {
         expression: { type: 'string', description: 'Ví dụ `round(qty * price / 1000 * 0.0015, 2, HALF_UP)`, `div(total, n, 4, HALF_EVEN)`.' },
         variables: { type: 'object', description: 'Tên biến → số, chuỗi số, hoặc { evidenceId, path }.', additionalProperties: INPUT_SCHEMA },
+        let: { type: 'object', description: 'Bước trung gian: tên → biểu thức, tính theo thứ tự khai báo.', additionalProperties: { type: 'string' } },
       },
       required: ['expression'],
       additionalProperties: false,
     },
-    async execute(args: { expression: string; variables?: Record<string, Input> }, { scope }) {
+    async execute(args: { expression: string; variables?: Record<string, Input>; let?: Record<string, string> }, { scope }) {
       const sources: Record<string, EvidenceRef> = {}
       const inputs = Object.fromEntries(Object.entries(args.variables ?? {}).map(([n, raw]) => [n, resolve(scope, n, raw, sources)]))
-      const result = calculate(args.expression, inputs)
-      return { expression: args.expression, inputs, sources, result: result.text, normalized: result.normalized, scale: result.scale, value: result.value }
+      // Công thức của plan và của service mà plan dùng (chỉ có trong case, nơi có plan).
+      const plan = (scope as ActionScope & { plan?: TestPlan }).plan
+      const formulas = plan ? await ctx.formulas.for(plan) : {}
+      const { value, steps } = evaluateFormula(args.expression, inputs, { let: args.let, formulas })
+      const numeric = typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value)
+      return {
+        expression: args.expression, inputs, sources, result: value,
+        ...(numeric ? { normalized: normalize(value as string), scale: (value as string).split('.')[1]?.length ?? 0, value: Number(value) } : {}),
+        ...(args.let ? { steps } : {}),
+      }
     },
     present: (args, outcome) => {
       const value = outcome.value as { result?: string; inputs?: Record<string, unknown> } | undefined
       return {
         kind: 'calc',
-        title: outcome.status === 'ok' ? `Tính ${args.expression} = ${value?.result}` : `Tính ${args.expression} lỗi`,
+        title: outcome.status === 'ok' ? `Tính ${args.expression} = ${short(value?.result)}` : `Tính ${args.expression} lỗi`,
         expression: args.expression,
         inputs: value?.inputs ?? {},
         result: value?.result,
@@ -124,4 +137,14 @@ export function apply(ctx: Context) {
       }
     },
   })
+}
+
+/** Bỏ số 0 thừa ở cuối phần thập phân: `1.500` thành `1.5`. */
+function normalize(text: string) {
+  return text.includes('.') ? text.replace(/\.?0+$/, '') : text
+}
+
+function short(value: unknown) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  return text && text.length > 60 ? `${text.slice(0, 57)}...` : text
 }

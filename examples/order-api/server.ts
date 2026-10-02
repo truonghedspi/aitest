@@ -42,7 +42,7 @@ for (const column of ['filled_qty INTEGER NOT NULL DEFAULT 0', 'filled_at TEXT',
   try { db.exec(`ALTER TABLE orders ADD COLUMN ${column}`) } catch {}
 }
 
-type Order = { id: number; status: string; qty: number; callback_url: string | null }
+type Order = { id: number; status: string; side: string; qty: number; callback_url: string | null }
 
 const send = (res: ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
@@ -93,6 +93,33 @@ createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/') {
     return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGE)
+  }
+
+  // Tổng hợp theo mã (bỏ lệnh đã huỷ): số lệnh, khối lượng, giá trị mua bán, tổng phí (nghìn đồng), tiền ròng (đồng).
+  if (req.method === 'GET' && url.pathname === '/orders/summary') {
+    const symbol = url.searchParams.get('symbol') ?? ''
+    const rows = db.prepare("SELECT * FROM orders WHERE symbol = ? AND status != 'CANCELLED' ORDER BY id").all(symbol) as Array<Order & { price: number }>
+    const of = (side: string) => rows.filter((r) => r.side === side)
+    const value = (list: typeof rows) => list.reduce((s, r) => s + r.qty * r.price, 0)
+    const totalFee = Math.round(rows.reduce((s, r) => s + feeOf(r.qty, r.price), 0) * 100) / 100
+    return send(res, 200, {
+      symbol,
+      orders: rows.length,
+      buyQty: of('BUY').reduce((s, r) => s + r.qty, 0),
+      sellQty: of('SELL').reduce((s, r) => s + r.qty, 0),
+      buyValue: value(of('BUY')),
+      sellValue: value(of('SELL')),
+      totalFee,
+      netCash: value(of('SELL')) - value(of('BUY')) - Math.round(totalFee * 1000),
+    })
+  }
+
+  // Vị thế cộng dồn sau từng lệnh theo mã (bỏ lệnh đã huỷ): mua cộng, bán trừ.
+  if (req.method === 'GET' && url.pathname === '/orders/positions') {
+    const symbol = url.searchParams.get('symbol') ?? ''
+    const rows = db.prepare("SELECT id, side, qty FROM orders WHERE symbol = ? AND status != 'CANCELLED' ORDER BY id").all(symbol) as Array<{ id: number; side: string; qty: number }>
+    let position = 0
+    return send(res, 200, rows.map((r) => ({ id: r.id, side: r.side, qty: r.qty, position: (position += r.side === 'BUY' ? r.qty : -r.qty) })))
   }
 
   if (req.method === 'GET' && url.pathname === '/orders') {

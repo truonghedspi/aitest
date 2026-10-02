@@ -33,6 +33,37 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /orders/summary:
+    get:
+      operationId: getSummary
+      summary: Tổng hợp lệnh theo mã (bỏ lệnh đã huỷ)
+      parameters:
+        - { name: symbol, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Số lệnh, khối lượng, giá trị mua bán, tổng phí (nghìn đồng), tiền ròng (đồng)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol: { type: string }
+                  orders: { type: integer }
+                  buyQty: { type: integer }
+                  sellQty: { type: integer }
+                  buyValue: { type: number }
+                  sellValue: { type: number }
+                  totalFee: { type: number }
+                  netCash: { type: number }
+  /orders/positions:
+    get:
+      operationId: getPositions
+      summary: Vị thế cộng dồn sau từng lệnh của mã (bỏ lệnh đã huỷ)
+      parameters:
+        - { name: symbol, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Danh sách {id, side, qty, position} theo thứ tự lệnh
   /orders/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: integer }, description: Mã lệnh }

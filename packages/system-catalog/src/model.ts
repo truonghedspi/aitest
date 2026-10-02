@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import { errorMessage, loadEnvironment, toPosix, z, type EnvironmentSpec } from '@aitest/core'
+import { errorMessage, loadEnvironment, toPosix, z, type EnvironmentSpec, type FormulaDefinition } from '@aitest/core'
 
 /**
  * Mô hình hệ thống dưới kiểm thử, tách thành hai phần:
@@ -74,6 +74,8 @@ export interface SystemSpec {
   events: EventChannel[]
   consumers: Consumer[]
   data: DataStore[]
+  /** Công thức nghiệp vụ của service (`formulas.yml` cạnh `service.yml`), dùng trong expectation của plan. */
+  formulas: Record<string, FormulaDefinition>
   /** File `service.yml`, tương đối với thư mục làm việc. */
   file: string
 }
@@ -192,9 +194,11 @@ export async function loadSystem(file: string): Promise<SystemSpec> {
     if (channel.kind === 'rabbitmq' && !channel.exchange) throw new Error(`event channel ${channel.id}: rabbitmq needs exchange`)
     ids.add(channel.id)
   }
+  const formulas = await loadFormulas(join(base, 'formulas.yml'))
   return {
     id: data.id,
     title: data.title,
+    formulas,
     description: data.description,
     owner: data.owner,
     docs: data.docs.map((d) => display(resolve(base, d))),
@@ -204,6 +208,26 @@ export async function loadSystem(file: string): Promise<SystemSpec> {
     data: data.data,
     file: display(file),
   }
+}
+
+const FormulaFile = z.dict(z.object({
+  params: z.array(z.string()).default([]),
+  expr: z.string().required(),
+  let: z.dict(z.string()),
+  desc: z.string(),
+  examples: z.array(z.object({ args: z.dict(z.any()).default({}), result: z.any() })).default([]),
+}))
+
+/** Công thức nghiệp vụ của service; không có file thì rỗng. */
+export async function loadFormulas(file: string): Promise<Record<string, FormulaDefinition>> {
+  let raw: string
+  try {
+    raw = await readFile(file, 'utf8')
+  } catch {
+    return {}
+  }
+  const data = FormulaFile(parseYaml(raw) ?? {})
+  return Object.fromEntries(Object.entries(data).map(([name, f]) => [name, { ...f, source: display(file) }]))
 }
 
 /** Đọc operation từ OpenAPI 3: id lấy từ `operationId`, `$ref` nội bộ được thay bằng nội dung. */
