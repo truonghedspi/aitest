@@ -1,5 +1,5 @@
 import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
-import type { ActionCall, ActionDefinition, ActionOutcome, ActionScope, CaseScope, ScopeKind } from './types.ts'
+import type { ActionCall, ActionDefinition, ActionOutcome, ActionScope, CallIntent, CaseScope, ScopeKind } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -92,7 +92,11 @@ export class ActionRegistry extends Service {
    * Thực thi action qua pipeline `action/before` → `execute` → `action/after` → `action/result`.
    * Hàm này không ném lỗi; mọi lỗi được chuẩn hoá thành `ActionOutcome`.
    */
-  async invoke(scope: ActionScope, name: string, args: Record<string, unknown>): Promise<ActionOutcome> {
+  /**
+   * `intent` là lý do agent khai báo (gateway tách từ tham số `reason`, `step`); được ghi vào log cùng lời gọi
+   * để người dùng biết agent lấy dữ liệu gì và vì sao.
+   */
+  async invoke(scope: ActionScope, name: string, args: Record<string, unknown>, intent: CallIntent = {}): Promise<ActionOutcome> {
     const started = performance.now()
     const definition = this.list(scope).find((def) => def.name === name)
     const elapsed = () => Math.round(performance.now() - started)
@@ -101,9 +105,9 @@ export class ActionRegistry extends Service {
     }
 
     const call: ActionCall = {
-      id: `c${++this.seq}`, name, namespace: definition.namespace, args: args ?? {}, scope, definition,
+      id: `c${++this.seq}`, name, namespace: definition.namespace, args: args ?? {}, scope, definition, intent,
     }
-    scope.log('action/start', { callId: call.id, scope: scope.kind, phase: scope.phase, name, args: call.args })
+    scope.log('action/start', { callId: call.id, scope: scope.kind, phase: scope.phase, name, args: call.args, ...intent })
     let outcome: ActionOutcome
     const decision = await this.ctx.waterfall('action/before', call, async () => ({ type: 'allow' as const }))
     if (decision.type === 'deny') {
@@ -120,7 +124,7 @@ export class ActionRegistry extends Service {
     const base = outcome
     outcome = await this.ctx.waterfall('action/after', call, base, async () => base)
     scope.log('action/call', {
-      callId: call.id, scope: scope.kind, phase: scope.phase, name, args: call.args, status: outcome.status, value: outcome.value,
+      callId: call.id, scope: scope.kind, phase: scope.phase, ...intent, name, args: call.args, status: outcome.status, value: outcome.value,
       error: outcome.error, durationMs: outcome.durationMs, annotations: outcome.annotations,
       view: presentSafely(definition, call.args, outcome),
     })

@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 import type {} from '@aitest/web-host'
 import {
-  errorMessage, z,
+  errorMessage, toPosix, z,
   type ActionDefinition, type ActionScope, type Context, type Plugin, type PluginRow, type RunLog,
 } from '@aitest/core'
 import { describeConfig, type ConfigField } from './schema.ts'
@@ -253,7 +253,7 @@ async function catalogNames(baseDir: string, dirs: string[]) {
   for (const dir of dirs) {
     const full = resolve(baseDir, dir)
     for (const file of await readdir(full).catch(() => [] as string[])) {
-      if (/\.(ts|js|mjs)$/.test(file)) out.push({ module: `./${relative(baseDir, join(full, file))}`, source: 'local' })
+      if (/\.(ts|js|mjs)$/.test(file)) out.push({ module: `./${toPosix(relative(baseDir, join(full, file)))}`, source: 'local' })
     }
   }
   return out

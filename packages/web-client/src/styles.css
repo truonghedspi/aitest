@@ -246,3 +246,15 @@ button.link { background: transparent; border-color: transparent; padding: 2px 4
 .prompt { max-height: 60vh; }
 .raw-event { border-bottom: 1px solid var(--border); padding: 4px 0; }
 .run-detail select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
+
+/* Lý do gọi tool và hành trình của agent */
+.reason { font-size: 12.5px; color: var(--text); background: var(--surface-2); border-left: 3px solid var(--accent); padding: 3px 8px; margin: 4px 0; border-radius: 0 4px 4px 0; }
+.journey { display: flex; flex-direction: column; gap: 10px; }
+.journey section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.journey h4 { margin: 0 0 6px; font-size: 13.5px; }
+.journey .step-text { font-weight: 400; }
+.journey ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+
+/* Chọn model trong cuộc chat */
+.model-picker { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.model-picker select { font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; max-width: 220px; }

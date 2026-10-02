@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
-import { z, type Context } from '@aitest/core'
+import { isInside, toPosix, z, type Context } from '@aitest/core'
 import type {} from './index.ts'
 
 /**
@@ -72,7 +72,7 @@ export function apply(ctx: Context, config: Config) {
       const plans = []
       for (const dir of config.planDirs) {
         for (const file of await planFiles(resolve(dir))) {
-          const path = relative(process.cwd(), file)
+          const path = toPosix(relative(process.cwd(), file))
           try {
             const plan = await ctx.plans.load(file)
             plans.push({ path, id: plan.id, name: plan.name, cases: plan.cases.map((c) => ({ id: c.id, title: c.title })) })
@@ -106,7 +106,7 @@ export function apply(ctx: Context, config: Config) {
     },
     async execute(args: { path: string }) {
       const file = resolve(args.path)
-      const allowed = config.planDirs.some((dir) => !relative(resolve(dir), file).startsWith('..'))
+      const allowed = config.planDirs.some((dir) => isInside(dir, file))
       if (!allowed) throw new Error(`path is outside plan directories: ${args.path}`)
       return { path: args.path, content: await readFile(file, 'utf8') }
     },

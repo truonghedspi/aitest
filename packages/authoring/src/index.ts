@@ -264,6 +264,7 @@ function registerCoreTools(ctx: Context, service: AuthoringService) {
       '7. Khi người dùng đồng ý, lưu bằng `save_plan`.',
       '',
       'Luôn gửi toàn bộ nội dung plan (không gửi phần thay đổi) khi gọi `validate_plan`, `dry_run`, `save_plan`.',
+      'Mỗi lần gọi tool, điền `reason`: vì sao gọi và dùng kết quả để làm gì; người dùng xem lý do này trên giao diện.',
       'Trao đổi với người dùng bằng tiếng Việt.',
     ].join('\n'),
   })

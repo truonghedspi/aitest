@@ -11,9 +11,17 @@ import { root, setupHarness, type Call, type Harness, type Script } from './supp
 
 const PORT = 4197
 const BASE = `http://127.0.0.1:${PORT}`
-const hasBrowser = process.env.AITEST_BROWSER !== undefined
-  || existsSync('/Applications/Google Chrome.app')
-  || existsSync('/usr/bin/google-chrome')
+/** Vị trí cài Google Chrome thường gặp trên macOS, Linux, Windows. */
+const CHROME_PATHS = [
+  '/Applications/Google Chrome.app',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/opt/google/chrome/chrome',
+  join(process.env.PROGRAMFILES ?? 'C:\\Program Files', 'Google/Chrome/Application/chrome.exe'),
+  join(process.env['PROGRAMFILES(X86)'] ?? 'C:\\Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
+  join(process.env.LOCALAPPDATA ?? '', 'Google/Chrome/Application/chrome.exe'),
+]
+const hasBrowser = process.env.AITEST_BROWSER !== undefined || CHROME_PATHS.some((p) => existsSync(p))
 const skip = process.env.AITEST_SKIP_BROWSER === '1' || !hasBrowser
 
 /** Tìm `ref` của phần tử theo vai trò và tên trong snapshot, giống cách agent thật đọc snapshot. */

@@ -16,17 +16,25 @@ Kết luận pass/fail **không do AI quyết định**. Agent chỉ chỉ ra d�
 |---|---|---|
 | Node.js | 22.18 trở lên | `node -v` |
 | pnpm | 11 | `pnpm -v` |
-| Kiro CLI | Đã đăng nhập | `kiro-cli acp --help` |
+| Kiro CLI | Đã đăng nhập; Windows cần Windows 11 | `kiro-cli acp --help` |
 | Google Chrome | Chỉ cần cho test giao diện | Có trong thư mục Applications |
 
-### 2.2. Cài đặt
+### 2.2. Hệ điều hành
+
+| Hệ điều hành | Trạng thái | Ghi chú |
+|---|---|---|
+| macOS | Đã chạy thật: bộ test và Kiro | Bài test trình duyệt dùng Google Chrome |
+| Linux | Đã chạy thật bộ test trong container Debian (arm64): 62/62 | Không có Google Chrome cho Linux arm64: cài Chromium bằng `node node_modules/.pnpm/playwright@*/node_modules/playwright/cli.js install --with-deps chromium` rồi đặt `AITEST_BROWSER=chromium`. Kiro CLI hỗ trợ Linux |
+| Windows 11 | Đã rà soát và sửa các điểm phụ thuộc hệ điều hành; chưa chạy thật | Workflow CI `.github/workflows/ci.yml` chạy bộ test trên Windows khi đẩy repo lên GitHub. Kiro CLI hỗ trợ Windows 11 từ bản 2.0, cài bằng PowerShell |
+
+### 2.3. Cài đặt
 
 ```bash
 pnpm install
 pnpm test        # khoảng 10 giây, không gọi AI; mọi bài test phải đạt
 ```
 
-### 2.3. File cấu hình
+### 2.4. File cấu hình
 
 | File | Dùng khi |
 |---|---|
@@ -62,6 +70,7 @@ Plan `order.plan.yaml` có case TC-03 cố ý **fail**, vì ứng dụng mẫu c
 | `pnpm aitest run <plan>` | Chạy mọi case trong plan |
 | `pnpm aitest run <plan> --case TC-01,TC-02` | Chỉ chạy các case liệt kê |
 | `pnpm aitest run <plan> --agent <tên>` | Chọn agent khác với cấu hình |
+| `pnpm aitest run <plan> --model <id>` | Chọn model của agent, ví dụ `claude-sonnet-4.5`; xem danh sách bằng `kiro-cli chat --list-models` |
 | `pnpm aitest actions` | Liệt kê action agent có thể dùng |
 | `pnpm aitest report <events.jsonl>` | Dựng lại báo cáo từ run log |
 | `pnpm aitest -c aitest.web.yml serve` | Chạy giao diện web soạn plan cùng AI |
@@ -214,6 +223,7 @@ pnpm aitest -c aitest.web.yml serve     # mở http://127.0.0.1:4300; đổi c�
 | Vùng | Chức năng |
 |---|---|
 | Cột trái | Danh sách cuộc chat; tiêu đề tự đặt theo tin nhắn đầu tiên |
+| Đầu cuộc chat | Chọn **model** cho cuộc chat; danh sách lấy từ agent. Đổi model áp dụng cho các tin nhắn sau và được ghi vào hội thoại |
 | Cột giữa | Hội thoại; mỗi tool agent dùng hiện thành một thẻ, bấm để xem chi tiết |
 | Cột phải | "Plan đang soạn": YAML mới nhất, kết quả kiểm tra, kết quả chạy thử |
 
@@ -418,11 +428,12 @@ Bảng "Chuỗi action" liệt kê theo thứ tự mọi action đã chạy, g�
 
 Trang **Lượt chạy** (`pnpm aitest -c aitest.web.yml serve`) cho biết agent đã làm gì và vì sao case ra kết quả đó, không cần mở file log. Trang hiển thị cả lượt chạy từ CLI lẫn lượt chạy thử trong cuộc chat (nhãn "chạy thử"); lượt chạy đang diễn ra được cập nhật liên tục.
 
-Chọn một lượt chạy rồi chọn case. Case không đạt được mở sẵn.
+Chọn một lượt chạy rồi chọn case. Case không đạt được mở sẵn. Phần đầu case ghi model agent đã dùng.
 
 | Tab | Dùng để |
 |---|---|
-| **Giải thích kết quả** | Với mỗi expectation: tiêu chí (hoặc công thức), giá trị mong đợi, **giá trị thật nền tảng đọc được** và đọc ở đâu (mã evidence và path), kết luận, các lần agent thử lại. Bấm mã evidence (`ev2`) để xem nguyên văn tham số agent gửi và kết quả action trả về |
+| **Hành trình** | Theo từng bước của plan: agent gọi tool nào, **vì sao** (lý do agent tự khai báo), lấy được evidence nào, ghi chú của bước. Fixture hiển thị ở đầu và cuối, kèm `desc` trong plan |
+| **Giải thích kết quả** | Với mỗi expectation: tiêu chí (hoặc công thức), giá trị mong đợi, **giá trị thật nền tảng đọc được** và đọc ở đâu (mã evidence và path), **vì sao agent lấy dữ liệu đó**, kết luận, các lần agent thử lại. Bấm mã evidence (`ev2`) để xem nguyên văn tham số agent gửi và kết quả action trả về |
 | **Dòng thời gian** | Mọi việc theo thứ tự: fixture, prompt gửi agent, agent xin quyền, gọi tool, ghi chú từng bước, suy nghĩ và trả lời của agent, assertion, kết thúc case |
 | **Prompt gửi agent** | Nguyên văn chỉ dẫn agent nhận được, để kiểm tra plan có diễn đạt đúng ý không |
 | **Dữ liệu thô** | Từng event JSON, lọc theo loại; dùng khi cần điều tra sâu |
@@ -438,6 +449,8 @@ Cách đọc nhanh khi case có vấn đề:
 | "Agent không assert expectation này" | Xem Dòng thời gian để biết agent dừng ở đâu |
 
 Từ kết quả chạy thử trong cuộc chat, bấm "Xem log chi tiết" để mở thẳng lượt chạy đó.
+
+**Lý do của từng lời gọi tool.** Kiro không gửi phần suy nghĩ ra ngoài, kể cả khi đặt `--effort high`. Vì vậy, nền tảng yêu cầu agent khai báo `reason` (lấy dữ liệu gì, để làm gì) và `step` (phục vụ bước nào) ở mỗi lần gọi tool. Lý do được ghi vào log, hiển thị ở tab Hành trình, Giải thích kết quả, và trên thẻ tool trong cuộc chat. Lời gọi thiếu lý do vẫn chạy, nhưng được đánh dấu "Agent không nêu lý do". Fixture lấy lý do từ trường `desc` trong plan.
 
 ### 8.5. Tra `events.jsonl`
 

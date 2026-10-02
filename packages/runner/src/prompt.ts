@@ -16,6 +16,7 @@ export function registerDefaultSections(ctx: Context) {
       `- Chỉ dùng các tool của MCP server \`${ctx.gateway.config.serverName}\` (gateway kiểm thử). Không đọc/ghi file, không chạy shell.`,
       '- Không có người dùng tương tác. Không hỏi lại; nếu thiếu thông tin, chọn cách hợp lý nhất và ghi chú lại.',
       '- Thực hiện các bước theo đúng thứ tự. Dùng giá trị thật lấy từ kết quả bước trước cho bước sau.',
+      '- Mỗi lần gọi tool, điền `reason` (lấy dữ liệu gì hoặc làm gì, dùng kết quả để làm gì) và `step` (số thứ tự bước đang thực hiện). Người dùng đọc các lý do này để hiểu vì sao test ra kết quả như vậy.',
     ].join('\n'),
   })
 

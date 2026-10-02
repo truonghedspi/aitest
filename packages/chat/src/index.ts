@@ -36,6 +36,7 @@ export interface ChatSummary {
 
 export interface Config {
   agent: string
+  model?: string
   dir: string
   cwd?: string
   userTools: string[]
@@ -65,6 +66,7 @@ export class ChatService extends Service {
   static inject = ['authoring', 'agents', 'gateway', 'runlog', 'actions']
   static Config = z.object({
     agent: z.string().default('kiro').description('Agent driver cho cuộc chat.'),
+    model: z.string().description('Model mặc định cho cuộc chat mới; bỏ trống thì dùng mặc định của agent.'),
     dir: z.string().default('.aitest/chats'),
     cwd: z.string().description('Thư mục làm việc truyền cho agent; mặc định là thư mục hiện tại.'),
     userTools: z.array(z.string()).default(DEFAULT_USER_TOOLS),
@@ -265,8 +267,38 @@ export class Chat {
     return this.authoring
   }
 
-  private async ensureAgentSession() {
-    if (this.agentSession) return this.agentSession
+  /** Model đã chọn cho cuộc chat: lần chọn gần nhất trong log, nếu không có thì mặc định của service. */
+  private preferredModel() {
+    const chosen = this.log.events.findLast((e) => e.type === 'chat/model')
+    return (chosen?.data as { modelId?: string } | undefined)?.modelId ?? this.service.config.model
+  }
+
+  /** Model hiện tại và danh sách model; mở session agent nếu chưa có, để lấy danh sách từ agent. */
+  async models() {
+    const session = await this.ensureAgentSession()
+    return { current: session.models?.current ?? this.preferredModel(), available: session.models?.available ?? [], switchable: !!session.setModel }
+  }
+
+  /** Đổi model cho các lượt sau của cuộc chat. Không đổi được khi agent đang làm việc. */
+  async setModel(modelId: string) {
+    if (this.status !== 'idle') throw new Error('cannot change the model while the agent is working')
+    const session = await this.ensureAgentSession()
+    if (!session.setModel) throw new Error('this agent does not support changing the model')
+    await session.setModel(modelId)
+    this.log.append('chat/model', { modelId })
+    return this.models()
+  }
+
+  private opening?: Promise<AgentSession>
+
+  /** Mở session agent một lần; các lời gọi đồng thời (đổi model, gửi tin nhắn) dùng chung một lần mở. */
+  private ensureAgentSession(): Promise<AgentSession> {
+    if (this.agentSession) return Promise.resolve(this.agentSession)
+    this.opening ??= this.openAgentSession().finally(() => { this.opening = undefined })
+    return this.opening
+  }
+
+  private async openAgentSession() {
     const authoring = await this.ensureAuthoring()
     const exposure = await this.ctx.gateway.expose(authoring.scope)
     this.closeExposure = () => exposure.close()
@@ -276,8 +308,9 @@ export class Chat {
       mcpServers: [exposure.endpoint],
       onUpdate: (update) => this.onUpdate(update),
       onPermission: (request) => this.onPermission(request),
+      model: this.preferredModel(),
     })
-    this.log.append('agent/session', { sessionId: this.agentSession.id, agent: connection.info.name })
+    this.log.append('agent/session', { sessionId: this.agentSession.id, agent: connection.info.name, model: this.agentSession.models?.current })
     return this.agentSession
   }
 

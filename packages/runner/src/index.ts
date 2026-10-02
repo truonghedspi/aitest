@@ -20,10 +20,13 @@ export interface RunOptions {
   agent?: string
   /** Mã lượt chạy; mặc định sinh từ thời điểm và mã plan. */
   runId?: string
+  /** Model của agent cho lượt chạy; mặc định lấy từ cấu hình runner, rồi tới cấu hình driver. */
+  model?: string
 }
 
 export interface RunnerConfig {
   agent: string
+  model?: string
   caseTimeout: number
   cancelGrace: number
   cwd?: string
@@ -40,6 +43,7 @@ export class Runner extends Service {
   static inject = ['plans', 'agents', 'actions', 'prompt', 'runlog', 'gateway']
   static Config = z.object({
     agent: z.string().default('kiro').description('Agent driver mặc định.'),
+    model: z.string().description('Model của agent chạy test; bỏ trống thì dùng mặc định của driver.'),
     caseTimeout: z.natural().default(300).description('Giới hạn thời gian mặc định của một case, đơn vị giây.'),
     cancelGrace: z.natural().default(15).description('Thời gian chờ agent dừng sau khi huỷ, đơn vị giây.'),
     cwd: z.string().description('Thư mục làm việc truyền cho agent; mặc định là thư mục hiện tại.'),
@@ -70,8 +74,9 @@ export class Runner extends Service {
       connectError = errorMessage(error)
     }
 
+    const model = options.model ?? this.config.model
     for (const testCase of cases) {
-      await this.runCase(log, plan, testCase, connection, connectError, cwd)
+      await this.runCase(log, plan, testCase, connection, connectError, cwd, model)
     }
 
     await connection?.close().catch(() => {})
@@ -84,7 +89,7 @@ export class Runner extends Service {
 
   private async runCase(
     log: RunLog, plan: TestPlan, testCase: TestCase,
-    connection: AgentConnection | undefined, connectError: string | undefined, cwd: string,
+    connection: AgentConnection | undefined, connectError: string | undefined, cwd: string, model?: string,
   ) {
     const started = performance.now()
     const controller = new AbortController()
@@ -100,7 +105,7 @@ export class Runner extends Service {
       signal: controller.signal,
       log: (type, data) => { log.append(type, data, testCase.id) },
     }
-    scope.log('case/start', { id: testCase.id, title: testCase.title, expect: testCase.expect })
+    scope.log('case/start', { id: testCase.id, title: testCase.title, steps: testCase.steps, expect: testCase.expect })
     await this.ctx.parallel('case/start', scope)
 
     let base: VerdictDecision = { verdict: 'inconclusive', reasons: [] }
@@ -125,7 +130,10 @@ export class Runner extends Service {
           this.ctx.emit('case/agent-update', scope, update)
         },
         onPermission: (request) => this.decidePermission(scope, exposure.endpoint.name, request),
+        model,
       })
+      // Ghi model thật sự dùng, để người xem log biết kết quả đến từ model nào.
+      scope.log('agent/session', { sessionId: session.id, model: session.models?.current ?? model })
       const prompt = this.ctx.prompt.build(scope, this.ctx.actions.list(scope))
       scope.log('agent/prompt', { sessionId: session.id, text: prompt })
       const result = await withGrace(session.prompt(prompt, controller.signal), controller.signal, this.config.cancelGrace * 1000)
@@ -168,7 +176,8 @@ export class Runner extends Service {
   private async runFixtures(scope: CaseScope, steps: FixtureStep[]) {
     for (const [index, step] of steps.entries()) {
       const args = fillTemplate(step.args, scope.vars)
-      const outcome = await this.ctx.actions.invoke(scope, step.action, args)
+      // Lý do của fixture là `desc` do người soạn plan viết.
+      const outcome = await this.ctx.actions.invoke(scope, step.action, args, { reason: step.desc })
       if (outcome.status !== 'ok') {
         throw new Error(`${scope.phase} step ${index + 1} (${step.desc ?? step.action}) failed: ${outcome.error}`)
       }

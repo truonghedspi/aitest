@@ -104,8 +104,11 @@ export async function setupHarness(options: {
     baseUrl,
     async dispose() {
       await kernel.dispose()
+      // Chờ Order API thoát hẳn rồi mới xoá thư mục: trên Windows file SQLite còn mở thì không xoá được.
+      const exited = new Promise((done) => api.once('exit', done))
       api.kill()
-      await rm(dir, { recursive: true, force: true })
+      await exited
+      await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
     },
   }
 }

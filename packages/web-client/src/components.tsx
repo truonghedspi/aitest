@@ -21,8 +21,10 @@ export function ToolCallCard({ call, pending = false, extra }: { call: ActionCal
         {call.phase && PHASE[call.phase] && <span className="by">{PHASE[call.phase]}</span>}
         <span className="name">{title}</span>
         {evidenceId && <span className="tag">{evidenceId}</span>}
+        {call.step && <span className="tag">bước {call.step}</span>}
         {!pending && <span className="duration">{call.durationMs} ms</span>}
       </summary>
+      {call.reason && <div className="reason">Vì sao: {call.reason}</div>}
       {extra}
       {pending ? <Json value={call.args} /> : call.status === 'ok' && call.view
         ? <View call={call} view={call.view} />

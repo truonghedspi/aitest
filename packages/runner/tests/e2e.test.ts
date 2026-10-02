@@ -53,7 +53,10 @@ describe('aitest e2e (scripted agent)', () => {
   afterAll(() => harness?.dispose())
 
   it('runs the plan and derives deterministic verdicts', async () => {
-    const report = await kernel.ctx.runner.run({ plan: join(root, 'examples/plans/order.plan.yaml'), agent: 'scripted' })
+    const report = await kernel.ctx.runner.run({ plan: join(root, 'examples/plans/order.plan.yaml'), agent: 'scripted', model: 'model-x' })
+    // Model của lượt chạy được ghi vào log từng case.
+    const sessions = (await kernel.ctx.runlog.read(report.logFile!)).filter((e) => e.type === 'agent/session')
+    expect(sessions.map((e) => (e.data as { model: string }).model)).toEqual(['model-x', 'model-x', 'model-x'])
     const verdicts = Object.fromEntries(report.cases.map((c) => [c.id, c.verdict]))
     expect(verdicts).toEqual({ 'TC-01': 'pass', 'TC-02': 'pass', 'TC-03': 'fail' })
 

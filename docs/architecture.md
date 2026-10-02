@@ -395,6 +395,10 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | Dòng thời gian | `fixture/vars`, `agent/prompt`, `agent/update` (tin nhắn, suy nghĩ, tool riêng của agent kèm tham số và kết quả), `agent/permission`, `action/call`, `step/note`, `case/annotation`, `case/end` |
 | Dữ liệu thô | Mọi event của case, lọc theo loại |
 
+**Lý do gọi tool.** Kiro không gửi suy nghĩ qua ACP (đã thử với `--effort high`), nên log không có nguồn nào cho câu hỏi "vì sao agent lấy dữ liệu này". Gateway thêm vào schema của mọi tool tham số `reason` (bắt buộc) và `step`, tách khỏi tham số trước khi chạy action và truyền vào `ActionRegistry.invoke` dưới dạng `intent`; registry ghi `reason`, `step` vào `action/start`, `action/call`. Tool có sẵn tham số trùng tên dùng `agent_reason`, `agent_step`. Fixture dùng `desc` của plan làm lý do. Lời gọi thiếu lý do vẫn chạy và được đánh dấu trên giao diện. Tab **Hành trình** gom lời gọi theo bước (`case/start` ghi danh sách bước).
+
+**Model.** Driver ACP đọc danh sách model từ `session/new` (trường `models`, phần mở rộng chưa ổn định của ACP) và đổi model bằng `session/set_model`. Cuộc chat ghi `chat/model` khi người dùng đổi; lượt chạy ghi `agent/session` kèm model cho từng case.
+
 `runs.subscribe` gửi snapshot rồi đọc tiếp file theo vị trí byte cho tới khi gặp `run/end`; dòng ghi dở được để lại cho lần đọc sau. Nhờ vậy, Host theo dõi được cả lượt chạy CLI ở process khác. Tool riêng của agent (ví dụ Kiro đọc file) được ghi tham số và kết quả vào `agent/update`, rút gọn ở 4.000 ký tự.
 
 ### 7.8. Kiểm thử
@@ -483,7 +487,7 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 
 | Kịch bản | Kết quả |
 |---|---|
-| Bộ kiểm thử tự động với agent kịch bản (`pnpm test`) | 56/56 đạt, khoảng 10 s |
+| Bộ kiểm thử tự động với agent kịch bản (`pnpm test`) | 62/62 đạt trên macOS và Linux, khoảng 10 s |
 | Kiro chạy `order.plan.yaml` (API) | TC-01 pass, TC-02 pass, TC-03 fail đúng do lỗi cố ý; tổng 80,6 s |
 | Kiro chạy `order-integration.plan.yaml` | IT-01 (webhook và `wait_until`) pass, IT-02 (fixture có `save`) pass; tổng 91,0 s |
 | Kiro chạy `order-ui.plan.yaml` qua Chrome | E2E-01 pass, E2E-02 pass; tổng 89,8 s |
@@ -494,6 +498,9 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Trang Plugin và Tool, điều khiển bằng Playwright | Thêm MCP server `quote` qua form, tắt/bật plugin, thêm plugin từ danh mục, chạy thử `quote_get`, tắt `quote_list` |
 | Kiro chạy `order-fee.plan.yaml` (expectation dạng công thức) | Kiro gắn `inputs` từ evidence DB ngay lần đầu; FEE-01 pass; FEE-02 fail đúng: nền tảng tính 1,55, API trả 1,54 do lỗi `toFixed` cài cố ý |
 | Trang Lượt chạy theo dõi lượt chạy CLI của Kiro (process khác) | Danh sách hiện "Đang chạy" rồi cập nhật kết quả; phần giải thích của FEE-02 nêu công thức, `qty`, `price` đọc từ `ev3`, giá trị thật 1.54 tại `ev2 $.body.fee`, lỗi đã biết |
+| Kiro khai báo lý do khi gọi tool | Mọi lời gọi của agent trong FEE-02 có `reason`, `step` đúng; ví dụ "Truy vấn bảng orders theo id=14 vừa nhận để lấy qty và price đã lưu, dùng làm inputs cho assert fee-correct" |
+| Đổi model trong cuộc chat | Danh sách 9 model lấy từ Kiro; sau khi đổi sang `claude-haiku-4.5`, agent trả lời "Tôi là Claude Haiku 4.5" |
+| Linux (container Debian arm64, Node 22) | Cài đặt, typecheck, build giao diện đạt; 62/62 bài test đạt, bài test trình duyệt dùng Chromium của Playwright |
 | Kiro chạy TC-03 với ghi chú lỗi `order-odd-lot-accepted` | Console và báo cáo ghi "lỗi đã biết" |
 | Kiro soạn plan huỷ lệnh đã khớp trong cuộc chat | Tự gọi `kb_list`, áp dụng bài học về độ trễ callback, theo quy ước mã plan và `dbadmin`; chạy thử 2/2 pass; đề xuất một bài học mới, ghi sau khi được duyệt |
 | Khởi động lại Host rồi nhờ Kiro dùng tool vừa thêm | MCP server nạp lại từ patch layer, `quote_list` vẫn tắt; Kiro gọi `quote_get` qua `explore` và trả đúng giá trần |
@@ -525,6 +532,8 @@ Phát hiện khi soạn plan cùng agent:
 | Một process agent cho cả lượt chạy | Tiết kiệm thời gian khởi động | Thêm tuỳ chọn mỗi case một process khi cần cô lập tuyệt đối |
 | Agent loop chạy ở Kiro nên aitest không thấy suy luận nội bộ hay prompt hệ thống của Kiro | Ghi mọi thứ ACP gửi về và mọi văn bản aitest gửi đi | Thêm driver tự gọi LLM khi cần kiểm soát từng bước như dsh |
 | Web host chưa có đăng nhập; ai mở được trang đều thêm được MCP server, tức là chạy được lệnh trên máy Host | Mặc định chỉ lắng nghe `127.0.0.1`; mọi thao tác ghi log kiểm toán | Thêm plugin xác thực và phân quyền quản trị trước khi mở cho nhóm |
+| Chưa chạy thật trên Windows | Đã sửa các điểm đã biết: khởi chạy lệnh `.cmd` bằng `cross-spawn`, kiểm tra đường dẫn khác ổ đĩa (`isInside`), dòng CRLF trong ghi chú, xoá thư mục khi file còn mở, `.gitattributes` giữ LF | Workflow CI chạy bộ test trên Windows, Linux, macOS khi đẩy repo lên GitHub |
+| Cổng thuộc danh sách "bad port" của chuẩn Fetch (ví dụ 4190, 6000) | `http_request` báo lỗi kèm nguyên nhân `bad port` | Đổi cổng của hệ thống cần kiểm thử, hoặc thêm action HTTP không dùng `fetch` |
 | Thêm package npm mới chưa làm được từ giao diện | Danh mục chỉ gồm package đã cài và file cục bộ | Thêm thao tác cài package như `install_bundle` của dsh |
 | Chạy thử trong cuộc chat khởi chạy thêm một process Kiro | Cách ly agent soạn plan với agent chạy test | Dùng chung process khi tải lớn |
 | Hai người cùng mở một cuộc chat | Log đúng thứ tự nhưng có thể gửi chồng tin nhắn; Host từ chối tin nhắn khi agent đang làm việc | Thêm khoá theo người dùng khi có đăng nhập |

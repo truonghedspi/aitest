@@ -11,7 +11,8 @@ import { bootFromFile, deriveReport, PlanError, type Kernel } from '@aitest/core
 const USAGE = `aitest — nền tảng AI tự đọc kịch bản và chạy test
 
 Cách dùng:
-  aitest run <plan> [--case TC-01,TC-02] [--agent kiro]   Chạy test plan, mã thoát khác 0 nếu có case không pass
+  aitest run <plan> [--case TC-01,TC-02] [--agent kiro] [--model <id>]
+                                                          Chạy test plan, mã thoát khác 0 nếu có case không pass
   aitest validate <plan>                                  Kiểm tra cú pháp và schema của plan
   aitest actions                                          Liệt kê action đã đăng ký
   aitest report <events.jsonl>                            Dựng lại báo cáo từ run log (replay)
@@ -30,6 +31,7 @@ export async function main(argv: string[]) {
       config: { type: 'string', short: 'c', default: 'aitest.yml' },
       case: { type: 'string' },
       agent: { type: 'string' },
+      model: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   })
@@ -60,10 +62,11 @@ export async function main(argv: string[]) {
   }
 }
 
-async function run(kernel: Kernel, plan: string, values: { case?: string; agent?: string }) {
+async function run(kernel: Kernel, plan: string, values: { case?: string; agent?: string; model?: string }) {
   const report = await kernel.ctx.runner.run({
     plan,
     agent: values.agent,
+    model: values.model,
     cases: values.case?.split(',').map((s) => s.trim()).filter(Boolean),
   })
   return report.totals.pass === report.totals.total ? 0 : 1

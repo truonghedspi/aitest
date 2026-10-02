@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, isInitializeRequest, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { Service, z, type ActionScope, type Context, type McpEndpoint } from '@aitest/core'
+import { Service, z, type ActionScope, type Context, type JsonSchemaObject, type McpEndpoint } from '@aitest/core'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -37,13 +37,14 @@ export class McpGateway extends Service {
     port: z.natural().default(0).description('0 nghĩa là hệ điều hành tự cấp cổng trống.'),
     serverName: z.string().default('aitest').description('Tên MCP server mà agent nhìn thấy.'),
     maxResultChars: z.natural().default(20000).description('Cắt bớt kết quả tool dài hơn ngưỡng này.'),
+    requireReason: z.boolean().default(true).description('Bắt buộc agent khai báo `reason` khi gọi tool, để log ghi được vì sao agent gọi.'),
   })
 
   private http?: HttpServer
   private starting?: Promise<string>
   private readonly bindings = new Map<string, Binding>()
 
-  constructor(ctx: Context, public config: { host: string; port: number; serverName: string; maxResultChars: number }) {
+  constructor(ctx: Context, public config: { host: string; port: number; serverName: string; maxResultChars: number; requireReason: boolean }) {
     super(ctx, 'gateway')
     ctx.effect(() => () => this.stop(), 'gateway.http')
   }
@@ -125,7 +126,7 @@ export class McpGateway extends Service {
  * Dùng chung cho endpoint HTTP của gateway và cho transport stdio (`aitest mcp`).
  */
 export function createToolServer(
-  ctx: Context, scope: ActionScope, options: { serverName: string; maxResultChars: number },
+  ctx: Context, scope: ActionScope, options: { serverName: string; maxResultChars: number; requireReason?: boolean },
 ) {
   const server = new Server({ name: options.serverName, version: '0.1.0' }, { capabilities: { tools: {} } })
 
@@ -133,14 +134,21 @@ export function createToolServer(
     tools: ctx.actions.list(scope).map((def) => ({
       name: def.name,
       description: def.description,
-      inputSchema: def.inputSchema,
+      inputSchema: withIntent(def.inputSchema, options.requireReason ?? true).schema,
       annotations: { readOnlyHint: def.readOnly ?? false },
     })),
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params
-    const outcome = await ctx.actions.invoke(scope, name, (args ?? {}) as Record<string, unknown>)
+    const { name, arguments: raw } = request.params
+    const definition = ctx.actions.get(name)
+    const keys = withIntent(definition?.inputSchema ?? { type: 'object' }, false).keys
+    const { [keys.reason]: reason, [keys.step]: step, ...args } = (raw ?? {}) as Record<string, unknown>
+    const intent = {
+      reason: typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 1000) : undefined,
+      step: typeof step === 'number' && Number.isInteger(step) && step > 0 ? step : undefined,
+    }
+    const outcome = await ctx.actions.invoke(scope, name, args, intent)
     // `outcome` thay vì `status` để không nhầm với HTTP status bên trong `result`.
     const payload = {
       outcome: outcome.status,
@@ -155,6 +163,27 @@ export function createToolServer(
   })
 
   return server
+}
+
+/**
+ * Thêm tham số `reason` (lý do gọi) và `step` (bước phục vụ) vào schema của tool, để agent tự khai báo
+ * vì sao gọi và log ghi lại được hành trình của agent. Agent không gửi suy nghĩ qua ACP (Kiro), nên đây là
+ * nguồn duy nhất cho câu hỏi "agent lấy dữ liệu này để làm gì". Tool đã có tham số trùng tên thì dùng
+ * `agent_reason`, `agent_step`.
+ */
+export function withIntent(schema: JsonSchemaObject, requireReason: boolean) {
+  const properties = { ...(schema.properties ?? {}) }
+  const keys = {
+    reason: 'reason' in properties ? 'agent_reason' : 'reason',
+    step: 'step' in properties ? 'agent_step' : 'step',
+  }
+  properties[keys.reason] = {
+    type: 'string',
+    description: 'Vì sao gọi tool này: lấy dữ liệu gì hoặc làm việc gì, và dùng kết quả để làm gì. Một câu ngắn, tiếng Việt.',
+  }
+  properties[keys.step] = { type: 'integer', minimum: 1, description: 'Số thứ tự bước trong test case mà lời gọi này phục vụ, nếu có.' }
+  const required = [...(schema.required ?? []), ...(requireReason ? [keys.reason] : [])]
+  return { schema: { ...schema, properties, required }, keys }
 }
 
 export default McpGateway

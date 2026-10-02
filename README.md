@@ -9,6 +9,7 @@ Nền tảng cho AI agent tự đọc test plan, tự thực thi các bước qu
 
 - Node.js 22.18 trở lên, pnpm 11
 - `kiro-cli` đã đăng nhập (`kiro-cli acp --help` chạy được)
+- macOS, Linux hoặc Windows 11. Bộ test đã chạy thật trên macOS và Linux; Windows được kiểm chứng qua CI (`.github/workflows/ci.yml`). Chi tiết ở mục 2.2 của [hướng dẫn sử dụng](docs/user-guide.md).
 
 ## Bắt đầu nhanh
 

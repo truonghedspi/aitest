@@ -1,6 +1,6 @@
 import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve } from 'node:path'
-import { z, type Context } from '@aitest/core'
+import { isInside, toPosix, z, type Context } from '@aitest/core'
 import type {} from './index.ts'
 
 /**
@@ -44,7 +44,7 @@ export function apply(ctx: Context, config: Config) {
     },
     async execute(args: { path: string; content: string; overwrite?: boolean }) {
       const file = resolve(root, args.path)
-      if (relative(root, file).startsWith('..') || !/\.plan\.ya?ml$/.test(file)) {
+      if (!isInside(root, file) || file === root || !/\.plan\.ya?ml$/.test(file)) {
         throw new Error(`path must be a *.plan.yaml file inside ${config.dir}`)
       }
       const result = await ctx.authoring.validate(args.content, file)
@@ -55,7 +55,7 @@ export function apply(ctx: Context, config: Config) {
       if (exists && !args.overwrite) throw new Error(`file exists: ${relative(process.cwd(), file)}; set overwrite to replace it`)
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, args.content.endsWith('\n') ? args.content : args.content + '\n')
-      return { path: relative(process.cwd(), file), overwritten: exists, planId: result.plan!.id }
+      return { path: toPosix(relative(process.cwd(), file)), overwritten: exists, planId: result.plan!.id }
     },
     present: (args, outcome) => ({
       kind: 'plan-saved',

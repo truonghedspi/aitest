@@ -98,7 +98,8 @@ export class NoteStore {
 }
 
 export function parseNote(text: string, type: NoteType, fallbackId: string): Note {
-  const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text)
+  // Chấp nhận cả dòng kết thúc CRLF (file sửa trên Windows).
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text.replace(/^\uFEFF/, ''))
   const meta = (match ? parseYaml(match[1]) : {}) ?? {}
   return {
     ...meta,

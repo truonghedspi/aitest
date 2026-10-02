@@ -85,6 +85,8 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 - **Fixture không qua AI.** `setup`/`teardown` do runner chạy; lỗi setup cho verdict `error` và không gọi agent; teardown luôn chạy.
 - **Giao diện dựng từ log.** Mọi thứ giao diện hiển thị lâu dài phải là event trong log của cuộc chat; chỉ token đang stream đi qua `chat/live`. Thông tin hiển thị mới đòi hỏi event mới hoặc trường mới trong `view`.
 - **Thay đổi lúc chạy đi vào patch layer.** Bật/tắt, cấu hình, thêm/gỡ plugin và tắt tool chỉ đi qua `ctx.kernel`; kernel ghi `*.patch.yml` khi plugin nạp thành công. Không sửa file cấu hình gốc từ code.
+- **Mọi lời gọi tool của agent có lý do.** Gateway thêm `reason`, `step` vào schema và tách ra thành `intent` trước khi gọi `invoke`. Không bỏ cơ chế này: agent (Kiro) không gửi suy nghĩ qua ACP, nên đây là nguồn duy nhất giải thích vì sao agent lấy dữ liệu.
+- **Chạy được trên macOS, Linux, Windows.** Khởi chạy process bằng `cross-spawn` (hoặc qua MCP SDK); kiểm tra đường dẫn bằng `isInside`; ghi đường dẫn hiển thị bằng `toPosix`; đọc file văn bản chấp nhận CRLF. CI chạy cả ba hệ điều hành.
 - **Agent chạy test không đọc tri thức.** Tool `kb_*` chỉ có scope `authoring`; lỗi đã biết chỉ được dùng để phân loại kết quả trong báo cáo, qua `case/annotation`.
 - **Duyệt trước khi ghi.** Tool soạn plan chỉ đọc được duyệt tự động; `dry_run`, `save_plan` và tool riêng của agent cần người dùng duyệt.
 - **Tính năng mới đi qua plugin.** Thêm hành vi bằng service, event hoặc action mới; chỉ sửa runner khi điểm mở rộng hiện có không đủ, và cập nhật docs/architecture.md cùng lúc.

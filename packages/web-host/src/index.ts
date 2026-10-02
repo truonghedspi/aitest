@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { extname, join, normalize, resolve } from 'node:path'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { Service, errorMessage, z, type Context } from '@aitest/core'
+import { isInside, Service, errorMessage, z, type Context } from '@aitest/core'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -76,8 +76,15 @@ export class WebHost extends Service {
   private start() {
     const root = resolve(this.config.staticDir)
     const http = createServer(async (req, res) => {
-      const path = normalize(decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '')
-      let file = join(root, path)
+      let pathname: string
+      try {
+        pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+      } catch {
+        return void res.writeHead(400).end()
+      }
+      let file = join(root, normalize(pathname))
+      // Chặn đường dẫn thoát khỏi thư mục giao diện, kể cả dạng `..\` và đổi ổ đĩa trên Windows.
+      if (!isInside(root, file)) return void res.writeHead(403).end()
       const info = await stat(file).catch(() => undefined)
       if (!info || info.isDirectory()) file = join(root, 'index.html')
       const exists = await stat(file).catch(() => undefined)

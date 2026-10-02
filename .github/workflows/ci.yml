@@ -1,0 +1,29 @@
+# Chạy typecheck, build giao diện và toàn bộ bài test trên Linux, Windows, macOS.
+# Bài test dùng agent kịch bản nên không cần Kiro hay API key.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm web:build
+      # Runner của GitHub có sẵn Google Chrome, nên bài test trình duyệt chạy được trên cả ba hệ điều hành.
+      - run: pnpm test

@@ -15,6 +15,11 @@ export const chatPage: ClientPlugin = (s) => {
 
 const STATUS_LABEL = { idle: 'Sẵn sàng', running: 'Agent đang làm việc…', waiting: 'Chờ bạn duyệt' } as const
 
+/** Tiêu đề lấy từ log (`chat/renamed` gần nhất), để cập nhật ngay khi cuộc chat tự đặt tên. */
+function chatTitle(events: Array<{ type: string; data: any }>): string | undefined {
+  return events.findLast((e) => e.type === 'chat/renamed' || e.type === 'chat/created')?.data?.title
+}
+
 async function createChat(navigate: (path: string) => void) {
   const chat = await connection.call<ChatSummary>('chats.create', {})
   navigate(`chat/${chat.id}`)
@@ -63,7 +68,8 @@ function ChatView({ chatId }: { chatId: string }) {
     <>
       <main className="conversation">
         <header>
-          <h2>{chat.summary?.title ?? '…'}</h2>
+          <h2>{chatTitle(chat.events) ?? chat.summary?.title ?? '…'}</h2>
+          <ModelPicker chatId={chatId} busy={chat.status !== 'idle'} />
           <span className={`status ${chat.status}`}>{STATUS_LABEL[chat.status]}</span>
         </header>
         <div className="timeline">
@@ -95,6 +101,52 @@ function Item({ item, chatId }: { item: TimelineItem; chatId: string }) {
     case 'note': return <div className="note">{item.text}</div>
     case 'error': return <div className="note bad">Lỗi: {item.text}</div>
   }
+}
+
+interface ModelState {
+  current?: string
+  available: Array<{ id: string; name: string; description?: string }>
+  switchable: boolean
+}
+
+/**
+ * Chọn model cho cuộc chat. Danh sách lấy từ agent (mở session agent nếu chưa có).
+ * Đổi model áp dụng cho các lượt sau và được ghi vào log của cuộc chat.
+ */
+function ModelPicker({ chatId, busy }: { chatId: string; busy: boolean }) {
+  const [state, setState] = useState<ModelState>()
+  const [error, setError] = useState<string>()
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    setState(undefined)
+    connection.call<ModelState>('chats.models', { chatId }).then(setState, (e) => setError(e.message))
+  }, [chatId])
+
+  if (error && !state) return <span className="bad small" title={error}>Không tải được model</span>
+  if (!state) return <span className="muted small">Đang tải model…</span>
+  if (!state.available.length) return <span className="muted small">Model: {state.current ?? 'mặc định'}</span>
+
+  const change = async (modelId: string) => {
+    setSaving(true)
+    setError(undefined)
+    try {
+      setState(await connection.call<ModelState>('chats.setModel', { chatId, modelId }))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+  const current = state.available.find((m) => m.id === state.current)
+  return (
+    <label className="model-picker" title={current?.description ?? ''}>
+      <span className="muted small">Model</span>
+      <select value={state.current ?? ''} disabled={busy || saving || !state.switchable} onChange={(e) => change(e.target.value)}>
+        {state.available.map((m) => <option key={m.id} value={m.id} title={m.description}>{m.name}</option>)}
+      </select>
+      {error && <span className="bad small" title={error}>!</span>}
+    </label>
+  )
 }
 
 function PermissionCard({ item, chatId }: { item: Extract<TimelineItem, { kind: 'permission' }>; chatId: string }) {

@@ -83,6 +83,7 @@ interface Assertion {
 interface CaseView {
   id: string
   title: string
+  steps: string[]
   expect: Array<{ id: string; desc: string; check?: { op: string; value?: unknown; expr?: string } }>
   events: RunEvent[]
   evidence: Map<string, Evidence>
@@ -91,6 +92,7 @@ interface CaseView {
   annotations: Record<string, Array<{ id: string; title: string }>>
   prompt?: string
   summary: string
+  model?: string
 }
 
 function deriveCases(events: RunEvent[]): CaseView[] {
@@ -98,7 +100,7 @@ function deriveCases(events: RunEvent[]): CaseView[] {
   for (const e of events) {
     if (e.type === 'case/start') {
       cases.set(e.data.id, {
-        id: e.data.id, title: e.data.title, expect: e.data.expect, events: [], evidence: new Map(), assertions: [],
+        id: e.data.id, title: e.data.title, steps: e.data.steps ?? [], expect: e.data.expect, events: [], evidence: new Map(), assertions: [],
         annotations: {}, summary: '',
       })
       continue
@@ -111,6 +113,7 @@ function deriveCases(events: RunEvent[]): CaseView[] {
     if (e.type === 'case/end') c.end = e.data
     if (e.type === 'case/annotation') c.annotations[e.data.key] = e.data.value
     if (e.type === 'agent/prompt') c.prompt = e.data.text
+    if (e.type === 'agent/session') c.model = e.data.model
     if (e.type === 'agent/update' && e.data.kind === 'message' && e.data.text) c.summary = e.data.text
   }
   return [...cases.values()]
@@ -225,24 +228,25 @@ function RunDetail({ runId, caseId, navigate }: { runId: string; caseId?: string
 }
 
 function CaseDetail({ item }: { item: CaseView }) {
-  const [tab, setTab] = useState<'why' | 'timeline' | 'prompt' | 'raw'>('why')
+  const [tab, setTab] = useState<'why' | 'journey' | 'timeline' | 'prompt' | 'raw'>('why')
   const [evidence, setEvidence] = useState<string>()
   const verdict = item.end?.verdict ?? 'running'
   return (
     <section className="case-detail">
       <div className={`verdict-box ${verdict}`}>
         <div className="verdict-title">{ICON[verdict]} {item.id} — {item.title}: <b>{VERDICT[verdict] ?? verdict}</b></div>
-        {item.end && <div className="muted small">{(item.end.durationMs / 1000).toFixed(1)} s · agent dừng: {item.end.stopReason ?? '—'}</div>}
+        {item.end && <div className="muted small">{(item.end.durationMs / 1000).toFixed(1)} s · model {item.model ?? 'mặc định'} · agent dừng: {item.end.stopReason ?? '—'}</div>}
         {item.end?.reasons.length ? <ul>{item.end.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul> : null}
         {item.annotations.knownIssues && <div className="warn small">Lỗi đã biết: {item.annotations.knownIssues.map((i) => `${i.id} (${i.title})`).join(', ')}</div>}
         {item.annotations.possiblyFixed && <div className="ok small">Có thể đã sửa: {item.annotations.possiblyFixed.map((i) => i.id).join(', ')}</div>}
       </div>
       <div className="tabs inline">
-        {([['why', 'Giải thích kết quả'], ['timeline', 'Dòng thời gian'], ['prompt', 'Prompt gửi agent'], ['raw', 'Dữ liệu thô']] as const).map(([id, label]) => (
+        {([['why', 'Giải thích kết quả'], ['journey', 'Hành trình'], ['timeline', 'Dòng thời gian'], ['prompt', 'Prompt gửi agent'], ['raw', 'Dữ liệu thô']] as const).map(([id, label]) => (
           <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
       {tab === 'why' && <Explanation item={item} onEvidence={setEvidence} />}
+      {tab === 'journey' && <Journey item={item} onEvidence={setEvidence} />}
       {tab === 'timeline' && <Timeline item={item} onEvidence={setEvidence} />}
       {tab === 'prompt' && (item.prompt ? <pre className="code prompt">{item.prompt}</pre> : <div className="muted">Case chưa gửi prompt cho agent (có thể lỗi ở bước chuẩn bị).</div>)}
       {tab === 'raw' && <RawEvents events={item.events} />}
@@ -282,6 +286,9 @@ function Explanation({ item, onEvidence }: { item: CaseView; onEvidence(id: stri
                         {Object.entries(final.inputs ?? {}).map(([n, i]) => (
                           <span key={n}><code>{n} = {JSON.stringify(i.value)}</code> (<EvidenceLink id={i.evidenceId} onOpen={onEvidence} /> <code>{i.path}</code>) </span>
                         ))}
+                        {[...new Set(Object.values(final.inputs ?? {}).map((i) => i.evidenceId))].map((id) => (
+                          <div key={id} className="muted small">{id}: <Why call={item.evidence.get(id)?.call} /></div>
+                        ))}
                       </dd>
                     </>
                   )}
@@ -290,6 +297,8 @@ function Explanation({ item, onEvidence }: { item: CaseView; onEvidence(id: stri
                     <code>{JSON.stringify(final.actual) ?? 'undefined'}</code> đọc tại <EvidenceLink id={final.evidenceId} onOpen={onEvidence} /> <code>{final.path}</code>
                     {final.evidenceId && item.evidence.get(final.evidenceId) && <span className="muted small"> — kết quả của <code>{item.evidence.get(final.evidenceId)!.call.name}</code></span>}
                   </dd>
+                  <dt>Vì sao lấy dữ liệu này</dt>
+                  <dd><Why call={final.evidenceId ? item.evidence.get(final.evidenceId)?.call : undefined} /></dd>
                   <dt>Kết luận</dt>
                   <dd className={final.passed ? 'ok' : 'bad'}>{final.passed ? 'Đạt' : final.message}</dd>
                   {attempts.length > 1 && (
@@ -315,6 +324,65 @@ function Explanation({ item, onEvidence }: { item: CaseView; onEvidence(id: stri
         )
       })}
       {item.summary && <div className="agent-summary"><div className="field-name">Tóm tắt cuối cùng của agent</div><Markdown text={item.summary} /></div>}
+    </div>
+  )
+}
+
+/** Lý do agent khai báo khi gọi action tạo ra evidence; fixture do nền tảng chạy nên không có lý do. */
+function Why({ call }: { call?: ActionCallData }) {
+  if (!call) return <span className="muted">—</span>
+  if (call.phase && call.phase !== 'agent') return <span className="muted">Dữ liệu từ fixture do nền tảng chạy{call.reason ? `: ${call.reason}` : '.'}</span>
+  return call.reason
+    ? <span>{call.reason}{call.step ? <span className="muted small"> (bước {call.step})</span> : null}</span>
+    : <span className="warn small">Agent không nêu lý do.</span>
+}
+
+/**
+ * Hành trình theo từng bước của test case: agent gọi gì, vì sao, lấy được evidence nào, ghi chú của bước.
+ * Lời gọi agent không gắn bước được gom vào mục riêng; fixture hiển thị ở đầu và cuối.
+ */
+function Journey({ item, onEvidence }: { item: CaseView; onEvidence(id: string): void }) {
+  const calls = item.events.filter((e) => e.type === 'action/call').map((e) => e.data as ActionCallData & { annotations?: { evidenceId?: string } })
+  const notes = item.events.filter((e) => e.type === 'step/note').map((e) => e.data as { step: number; status: string; note?: string })
+  const agentCalls = calls.filter((c) => (c.phase ?? 'agent') === 'agent' && c.name !== 'note_step')
+  const unassigned = agentCalls.filter((c) => !c.step || c.step > item.steps.length)
+  const fixtures = (phase: string) => calls.filter((c) => c.phase === phase)
+  const asserts = new Set(['assert_expectation'])
+  const Call = ({ c }: { c: ActionCallData & { annotations?: { evidenceId?: string } } }) => (
+    <li className={c.status === 'ok' ? '' : 'bad'}>
+      <code>{c.view?.title ?? c.name}</code>
+      {c.annotations?.evidenceId && <> → <EvidenceLink id={c.annotations.evidenceId} onOpen={onEvidence} /></>}
+      {c.status !== 'ok' && <span className="bad small"> ({c.status}: {c.error})</span>}
+      <div className="reason">
+        {c.reason ? `Vì sao: ${c.reason}`
+          : c.phase && c.phase !== 'agent' ? <span className="muted">Fixture trong plan, không có mô tả (`desc`).</span>
+            : asserts.has(c.name) ? 'Đối chiếu kết quả với expectation.' : <span className="warn">Agent không nêu lý do.</span>}
+      </div>
+    </li>
+  )
+  return (
+    <div className="journey">
+      {fixtures('setup').length > 0 && (
+        <section><h4>Chuẩn bị dữ liệu (nền tảng chạy, không qua agent)</h4><ul>{fixtures('setup').map((c) => <Call key={c.callId} c={c} />)}</ul></section>
+      )}
+      {item.steps.map((text, i) => {
+        const n = i + 1
+        const inStep = agentCalls.filter((c) => c.step === n)
+        const stepNotes = notes.filter((x) => x.step === n)
+        return (
+          <section key={n} className="journey-step">
+            <h4>Bước {n}: <span className="step-text">{text}</span></h4>
+            {inStep.length ? <ul>{inStep.map((c) => <Call key={c.callId} c={c} />)}</ul> : <div className="muted small">Không có lời gọi tool nào gắn với bước này.</div>}
+            {stepNotes.map((x, k) => <div key={k} className={`small ${x.status === 'failed' ? 'bad' : 'muted'}`}>Agent ghi nhận: {x.status}{x.note ? ` — ${x.note}` : ''}</div>)}
+          </section>
+        )
+      })}
+      {unassigned.length > 0 && (
+        <section className="journey-step"><h4>Không gắn với bước nào</h4><ul>{unassigned.map((c) => <Call key={c.callId} c={c} />)}</ul></section>
+      )}
+      {fixtures('teardown').length > 0 && (
+        <section><h4>Dọn dữ liệu (nền tảng chạy)</h4><ul>{fixtures('teardown').map((c) => <Call key={c.callId} c={c} />)}</ul></section>
+      )}
     </div>
   )
 }

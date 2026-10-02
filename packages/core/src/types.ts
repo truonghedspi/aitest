@@ -180,6 +180,13 @@ export interface ActionDefinition<A = any> {
   present?(args: A, outcome: ActionOutcome): ToolView | undefined
 }
 
+/** Lý do agent tự khai báo cho một lời gọi tool: lấy dữ liệu gì, để làm gì, phục vụ bước nào. */
+export interface CallIntent {
+  reason?: string
+  /** Số thứ tự bước trong test case (đánh số từ 1). */
+  step?: number
+}
+
 export interface ActionCall {
   id: string
   name: string
@@ -187,6 +194,7 @@ export interface ActionCall {
   args: Record<string, unknown>
   scope: ActionScope
   definition: ActionDefinition
+  intent: CallIntent
 }
 
 export type ActionStatus = 'ok' | 'error' | 'denied'
@@ -217,8 +225,17 @@ export interface AgentUpdate {
   raw: unknown
 }
 
+/** Một model mà agent cho phép chọn. */
+export interface AgentModel {
+  id: string
+  name: string
+  description?: string
+}
+
 export interface AgentSessionOptions {
   cwd: string
+  /** Model dùng cho session; bỏ trống thì dùng mặc định của agent. */
+  model?: string
   mcpServers: McpEndpoint[]
   onUpdate(update: AgentUpdate): void
   /** Hook xin quyền dùng tool của agent; trả về `true` để cho phép. */
@@ -227,6 +244,10 @@ export interface AgentSessionOptions {
 
 export interface AgentSession {
   id: string
+  /** Model hiện tại và danh sách model chọn được, nếu agent công bố. */
+  models?: { current?: string; available: AgentModel[] }
+  /** Đổi model của session; không có khi agent không hỗ trợ đổi model. */
+  setModel?(modelId: string): Promise<void>
   prompt(text: string, signal: AbortSignal): Promise<{ stopReason: string }>
   close(): Promise<void>
 }
@@ -279,6 +300,9 @@ export interface AssertionRecord {
 
 export interface ActionRecord {
   callId: string
+  /** Lý do agent khai báo khi gọi; không có với fixture và thao tác của người dùng. */
+  reason?: string
+  step?: number
   /** Loại scope thực hiện lời gọi; lời gọi `explore` lồng trong tool `explore` của phiên soạn plan. */
   scope?: ScopeKind
   phase?: ActionPhase

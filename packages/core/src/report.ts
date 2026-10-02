@@ -10,6 +10,7 @@ export interface RunStartData {
 export interface CaseStartData {
   id: string
   title: string
+  steps?: string[]
   expect: Expectation[]
 }
 

@@ -9,8 +9,9 @@ plugins:
       namespace: browser
       # Tool của Playwright MCP đã có tiền tố `browser_`.
       prefix: ''
-      command: ./node_modules/.bin/playwright-mcp
-      args: ['--headless', '--isolated', '--browser', '${env.AITEST_BROWSER:-chrome}', '--output-dir', '.aitest/playwright']
+      # Chạy qua `node` để giống nhau trên macOS, Linux, Windows (Windows không chạy trực tiếp được file trong .bin).
+      command: node
+      args: ['node_modules/@playwright/mcp/cli.js', '--headless', '--isolated', '--browser', '${env.AITEST_BROWSER:-chrome}', '--output-dir', '.aitest/playwright']
       # Bỏ các tool cho phép chạy mã tuỳ ý trong trang.
       exclude: [browser_run_code_unsafe, browser_evaluate, browser_file_upload]
       readOnly: [browser_snapshot, browser_take_screenshot, browser_console_messages, browser_network_requests, browser_network_request, browser_find, browser_tabs]

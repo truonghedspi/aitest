@@ -69,6 +69,10 @@ export function apply(ctx: Context, config: Config) {
         headers,
         body,
         signal: AbortSignal.any([signal, AbortSignal.timeout(config.timeout * 1000)]),
+      }).catch((error: Error & { cause?: { code?: string; message?: string } }) => {
+        // `fetch failed` của Node không nêu nguyên nhân; đưa mã lỗi gốc vào thông báo để log chẩn đoán được.
+        const cause = error.cause ? ` (${error.cause.code ?? ''} ${error.cause.message ?? ''})`.replace(/\(\s+/, '(') : ''
+        throw new Error(`${args.method ?? 'GET'} ${url.href} failed: ${error.message}${cause}`)
       })
       const text = await response.text()
       return {

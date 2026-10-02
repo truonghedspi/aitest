@@ -33,6 +33,9 @@ export type LiveFrame =
 export interface ActionCallData {
   callId: string
   phase?: string
+  /** Lý do agent khai báo khi gọi tool, và bước của test case mà lời gọi phục vụ. */
+  reason?: string
+  step?: number
   name: string
   args: Record<string, any>
   status: 'ok' | 'error' | 'denied'

@@ -72,6 +72,12 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
     return { ok: true }
   })
 
+  ctx.web.method('chats.models', async (params: { chatId: string }) => (await chats.get(params.chatId)).models())
+
+  ctx.web.method('chats.setModel', async (params: { chatId: string; modelId: string }) => {
+    return (await chats.get(params.chatId)).setModel(params.modelId)
+  })
+
   ctx.web.method('chats.invoke', async (params: { chatId: string; tool: string; args: Record<string, unknown> }) => {
     const outcome = await (await chats.get(params.chatId)).invoke(params.tool, params.args ?? {})
     return { status: outcome.status, value: outcome.value, error: outcome.error }

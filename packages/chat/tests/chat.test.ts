@@ -22,6 +22,9 @@ cases:
       - { id: http-200, desc: API trả về 200, check: { op: eq, value: 200 } }
 `
 
+/** Model mà agent giả lập đã nhận: lúc mở session và mỗi lần đổi. */
+const modelLog: string[] = []
+
 /** Agent giả lập: mỗi lượt kiểm tra plan, xin quyền rồi lưu; ghi lại prompt nhận được. */
 function fakeAgent(prompts: string[]): AgentDriver {
   return {
@@ -36,8 +39,19 @@ function fakeAgent(prompts: string[]): AgentDriver {
             const res = await client.callTool({ name, arguments: args })
             return JSON.parse((res.content as Array<{ text: string }>)[0].text)
           }
+          const models = {
+            current: options.model ?? 'auto',
+            available: [{ id: 'auto', name: 'auto' }, { id: 'fast', name: 'fast', description: 'Model nhanh' }],
+          }
+          modelLog.push(`open:${models.current}`)
           return {
             id: 'fake-session',
+            models,
+            async setModel(id: string) {
+              if (!models.available.some((m) => m.id === id)) throw new Error(`unknown model ${id}`)
+              models.current = id
+              modelLog.push(`set:${id}`)
+            },
             async prompt(text) {
               prompts.push(text)
               options.onUpdate({ kind: 'message', text: 'Đang soạn ', raw: {} })
@@ -147,6 +161,18 @@ describe('chat host over WebSocket', () => {
     expect(userCall.data.name).toBe('validate_plan')
   })
 
+  it('lists models and switches the model of a chat', async () => {
+    const [summary] = await ws.call('chats.list')
+    const models = await ws.call('chats.models', { chatId: summary.id })
+    expect(models).toMatchObject({ current: 'auto', switchable: true, available: [{ id: 'auto' }, { id: 'fast' }] })
+    const changed = await ws.call('chats.setModel', { chatId: summary.id, modelId: 'fast' })
+    expect(changed.current).toBe('fast')
+    expect(modelLog.at(-1)).toBe('set:fast')
+    await expect(ws.call('chats.setModel', { chatId: summary.id, modelId: 'nope' })).rejects.toThrow(/unknown model nope/)
+    const events = (await ws.call('chats.subscribe', { chatId: summary.id })).events
+    expect(events.filter((e: any) => e.type === 'chat/model').map((e: any) => e.data.modelId)).toEqual(['fast'])
+  })
+
   it('restores a chat from its log and sends the history to a new agent session', async () => {
     const [summary] = await ws.call('chats.list')
     // Bỏ cuộc chat khỏi bộ nhớ, như sau khi Host khởi động lại.
@@ -169,5 +195,7 @@ describe('chat host over WebSocket', () => {
     expect(third).toContain('Người dùng: Soạn plan gọi danh sách lệnh')
     // seq tiếp nối log cũ, không bắt đầu lại từ 1.
     expect(restored.events(lastSeq)[0].seq).toBe(lastSeq + 1)
+    // Model đã chọn trước khi khởi động lại được áp dụng cho session mới.
+    expect(modelLog.at(-1)).toBe('open:fast')
   })
 })
