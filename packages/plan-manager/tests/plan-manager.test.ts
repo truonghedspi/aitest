@@ -128,14 +128,15 @@ describe('plan manager over WebSocket', () => {
     expect((await ws.call('plans.get', { path: limitedPath })).plan.envs).toEqual(['alt'])
     await expect(ws.call('plans.run', { path: limitedPath, env: 'local' })).rejects.toThrow(/limited to environments alt/)
 
-    const { runId } = await ws.call('plans.run', { path: planPath, cases: ['PM-01'], env: 'alt' })
+    const { runId } = await ws.call('plans.run', { path: planPath, cases: ['PM-01'], env: 'alt', model: 'fast-model' })
     let runs: any[] = []
     for (let i = 0; i < 100; i++) {
       runs = await ws.call('runs.list', { planId: 'TP-PM', env: 'alt' })
       if (runs[0]?.finished) break
       await new Promise((r) => setTimeout(r, 100))
     }
-    expect(runs.map((r) => [r.runId, r.env, r.cases[0].verdict])).toEqual([[runId, 'alt', 'pass']])
+    // Model chọn khi chạy được truyền cho agent và ghi vào lượt chạy.
+    expect(runs.map((r) => [r.runId, r.env, r.model, r.cases[0].verdict])).toEqual([[runId, 'alt', 'fast-model', 'pass']])
     const local = await ws.call('runs.list', { planId: 'TP-PM', env: 'local' })
     expect(local.every((r: any) => r.env === 'local')).toBe(true)
     const events = (await ws.call('runs.subscribe', { runId })).events

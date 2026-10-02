@@ -40,8 +40,9 @@ plugins:
       name: kiro
       command: kiro-cli
       args: [acp]
-      # Model mặc định cho mọi agent; đổi bằng AITEST_MODEL. Agent không có model này thì dùng model của agent và ghi cảnh báo.
-      model: ${env.AITEST_MODEL:-claude-sonnet-5}
+      # Model khi chạy test (kể cả chạy thử, chuẩn bị dữ liệu): AITEST_RUN_MODEL, nếu không đặt thì AITEST_MODEL.
+      # Agent không có model này thì dùng model của agent và ghi cảnh báo.
+      model: ${env.AITEST_RUN_MODEL:-${env.AITEST_MODEL:-claude-sonnet-5}}
 
   # Action
   - id: action-http

@@ -394,25 +394,41 @@ async function resolvePlugin(name: string, baseDir: string): Promise<Plugin> {
 }
 
 /**
- * Thay `${env.NAME}` và `${env.NAME:-mặc định}` trong mọi chuỗi của cấu hình.
+ * Thay `${env.NAME}` và `${env.NAME:-mặc định}` trong mọi chuỗi của cấu hình. Giá trị mặc định được lồng placeholder khác,
+ * ví dụ `${env.AITEST_RUN_MODEL:-${env.AITEST_MODEL:-claude-sonnet-5}}`: dùng biến đầu tiên có giá trị.
  * Chuỗi chỉ gồm đúng một placeholder được suy kiểu như YAML: số và `true`/`false` thành giá trị tương ứng.
  */
 export function interpolate<T>(value: T): T {
   if (typeof value === 'string') {
-    const whole = /^\$\{env\.([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}$/.exec(value)
-    if (whole) {
-      const raw = process.env[whole[1]] ?? whole[2] ?? ''
-      if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw) as T
-      if (raw === 'true' || raw === 'false') return (raw === 'true') as T
-      return raw as T
+    if (!value.includes('${env.')) return value
+    const whole = isSinglePlaceholder(value)
+    // Thay từ placeholder trong cùng ra ngoài, để giá trị mặc định lồng nhau được giải trước.
+    const INNER = /\$\{env\.([A-Za-z_][A-Za-z0-9_]*)(?::-([^${}]*))?\}/g
+    let text: string = value
+    for (let i = 0; i < 16 && INNER.test(text); i++) {
+      INNER.lastIndex = 0
+      text = text.replace(INNER, (_, key, fallback) => process.env[key] ?? fallback ?? '')
     }
-    return value.replace(/\$\{env\.([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => {
-      return process.env[key] ?? fallback ?? ''
-    }) as T
+    if (whole) {
+      if (/^-?\d+(\.\d+)?$/.test(text)) return Number(text) as T
+      if (text === 'true' || text === 'false') return (text === 'true') as T
+    }
+    return text as T
   }
   if (Array.isArray(value)) return value.map(interpolate) as T
   if (value && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, interpolate(v)])) as T
   }
   return value
+}
+
+/** Chuỗi chỉ gồm đúng một placeholder `${env.…}` (có thể lồng), không có chữ khác bên ngoài. */
+function isSinglePlaceholder(value: string) {
+  if (!value.startsWith('${env.') || !value.endsWith('}')) return false
+  let depth = 0
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] === '$' && value[i + 1] === '{') { depth++; i++; continue }
+    if (value[i] === '}' && --depth === 0) return i === value.length - 1
+  }
+  return false
 }

@@ -42,7 +42,13 @@ pnpm install
 
 **4. Kiro CLI** cho agent thật: cài theo hướng dẫn của Kiro, rồi đăng nhập. Bộ kiểm thử (`pnpm test`) không cần Kiro.
 
-**5. Model mặc định** cho mọi agent là `claude-sonnet-5`, đổi bằng biến `AITEST_MODEL`, ví dụ `AITEST_MODEL=claude-sonnet-4.5 pnpm aitest run …`. Agent không có model đã chọn thì dùng model của agent, ghi cảnh báo vào log và giao diện chat. Cuộc chat vẫn đổi model riêng được ở đầu cuộc chat.
+**5. Model.** Mặc định chung là `claude-sonnet-5` (biến `AITEST_MODEL`). Tách riêng model khi chat soạn plan và khi chạy test:
+
+```bash
+AITEST_CHAT_MODEL=claude-sonnet-4.5 AITEST_RUN_MODEL=claude-haiku-4.5 pnpm serve
+```
+
+Trên giao diện, mỗi cuộc chat đổi model ở đầu cuộc chat; hộp thoại "Chạy plan" có ô "Model chạy test" cho từng lượt chạy; CLI dùng `--model`. Agent không có model đã chọn làm mặc định thì dùng model của agent, ghi cảnh báo vào log và giao diện.
 
 ## Bắt đầu nhanh
 

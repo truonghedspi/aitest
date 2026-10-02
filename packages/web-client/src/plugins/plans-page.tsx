@@ -15,6 +15,14 @@ export const plansPage: ClientPlugin = (s) => {
   s.page.register('plans', { id: 'plans', title: 'Plan', order: 2, component: PlansPage })
 }
 
+interface ModelList {
+  agent: string
+  current?: string
+  fallbackFrom?: string
+  available: Array<{ id: string; name: string; description?: string }>
+  error?: string
+}
+
 interface PlanItem { path: string; id?: string; name?: string; cases?: Array<{ id: string; title: string }>; error?: string }
 
 interface PlanDetail {
@@ -331,6 +339,9 @@ function RunDialog({ path, detail: given, onClose, navigate }: { path: string; d
     if (!given) connection.call<PlanDetail>('plans.get', { path }).then(setDetail, (e) => setError((e as Error).message))
   }, [path])
   useEffect(() => { if (!env && selectedEnv) setEnv(selectedEnv) }, [selectedEnv])
+  const [models, setModels] = useState<ModelList>()
+  const [model, setModel] = useState('')
+  useEffect(() => { connection.call<ModelList>('plans.models').then(setModels, () => setModels({ agent: '', available: [] })) }, [])
   const plan = detail?.plan
   const envInfo = envs?.find((e) => e.name === env)
   const envAllowed = !env || !plan?.envs.length || plan.envs.includes(env)
@@ -343,7 +354,7 @@ function RunDialog({ path, detail: given, onClose, navigate }: { path: string; d
     setError(undefined)
     try {
       const values = Object.fromEntries(Object.entries(inputs).filter(([, v]) => v.trim()).map(([k, v]) => [k, v.trim()]))
-      const { runId } = await connection.call<{ runId: string }>('plans.run', { path, cases: selected, inputs: values, env })
+      const { runId } = await connection.call<{ runId: string }>('plans.run', { path, cases: selected, inputs: values, env, model: model || undefined })
       onClose()
       navigate(`runs/${runId}`)
     } catch (e) {
@@ -367,6 +378,17 @@ function RunDialog({ path, detail: given, onClose, navigate }: { path: string; d
                 {!envAllowed && <span className="bad small">Plan chỉ chạy trên: {plan.envs.join(', ')}</span>}
               </div>
             )}
+            <div className="env-row">
+              <label className="env-select" title="Model của agent chạy test cho lượt này; mặc định theo cấu hình (AITEST_RUN_MODEL)">
+                <span className="muted small">Model chạy test</span>
+                <select value={model} onChange={(e) => setModel(e.target.value)} disabled={!models}>
+                  <option value="">{models ? `Mặc định${models.current ? ` (${models.current})` : ''}` : 'Đang tải…'}</option>
+                  {models?.available.map((m) => <option key={m.id} value={m.id} title={m.description}>{m.name}</option>)}
+                </select>
+              </label>
+              {models?.fallbackFrom && <span className="warn small">Không có model mặc định {models.fallbackFrom}; agent dùng {models.current}</span>}
+              {models?.error && <span className="warn small" title={models.error}>Không lấy được danh sách model; vẫn chạy được với model mặc định</span>}
+            </div>
             <h4>Case <span className="muted small">({chosen.length}/{cases.length})</span>
               <button className="link small" onClick={() => setSelected(undefined)}>chọn tất cả</button>
               <button className="link small" onClick={() => setSelected([])}>bỏ chọn</button>

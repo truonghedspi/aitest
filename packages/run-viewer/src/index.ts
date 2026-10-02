@@ -31,6 +31,8 @@ export interface RunSummary {
   agent?: string
   /** Môi trường của lượt chạy; lượt chạy cũ không ghi môi trường. */
   env?: string
+  /** Model agent thật sự dùng (phiên đầu tiên của lượt chạy). */
+  model?: string
   startedAt?: string
   finished: boolean
   dryRun: boolean
@@ -143,6 +145,7 @@ function summarize(runId: string, events: RunEvent[]): RunSummary {
     },
     agent: start?.agent,
     env: start?.env,
+    model: (events.find((e) => e.type === 'agent/session')?.data as { model?: string } | undefined)?.model ?? (start as { model?: string } | undefined)?.model,
     startedAt: first,
     finished,
     dryRun: runId.startsWith('dryrun-'),

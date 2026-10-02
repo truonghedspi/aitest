@@ -17,7 +17,7 @@ export interface Config {
 }
 
 export const name = 'plan-manager'
-export const inject = ['web', 'actions', 'authoring', 'runner']
+export const inject = ['web', 'actions', 'authoring', 'runner', 'agents']
 
 export const Config = z.object({
   maxConcurrent: z.natural().default(2).description('Số lượt chạy plan đồng thời tối đa khởi động từ giao diện.'),
@@ -43,8 +43,36 @@ export interface PlanDetail {
   }
 }
 
+export interface ModelList {
+  agent: string
+  /** Model mặc định khi chạy (đã áp cấu hình runner và driver); `fallbackFrom`: model cấu hình mà agent không có. */
+  current?: string
+  fallbackFrom?: string
+  available: Array<{ id: string; name: string; description?: string }>
+  error?: string
+}
+
 export function apply(ctx: Context, config: Config) {
   const running = new Set<string>()
+  // Danh sách model của agent chạy test: mở một phiên tạm để hỏi agent, lưu 10 phút.
+  let models: { at: number; value: Promise<ModelList> } | undefined
+  const loadModels = async (): Promise<ModelList> => {
+    const agent = ctx.runner.config.agent
+    try {
+      const connection = await ctx.agents.get(agent).connect({ cwd: ctx.runner.config.cwd ?? process.cwd() })
+      try {
+        const session = await connection.newSession({
+          cwd: ctx.runner.config.cwd ?? process.cwd(), mcpServers: [], onUpdate: () => {}, model: ctx.runner.config.model || undefined,
+        })
+        await session.close().catch(() => {})
+        return { agent, current: session.models?.current, fallbackFrom: session.models?.fallbackFrom, available: session.models?.available ?? [] }
+      } finally {
+        await connection.close().catch(() => {})
+      }
+    } catch (error) {
+      return { agent, available: [], error: errorMessage(error) }
+    }
+  }
 
   /** Scope soạn plan không ghi log: đọc danh sách, nội dung plan là thao tác duyệt của giao diện. */
   const scope = (): ActionScope => ({
@@ -56,6 +84,16 @@ export function apply(ctx: Context, config: Config) {
     if (outcome.status !== 'ok') throw new Error(outcome.error)
     return outcome.value
   }
+
+  ctx.web.method('plans.models', (params: { refresh?: boolean } = {}) => {
+    if (!models || params.refresh || Date.now() - models.at > 600_000) {
+      const value = loadModels()
+      models = { at: Date.now(), value }
+      // Lỗi (agent chưa đăng nhập...) không được lưu lâu: lần gọi sau thử lại.
+      void value.then((v) => { if (v.error && models?.value === value) models = undefined })
+    }
+    return models.value
+  })
 
   ctx.web.method('plans.list', async () => (await call('list_plans', {}) as { plans: unknown[] }).plans)
 
@@ -72,7 +110,7 @@ export function apply(ctx: Context, config: Config) {
     }
   })
 
-  ctx.web.method('plans.run', async (params: { path: string; cases?: string[]; inputs?: Record<string, unknown>; env?: string }) => {
+  ctx.web.method('plans.run', async (params: { path: string; cases?: string[]; inputs?: Record<string, unknown>; env?: string; model?: string }) => {
     // Đọc qua `read_plan` để dùng chung giới hạn thư mục plan với agent soạn plan.
     const { content } = await call('read_plan', { path: params.path }) as { content: string }
     const result = await ctx.authoring.validate(content, resolve(params.path))
@@ -89,7 +127,7 @@ export function apply(ctx: Context, config: Config) {
     const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
     const inputs = Object.fromEntries(Object.entries(params.inputs ?? {}).filter(([, v]) => v !== '' && v !== undefined))
     running.add(runId)
-    ctx.runner.run({ plan, cases: params.cases?.length ? params.cases : undefined, runId, inputs, env: params.env || undefined })
+    ctx.runner.run({ plan, cases: params.cases?.length ? params.cases : undefined, runId, inputs, env: params.env || undefined, model: params.model || undefined })
       .catch((error) => ctx.logger('plan-manager').warn('run %s failed: %s', runId, errorMessage(error)))
       .finally(() => running.delete(runId))
     return { runId }

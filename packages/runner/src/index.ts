@@ -70,7 +70,10 @@ export class Runner extends Service {
     const runId = options.runId ?? `${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
     const log = await this.ctx.runlog.create(runId)
     const env = options.env || (this.ctx.get('envs') as { config?: { default?: string } } | undefined)?.config?.default
-    log.append('run/start', { plan: { id: plan.id, name: plan.name, source: plan.source }, agent: agentName, ...(env ? { env } : {}) })
+    log.append('run/start', {
+      plan: { id: plan.id, name: plan.name, source: plan.source }, agent: agentName,
+      ...(env ? { env } : {}), ...(options.model || this.config.model ? { model: options.model || this.config.model } : {}),
+    })
 
     let connection: AgentConnection | undefined
     let connectError: string | undefined
@@ -81,7 +84,8 @@ export class Runner extends Service {
       connectError = errorMessage(error)
     }
 
-    const model = options.model ?? this.config.model
+    // Chuỗi rỗng (biến môi trường không đặt) nghĩa là dùng model mặc định của driver.
+    const model = options.model || this.config.model || undefined
     const run = this.createRunContext(log, plan, options.inputs ?? {}, connection, connectError, cwd, model, env)
     try {
       await this.ctx.parallel('run/start', run)

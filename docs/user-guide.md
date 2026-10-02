@@ -51,7 +51,9 @@ Hai file đọc địa chỉ hệ thống từ biến môi trường:
 | `ORDER_DB` | Đường dẫn file SQLite | `examples/order-api/orders.db` |
 | `AITEST_BROWSER` | Trình duyệt cho test giao diện | `chrome` |
 | `AITEST_ENV` | Môi trường mặc định (`envs/<tên>.yml`), xem mục 5.10 | `local` |
-| `AITEST_MODEL` | Model mặc định cho mọi agent: chạy test, chuẩn bị dữ liệu, cuộc chat. Agent không có model này thì dùng model của agent và ghi cảnh báo | `claude-sonnet-5` |
+| `AITEST_MODEL` | Model mặc định chung cho mọi agent. Agent không có model này thì dùng model của agent và ghi cảnh báo | `claude-sonnet-5` |
+| `AITEST_RUN_MODEL` | Model khi chạy test: chạy plan, chạy thử, agent chuẩn bị dữ liệu. Không đặt thì dùng `AITEST_MODEL` | — |
+| `AITEST_CHAT_MODEL` | Model khi chat soạn plan. Không đặt thì dùng `AITEST_MODEL` | — |
 
 Khi áp dụng cho hệ thống của bạn, sửa các row `action-db`, `action-dbadmin` trong `aitest.yml` và biến trong `vars` của plan.
 

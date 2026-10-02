@@ -417,7 +417,7 @@ export class Chat {
   /** Model đã chọn cho cuộc chat: lần chọn gần nhất trong log, nếu không có thì mặc định của service. */
   private preferredModel() {
     const chosen = this.log.events.findLast((e) => e.type === 'chat/model')
-    return (chosen?.data as { modelId?: string } | undefined)?.modelId ?? this.service.config.model
+    return (chosen?.data as { modelId?: string } | undefined)?.modelId || this.service.config.model || undefined
   }
 
   /** Model hiện tại và danh sách model; mở session agent nếu chưa có, để lấy danh sách từ agent. */

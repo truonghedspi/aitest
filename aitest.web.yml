@@ -10,7 +10,8 @@ plugins:
       name: kiro-chat
       command: kiro-cli
       args: [acp, --agent, aitest-chat]
-      model: ${env.AITEST_MODEL:-claude-sonnet-5}
+      # Model khi chat soạn plan: AITEST_CHAT_MODEL, nếu không đặt thì AITEST_MODEL. Mỗi cuộc chat đổi riêng được trên giao diện.
+      model: ${env.AITEST_CHAT_MODEL:-${env.AITEST_MODEL:-claude-sonnet-5}}
   - id: chat
     name: '@aitest/chat'
     config:
