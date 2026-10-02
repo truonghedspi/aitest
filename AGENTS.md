@@ -78,7 +78,7 @@ pnpm aitest run <plan> [--env staging] [--case A,B] [--agent kiro] [--input tên
 pnpm aitest envs check       # nạp tool của từng môi trường, báo lỗi cấu hình
 pnpm aitest -c aitest.e2e.yml run examples/plans/order-ui.plan.yaml
 pnpm aitest report .aitest/runs/<id>/events.jsonl           # dựng lại báo cáo từ log
-pnpm web:build && pnpm aitest -c aitest.web.yml serve       # giao diện soạn plan tại http://127.0.0.1:4300
+pnpm serve                   # build giao diện rồi chạy Host tại http://127.0.0.1:4300 (dist không nằm trong git)
 pnpm web:dev                 # Vite dev server cho web-client, chuyển /ws tới Host ở cổng 4300
 pnpm aitest mcp              # MCP server soạn plan qua stdio; stdout chỉ dành cho giao thức MCP
 ```

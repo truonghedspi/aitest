@@ -69,6 +69,7 @@ export function timeline(events: RunEvent[]): TimelineItem[] {
         if (d.restored) items.push({ kind: 'note', seq: e.seq, text: 'Đã khôi phục phiên của agent: agent còn nhớ toàn bộ ngữ cảnh trước đó.' })
         else if (d.previous) items.push({ kind: 'note', seq: e.seq, text: 'Không khôi phục được phiên cũ của agent; đã mở phiên mới và gửi lại lịch sử hội thoại cùng bản nháp.' })
         break
+      case 'chat/archived': items.push({ kind: 'note', seq: e.seq, text: d.archived ? 'Đã lưu trữ cuộc chat.' : 'Đã bỏ lưu trữ cuộc chat.' }); break
       case 'chat/env': items.push({ kind: 'note', seq: e.seq, text: `Môi trường: ${d.env}. Khảo sát và chạy thử dùng môi trường này.` }); break
       case 'turn/end':
         if (d.error) items.push({ kind: 'error', seq: e.seq, text: d.error })

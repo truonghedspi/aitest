@@ -24,6 +24,9 @@ export interface ChatSummary {
   createdAt: string
   updatedAt: string
   status: ChatStatus
+  env?: string
+  /** Cuộc chat đã lưu trữ. */
+  archived?: boolean
 }
 
 export type LiveFrame =

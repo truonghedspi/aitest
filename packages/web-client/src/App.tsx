@@ -79,17 +79,36 @@ function useStaleUi() {
   return stale
 }
 
-/** Phiên bản Host đang chạy (commit git) và thời điểm khởi động. */
+declare const __UI_VERSION__: string
+
+/**
+ * Phiên bản đang chạy: commit của Host (lúc khởi động) và của giao diện (lúc build).
+ * Hai bản khác nhau nghĩa là một bên chưa được cập nhật: giao diện chưa build lại, hoặc Host chưa khởi động lại.
+ */
 function HostVersion() {
-  const [info, setInfo] = useState<{ version?: string; startedAt?: string }>()
+  const [info, setInfo] = useState<{ version?: string; startedAt?: string; error?: string }>()
   useEffect(() => {
-    const load = () => { connection.call<{ version?: string; startedAt?: string }>('web.build').then(setInfo, () => setInfo({})) }
+    const load = () => {
+      connection.call<{ version?: string; startedAt?: string }>('web.build').then(setInfo, (e) => setInfo({ error: (e as Error).message }))
+    }
     load()
     return connection.onOpen(load)
   }, [])
-  if (!info?.version) return null
+  if (!info) return null
+  const ui = __UI_VERSION__ || undefined
+  const host = info.error ? 'cũ' : info.version
   const started = info.startedAt ? new Date(info.startedAt).toLocaleString('vi-VN') : ''
-  return <span className="host-version" title={`Host chạy mã commit ${info.version}${info.version.endsWith('*') ? ' (có thay đổi chưa commit)' : ''}, khởi động ${started}`}>{info.version}</span>
+  const mismatch = !!ui && !!host && ui !== host
+  const title = [
+    `Host: ${info.error ? 'phiên bản cũ, chưa báo được phiên bản' : host ?? 'không rõ (không đọc được git)'}${started ? `, khởi động ${started}` : ''}`,
+    `Giao diện: ${ui ?? 'không rõ'}`,
+    mismatch ? 'Hai bản khác nhau: chạy `pnpm serve` (build giao diện rồi chạy Host), sau đó tải lại trang.' : '',
+  ].filter(Boolean).join('\n')
+  return (
+    <span className={`host-version ${mismatch ? 'mismatch' : ''}`} title={title}>
+      {mismatch ? `⚠ host ${host} · ui ${ui}` : host ?? ui ?? '?'}
+    </span>
+  )
 }
 
 function parseRoute() {

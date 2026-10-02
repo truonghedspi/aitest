@@ -34,6 +34,8 @@ export interface ChatSummary {
   status: ChatStatus
   /** Môi trường của cuộc chat; khảo sát và chạy thử dùng môi trường này. Không có thì dùng môi trường mặc định. */
   env?: string
+  /** Cuộc chat đã lưu trữ: ẩn khỏi danh sách chính, không gửi tin nhắn được cho tới khi bỏ lưu trữ. */
+  archived: boolean
 }
 
 export interface Config {
@@ -43,9 +45,20 @@ export interface Config {
   cwd?: string
   userTools: string[]
   historyChars: number
+  autoArchiveDays: number
 }
 
 const DEFAULT_TITLE = 'Cuộc chat mới'
+
+/** Cuộc chat đang lưu trữ: theo event `chat/archived` gần nhất. */
+function isArchived(events: RunEvent[]) {
+  return !!(events.findLast((e) => e.type === 'chat/archived')?.data as { archived?: boolean } | undefined)?.archived
+}
+
+/** Thời điểm hoạt động gần nhất; bỏ qua lưu trữ, bỏ lưu trữ để cuộc chat không nhảy lên đầu danh sách. */
+function lastActivity(events: RunEvent[]) {
+  return events.findLast((e) => e.type !== 'chat/archived')?.ts ?? events.at(-1)!.ts
+}
 
 /** Tiêu đề hiện tại: `chat/renamed` gần nhất, nếu không có thì tiêu đề lúc tạo. */
 function chatTitle(events: RunEvent[]) {
@@ -73,10 +86,13 @@ export class ChatService extends Service {
     cwd: z.string().description('Thư mục làm việc truyền cho agent; mặc định là thư mục hiện tại.'),
     userTools: z.array(z.string()).default(DEFAULT_USER_TOOLS),
     historyChars: z.natural().default(20000).description('Độ dài tối đa lịch sử gửi lại khi khôi phục cuộc chat.'),
+    autoArchiveDays: z.natural().default(0).description('Tự lưu trữ cuộc chat không hoạt động quá số ngày này; 0 là tắt.'),
   })
 
   private readonly chats = new Map<string, Chat>()
   private connection?: Promise<AgentConnection>
+  /** Tóm tắt cuộc chat đang không mở, theo thời điểm sửa file log: không đọc lại log khi file không đổi. */
+  private readonly summaries = new Map<string, { mtime: number; summary?: ChatSummary }>()
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'chats')
@@ -87,6 +103,14 @@ export class ChatService extends Service {
       void this.connection?.then((c) => c.close(), () => {})
       this.connection = undefined
     }, 'chats.dispose')
+    // Tự lưu trữ cuộc chat cũ: lúc khởi động và mỗi giờ.
+    ctx.effect(() => {
+      if (!config.autoArchiveDays) return () => {}
+      const run = () => { void this.archiveOlder(config.autoArchiveDays).catch(() => {}) }
+      const first = setTimeout(run, 5_000)
+      const timer = setInterval(run, 3_600_000)
+      return () => { clearTimeout(first); clearInterval(timer) }
+    }, 'chats.autoArchive')
   }
 
   get root() {
@@ -119,18 +143,54 @@ export class ChatService extends Service {
         continue
       }
       const file = join(this.root, id, 'events.jsonl')
-      const events = await this.ctx.runlog.read(file).catch(() => undefined)
-      const created = events?.find((e) => e.type === 'chat/created')
-      if (!events || !created) continue
-      out.push({
-        id,
-        title: chatTitle(events),
-        createdAt: created.ts,
-        updatedAt: events.at(-1)!.ts ?? (await stat(file)).mtime.toISOString(),
-        status: 'idle',
-      })
+      const mtime = (await stat(file).catch(() => undefined))?.mtimeMs
+      if (mtime === undefined) continue
+      let entry = this.summaries.get(id)
+      if (!entry || entry.mtime !== mtime) {
+        const events = await this.ctx.runlog.read(file).catch(() => undefined)
+        const created = events?.find((e) => e.type === 'chat/created')
+        entry = {
+          mtime,
+          summary: events && created ? {
+            id,
+            title: chatTitle(events),
+            createdAt: created.ts,
+            updatedAt: lastActivity(events),
+            status: 'idle',
+            env: (events.findLast((e) => e.type === 'chat/env')?.data as { env?: string } | undefined)?.env,
+            archived: isArchived(events),
+          } : undefined,
+        }
+        this.summaries.set(id, entry)
+      }
+      if (entry.summary) out.push(entry.summary)
     }
     return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  /**
+   * Lưu trữ hoặc bỏ lưu trữ một cuộc chat. Lưu trữ giải phóng phiên agent và endpoint MCP của cuộc chat;
+   * bỏ lưu trữ rồi gửi tin nhắn thì phiên agent được khôi phục như sau khi Host khởi động lại.
+   */
+  async archive(id: string, archived: boolean): Promise<ChatSummary> {
+    const chat = await this.get(id)
+    if (chat.status !== 'idle') throw new Error('agent is still working on the previous message')
+    if (chat.archived() !== archived) chat.log.append('chat/archived', { archived })
+    const summary = chat.summary()
+    if (archived) {
+      this.chats.delete(id)
+      await chat.dispose()
+    }
+    return summary
+  }
+
+  /** Lưu trữ mọi cuộc chat đang rảnh không hoạt động quá `days` ngày. Trả về mã các cuộc chat đã lưu trữ. */
+  async archiveOlder(days: number): Promise<string[]> {
+    if (!(days > 0)) throw new Error('days must be greater than 0')
+    const cutoff = Date.now() - days * 86_400_000
+    const targets = (await this.list()).filter((c) => !c.archived && c.status === 'idle' && Date.parse(c.updatedAt) < cutoff)
+    for (const chat of targets) await this.archive(chat.id, true)
+    return targets.map((c) => c.id)
   }
 
   /** Một process agent dùng chung cho mọi cuộc chat; mỗi cuộc chat là một session riêng. */
@@ -186,9 +246,10 @@ export class Chat {
       id: this.id,
       title: chatTitle(this.log.events),
       createdAt: created.ts,
-      updatedAt: this.log.events.at(-1)!.ts,
+      updatedAt: lastActivity(this.log.events),
       status: this.status,
       env: this.env(),
+      archived: this.archived(),
     }
   }
 
@@ -196,9 +257,19 @@ export class Chat {
     return this.log.events.filter((e) => e.seq > afterSeq)
   }
 
+  archived() {
+    return isArchived(this.log.events)
+  }
+
+  /** Cuộc chat đã lưu trữ chỉ xem được; mọi thao tác thay đổi cần bỏ lưu trữ trước. */
+  private assertActive() {
+    if (this.archived()) throw new Error('chat is archived; restore it first')
+  }
+
   /** Gửi tin nhắn của người dùng và chạy một lượt của agent. Trả về khi lượt kết thúc. */
   async send(text: string) {
     if (!text.trim()) throw new Error('message is empty')
+    this.assertActive()
     if (this.status !== 'idle') throw new Error('agent is still working on the previous message')
     const untitled = !this.log.events.some((e) => e.type === 'user/message')
     this.log.append('user/message', { text })
@@ -245,6 +316,7 @@ export class Chat {
 
   /** Người dùng sửa bản nháp trên giao diện; agent nhận nội dung mới ở lượt tiếp theo. */
   editDraft(content: string) {
+    this.assertActive()
     this.log.append('draft/edit', { content })
     this.notes.push(`Người dùng đã sửa bản nháp plan trên giao diện. Nội dung hiện tại:\n\`\`\`yaml\n${content}\n\`\`\``)
   }
@@ -263,6 +335,7 @@ export class Chat {
    * Agent nhận nội dung và đường dẫn ở lượt tiếp theo.
    */
   async openPlan(path: string) {
+    this.assertActive()
     if (this.status !== 'idle') throw new Error('agent is still working on the previous message')
     const session = await this.ensureAuthoring()
     const read = await this.ctx.actions.invoke({ ...session.scope, phase: 'user', log: () => {} }, 'read_plan', { path })
@@ -286,6 +359,7 @@ export class Chat {
 
   /** Người dùng bấm chạy một tool soạn plan trực tiếp (kiểm tra, chạy thử, lưu) mà không qua agent. */
   async invoke(tool: string, args: Record<string, unknown>) {
+    this.assertActive()
     if (!this.service.config.userTools.includes(tool)) throw new Error(`tool ${tool} cannot be invoked from the UI`)
     const session = await this.ensureAuthoring()
     const scope: ActionScope = { ...session.scope, phase: 'user' }
@@ -329,6 +403,7 @@ export class Chat {
 
   /** Đổi môi trường của cuộc chat: nạp tool của môi trường, ghi log, báo agent ở lượt tiếp theo. */
   async setEnv(env: string) {
+    this.assertActive()
     if (this.status !== 'idle') throw new Error('agent is still working on the previous message')
     const envs = this.envs()
     if (!envs) throw new Error('environments are not configured')
@@ -347,6 +422,8 @@ export class Chat {
 
   /** Model hiện tại và danh sách model; mở session agent nếu chưa có, để lấy danh sách từ agent. */
   async models() {
+    // Cuộc chat đã lưu trữ không mở phiên agent chỉ để hiển thị model.
+    if (this.archived()) return { current: this.preferredModel(), available: [], switchable: false }
     const session = await this.ensureAgentSession()
     return {
       current: session.models?.current ?? this.preferredModel(),

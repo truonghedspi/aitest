@@ -2,7 +2,7 @@
  * Kiểm thử Host chat qua giao thức WebSocket thật, với agent giả lập:
  * agent stream tin nhắn, gọi tool soạn plan qua MCP gateway và xin quyền trước khi lưu, như Kiro qua ACP.
  */
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -280,5 +280,34 @@ describe('chat host over WebSocket', () => {
     expect(events.filter((e: any) => e.type === 'chat/env').map((e: any) => e.data.env)).toEqual(['staging', 'local'])
     // Môi trường staging ghi đè kết nối DB: bản riêng của tool được nạp.
     expect(harness.kernel.ctx.actions.envsOf('db_query')).toContain('staging')
+  })
+
+  it('archives chats: hides them from the active list, blocks changes, restores them, and archives old chats in bulk', async () => {
+    const chat = await ws.call('chats.create', { title: 'Sẽ lưu trữ' })
+    const archived = await ws.call('chats.archive', { chatId: chat.id, archived: true })
+    expect(archived.archived).toBe(true)
+    const listed = (await ws.call('chats.list')).find((c: any) => c.id === chat.id)
+    expect(listed).toMatchObject({ archived: true, updatedAt: chat.updatedAt })
+    await expect(ws.call('chats.send', { chatId: chat.id, text: 'Xin chào' })).rejects.toThrow(/archived/)
+    await expect(ws.call('chats.editDraft', { chatId: chat.id, content: 'x' })).rejects.toThrow(/archived/)
+    const restored = await ws.call('chats.archive', { chatId: chat.id, archived: false })
+    expect(restored.archived).toBe(false)
+    const events = (await ws.call('chats.subscribe', { chatId: chat.id })).events
+    expect(events.filter((e: any) => e.type === 'chat/archived').map((e: any) => e.data.archived)).toEqual([true, false])
+
+    // Cuộc chat không hoạt động 40 ngày: log viết tay với thời điểm cũ.
+    const old = '2026-01-01T00-00-00-000Z-old001'
+    const ts = new Date(Date.now() - 40 * 86_400_000).toISOString()
+    await mkdir(join(harness.dir, 'chats', old), { recursive: true })
+    await writeFile(join(harness.dir, 'chats', old, 'events.jsonl'), [
+      { seq: 1, ts, runId: old, type: 'chat/created', data: { title: 'Cũ', agent: 'fake-chat' } },
+      { seq: 2, ts, runId: old, type: 'user/message', data: { text: 'xưa' } },
+    ].map((e) => JSON.stringify(e)).join('\n') + '\n')
+    await expect(ws.call('chats.archiveOlder', { days: 0 })).rejects.toThrow(/greater than 0/)
+    const result = await ws.call('chats.archiveOlder', { days: 30 })
+    expect(result.archived).toEqual([old])
+    const list = await ws.call('chats.list')
+    expect(list.find((c: any) => c.id === old)).toMatchObject({ archived: true, title: 'Cũ' })
+    expect(list.find((c: any) => c.id === chat.id).archived).toBe(false)
   })
 })

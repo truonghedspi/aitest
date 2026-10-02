@@ -52,6 +52,7 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
     const chat = await chats.get(params.chatId)
     if (chat.status !== 'idle') throw new Error('agent is still working on the previous message')
     if (!params.text?.trim()) throw new Error('message is empty')
+    if (chat.archived()) throw new Error('chat is archived; restore it before sending messages')
     // Một lượt có thể kéo dài nhiều phút; kết quả về qua luồng event.
     void chat.send(params.text).catch((error) => ctx.logger('chat').warn(error))
     void pushList()
@@ -80,6 +81,18 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
   })
 
   ctx.web.method('chats.models', async (params: { chatId: string }) => (await chats.get(params.chatId)).models())
+
+  ctx.web.method('chats.archive', async (params: { chatId: string; archived: boolean }) => {
+    const summary = await chats.archive(params.chatId, params.archived !== false)
+    void pushList()
+    return summary
+  })
+
+  ctx.web.method('chats.archiveOlder', async (params: { days: number }) => {
+    const archived = await chats.archiveOlder(Number(params.days))
+    void pushList()
+    return { archived }
+  })
 
   ctx.web.method('chats.setEnv', async (params: { chatId: string; env: string }) => {
     const summary = await (await chats.get(params.chatId)).setEnv(params.env)

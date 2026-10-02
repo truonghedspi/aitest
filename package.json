@@ -12,6 +12,7 @@
     "aitest": "tsx --disable-warning=ExperimentalWarning packages/cli/src/bin.ts",
     "demo:api": "tsx --disable-warning=ExperimentalWarning examples/order-api/server.ts",
     "web:build": "pnpm --filter @aitest/web-client build",
+    "serve": "pnpm web:build && pnpm aitest -c aitest.web.yml serve",
     "web:dev": "pnpm --filter @aitest/web-client dev"
   },
   "devDependencies": {

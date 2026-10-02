@@ -413,6 +413,8 @@ Quy tắc duyệt: tool soạn plan chỉ đọc được duyệt tự động. 
 
 Người dùng thao tác trực tiếp trên bảng "Plan đang soạn": mở plan có sẵn, sửa YAML, bấm Kiểm tra, Chạy thử (chọn case), Lưu. `chats.listPlans` và `chats.openPlan` gọi `list_plans`, `read_plan` với scope không ghi log, vì đây là thao tác duyệt; `draft/open` mang nội dung plan nên bản nháp vẫn dựng lại được từ log. Sau khi mở, Host gọi `validate_plan` (pha `user`) để bảng plan có danh sách case. Các thao tác này gọi cùng tool soạn plan với pha `user`, được ghi log, và được báo cho agent ở lượt kế tiếp. Nhờ vậy, agent không làm việc trên bản nháp cũ.
 
+**Lưu trữ cuộc chat.** Event `chat/archived` (`archived: true/false`) trong log quyết định trạng thái; `ChatSummary.archived`. Lưu trữ đóng phiên agent và endpoint MCP của cuộc chat; cuộc chat đã lưu trữ từ chối mọi thao tác thay đổi và không mở phiên agent kể cả khi xem. `chats.archiveOlder(days)` lưu trữ hàng loạt; `autoArchiveDays` chạy việc này lúc khởi động và mỗi giờ. `updatedAt` bỏ qua `chat/archived` để thứ tự danh sách giữ theo hoạt động thật. Danh sách cuộc chat lưu tóm tắt theo thời điểm sửa file log.
+
 **Giữ ngữ cảnh của agent khi Host khởi động lại.** Cuộc chat được dựng lại từ log. Ngữ cảnh LLM nằm trong agent bên ngoài (Kiro), nên aitest không tự dựng lại ngữ cảnh như dsh. dsh tự chạy vòng lặp agent: event log của session là nguồn sự thật, `Session.fromRestore` dựng lại toàn bộ tin nhắn, kết quả tool và điểm compaction. aitest dùng `session/load` của ACP thay thế:
 
 1. Mỗi lần mở phiên, log ghi `agent/session` kèm `sessionId` và tên agent.

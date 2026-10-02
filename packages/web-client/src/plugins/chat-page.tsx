@@ -29,18 +29,82 @@ async function createChat(navigate: (path: string) => void, env?: string) {
 function ChatSidebar({ param, navigate }: PageProps) {
   const list = useChatList()
   const [env] = useSelectedEnv()
+  const [query, setQuery] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+  const [cleanup, setCleanup] = useState(false)
+  const q = query.trim().toLowerCase()
+  const match = (c: ChatSummary) => !q || c.title.toLowerCase().includes(q)
+  const active = list.filter((c) => !c.archived && match(c))
+  const archived = list.filter((c) => c.archived && match(c))
+  const archive = (c: ChatSummary, value: boolean) => connection.call('chats.archive', { chatId: c.id, archived: value }).catch(() => {})
+
+  const item = (c: ChatSummary) => (
+    <div key={c.id} className={`chat-item ${c.id === param ? 'active' : ''} ${c.archived ? 'archived' : ''}`}>
+      <button className="chat-open" onClick={() => navigate(`chat/${c.id}`)}>
+        <span className="title">{c.title}</span>
+        <span className="meta">{c.status !== 'idle' ? STATUS_LABEL[c.status] : new Date(c.updatedAt).toLocaleString('vi-VN')}</span>
+      </button>
+      {c.status === 'idle' && (
+        <button className="chat-action" onClick={() => void archive(c, !c.archived)} title={c.archived ? 'Bỏ lưu trữ' : 'Lưu trữ cuộc chat'}>
+          {c.archived ? '↩' : '🗄'}
+        </button>
+      )}
+    </div>
+  )
+
   return (
     <>
       <button className="primary wide" onClick={() => createChat(navigate, env)}>+ Cuộc chat mới</button>
+      {list.length > 5 && <input className="chat-search" placeholder="Tìm cuộc chat…" value={query} onChange={(e) => setQuery(e.target.value)} />}
       <nav className="chat-list">
-        {list.map((c) => (
-          <button key={c.id} className={`chat-item ${c.id === param ? 'active' : ''}`} onClick={() => navigate(`chat/${c.id}`)}>
-            <span className="title">{c.title}</span>
-            <span className="meta">{c.status !== 'idle' ? STATUS_LABEL[c.status] : new Date(c.updatedAt).toLocaleString('vi-VN')}</span>
-          </button>
-        ))}
+        {active.map(item)}
+        {!active.length && <div className="muted small">{q ? 'Không có cuộc chat phù hợp.' : 'Chưa có cuộc chat nào.'}</div>}
       </nav>
+      <div className="chat-list-footer">
+        {archived.length > 0 && (
+          <button className="link small" onClick={() => setShowArchived(!showArchived)}>
+            {showArchived ? '▾' : '▸'} Đã lưu trữ ({archived.length})
+          </button>
+        )}
+        {showArchived && <nav className="chat-list">{archived.map(item)}</nav>}
+        <button className="link small" onClick={() => setCleanup(!cleanup)}>Lưu trữ cuộc chat cũ…</button>
+        {cleanup && <ArchiveOlder list={list} onDone={() => setCleanup(false)} />}
+      </div>
     </>
+  )
+}
+
+/** Lưu trữ hàng loạt cuộc chat không hoạt động quá N ngày; xem trước số lượng trước khi làm. */
+function ArchiveOlder({ list, onDone }: { list: ChatSummary[]; onDone(): void }) {
+  const [days, setDays] = useState(30)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<string>()
+  const cutoff = Date.now() - days * 86_400_000
+  const count = list.filter((c) => !c.archived && c.status === 'idle' && Date.parse(c.updatedAt) < cutoff).length
+  const run = async () => {
+    setBusy(true)
+    try {
+      const { archived } = await connection.call<{ archived: string[] }>('chats.archiveOlder', { days })
+      setResult(`Đã lưu trữ ${archived.length} cuộc chat.`)
+      setTimeout(onDone, 1500)
+    } catch (e) {
+      setResult((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="archive-older">
+      <label className="small">
+        Không hoạt động quá{' '}
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          {[7, 14, 30, 90].map((d) => <option key={d} value={d}>{d} ngày</option>)}
+        </select>
+      </label>
+      <div className="small muted">{count} cuộc chat sẽ được lưu trữ; bỏ lưu trữ lại được bất cứ lúc nào.</div>
+      <button className="primary" disabled={busy || !count} onClick={run}>Lưu trữ {count} cuộc chat</button>
+      {result && <div className="small">{result}</div>}
+    </div>
   )
 }
 
@@ -61,6 +125,7 @@ function ChatPage({ param, navigate }: PageProps) {
 function ChatView({ chatId }: { chatId: string }) {
   const chat = useChat(chatId)
   const items = useMemo(() => timeline(chat.events), [chat.events])
+  const archived = !!chat.events.findLast((e) => e.type === 'chat/archived')?.data.archived
   const panels = slots.panel.values().sort((a, b) => a.order - b.order)
   const [panelId, setPanelId] = useState(panels[0]?.id)
   const Panel = panels.find((p) => p.id === panelId)?.component
@@ -72,8 +137,9 @@ function ChatView({ chatId }: { chatId: string }) {
       <main className="conversation">
         <header>
           <h2>{chatTitle(chat.events) ?? chat.summary?.title ?? '…'}</h2>
-          <ChatEnvPicker chatId={chatId} events={chat.events} busy={chat.status !== 'idle'} />
-          <ModelPicker chatId={chatId} busy={chat.status !== 'idle'} />
+          <ArchiveButton chatId={chatId} archived={archived} busy={chat.status !== 'idle'} />
+          {!archived && <ChatEnvPicker chatId={chatId} events={chat.events} busy={chat.status !== 'idle'} />}
+          {!archived && <ModelPicker chatId={chatId} busy={chat.status !== 'idle'} />}
           <span className={`status ${chat.status}`}>{STATUS_LABEL[chat.status]}</span>
         </header>
         <div className="timeline">
@@ -82,7 +148,12 @@ function ChatView({ chatId }: { chatId: string }) {
           {chat.live.message && <div className="bubble agent live"><Markdown text={chat.live.message} /></div>}
           <div ref={bottom} />
         </div>
-        <Composer chatId={chatId} status={chat.status} />
+        {archived ? (
+          <div className="archived-banner">
+            Cuộc chat đã lưu trữ: chỉ xem được. Bỏ lưu trữ để nhắn tiếp; agent tiếp tục từ phiên cũ.
+            {' '}<button className="primary" onClick={() => void connection.call('chats.archive', { chatId, archived: false })}>Bỏ lưu trữ</button>
+          </div>
+        ) : <Composer chatId={chatId} status={chat.status} />}
       </main>
       <aside className="panel">
         <div className="tabs">
@@ -161,6 +232,16 @@ function ModelPicker({ chatId, busy }: { chatId: string; busy: boolean }) {
 }
 
 /** Môi trường của cuộc chat: khảo sát và chạy thử của agent dùng môi trường này. */
+function ArchiveButton({ chatId, archived, busy }: { chatId: string; archived: boolean; busy: boolean }) {
+  if (archived) return <span className="badge">Đã lưu trữ</span>
+  return (
+    <button className="link small" disabled={busy} title={busy ? 'Chờ agent xong lượt hiện tại' : 'Ẩn khỏi danh sách, giải phóng phiên agent'}
+      onClick={() => void connection.call('chats.archive', { chatId, archived: true })}>
+      Lưu trữ
+    </button>
+  )
+}
+
 function ChatEnvPicker({ chatId, events, busy }: { chatId: string; events: Array<{ type: string; data: any }>; busy: boolean }) {
   const envs = useEnvs()
   const [error, setError] = useState<string>()

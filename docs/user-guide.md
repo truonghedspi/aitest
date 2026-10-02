@@ -77,7 +77,7 @@ Plan `order.plan.yaml` có case TC-03 cố ý **fail**, vì ứng dụng mẫu c
 | `pnpm aitest run <plan> --model <id>` | Chọn model của agent, ví dụ `claude-sonnet-4.5`; xem danh sách bằng `kiro-cli chat --list-models` |
 | `pnpm aitest actions` | Liệt kê action agent có thể dùng |
 | `pnpm aitest report <events.jsonl>` | Dựng lại báo cáo từ run log |
-| `pnpm aitest -c aitest.web.yml serve` | Chạy giao diện web soạn plan cùng AI |
+| `pnpm serve` | Build giao diện rồi chạy giao diện web soạn plan cùng AI (`aitest -c aitest.web.yml serve`) |
 | `pnpm aitest mcp` | MCP server soạn plan qua stdio (Kiro chat dùng lệnh này) |
 | `-c <file>` | Chọn file cấu hình, ví dụ `-c aitest.e2e.yml` |
 
@@ -223,9 +223,10 @@ Thay vì tự viết YAML, bạn có thể mô tả tính năng bằng lời và
 #### Trên giao diện web
 
 ```bash
-pnpm web:build
-pnpm aitest -c aitest.web.yml serve     # mở http://127.0.0.1:4300; đổi cổng bằng AITEST_WEB_PORT
+pnpm serve      # build giao diện rồi chạy Host; mở http://127.0.0.1:4300; đổi cổng bằng AITEST_WEB_PORT
 ```
+
+Sau khi `git pull`, luôn chạy lại `pnpm serve`: giao diện đã build không nằm trong git. Cột trái hiện phiên bản Host; `⚠ host … · ui …` nghĩa là giao diện và Host lệch phiên bản.
 
 | Vùng | Chức năng |
 |---|---|
@@ -242,6 +243,14 @@ Cách làm việc hiệu quả:
 4. Góp ý bằng lời, hoặc sửa YAML trực tiếp ở cột phải rồi bấm "Kiểm tra", "Chạy thử", "Lưu". Agent được báo về phần bạn sửa ở tin nhắn tiếp theo.
 
 Khi chạy thử phát hiện case không đạt, agent phân biệt plan viết chưa rõ với lỗi thật của hệ thống. Plan không bị sửa để che lỗi của hệ thống.
+
+**Lưu trữ cuộc chat cũ.** Cột trái chỉ hiện cuộc chat đang dùng.
+
+- Lưu trữ một cuộc chat: rê chuột vào cuộc chat ở cột trái rồi bấm 🗄, hoặc bấm "Lưu trữ" ở đầu cuộc chat. Phiên agent của cuộc chat được giải phóng.
+- Lưu trữ hàng loạt: "Lưu trữ cuộc chat cũ…" ở cuối cột trái, chọn số ngày không hoạt động (7, 14, 30, 90). Số cuộc chat sẽ bị lưu trữ hiện trước khi bấm.
+- Xem lại: mở nhóm "Đã lưu trữ (N)". Cuộc chat đã lưu trữ chỉ xem được. Bấm "Bỏ lưu trữ" (hoặc ↩ ở cột trái) để nhắn tiếp; agent tiếp tục từ phiên cũ.
+- Tự lưu trữ: đặt `autoArchiveDays` trong row `chat` (ví dụ 30); mặc định tắt.
+- Ô "Tìm cuộc chat…" hiện khi có hơn 5 cuộc chat.
 
 **Khởi động lại Host không làm agent quên.** Cuộc chat mở lại tiếp tục đúng phiên cũ của agent: agent vẫn nhớ tin nhắn, kết quả khảo sát và kế hoạch đang làm. Dòng thời gian ghi "Đã khôi phục phiên của agent". Nếu agent không còn phiên cũ, cuộc chat mở phiên mới, gửi lại lịch sử, bản nháp plan và môi trường, rồi ghi chú điều này trên dòng thời gian. Phiên bản Host đang chạy (mã commit) hiện cạnh chữ "aitest" ở cột trái.
 
