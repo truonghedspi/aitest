@@ -493,7 +493,7 @@ Xem đầy đủ tại `examples/plans/order-inputs.plan.yaml`.
 
 **Dọn dữ liệu.** Bước `cleanup` của input và bước agent đăng ký chạy sau mọi case, theo thứ tự ngược với lúc tạo. Các bước này chạy cả khi lượt chạy bị chặn. Lỗi khi dọn được ghi trong log, không đổi verdict. Trên môi trường dùng chung, không dọn theo điều kiện rộng như `DELETE … WHERE symbol = 'VNM'`; dọn theo mã vừa tạo.
 
-Trang Lượt chạy hiển thị bảng đầu vào: giá trị, nguồn, evidence với input do agent chuẩn bị. Trang cũng liệt kê các lời gọi tool khi chuẩn bị và dọn.
+Màn chi tiết lượt chạy hiển thị bảng đầu vào: giá trị, nguồn, evidence với input do agent chuẩn bị. Trang cũng liệt kê các lời gọi tool khi chuẩn bị và dọn.
 
 ## 7. Mẫu theo loại test
 
@@ -599,9 +599,31 @@ Luôn kiểm tra cột "Thực tế" của case `pass` quan trọng. Cột này 
 
 Bảng "Chuỗi action" liệt kê theo thứ tự mọi action đã chạy, gồm cả fixture. Mã evidence (`ev1`, `ev2`...) dùng để đối chiếu với cột "Thực tế".
 
-### 8.4. Xem log trên giao diện (trang Lượt chạy)
+### 8.4. Quản lý plan và xem lượt chạy trên giao diện (trang Plan)
 
-Trang **Lượt chạy** (`pnpm aitest -c aitest.web.yml serve`) cho biết agent đã làm gì và vì sao case ra kết quả đó, không cần mở file log. Trang hiển thị cả lượt chạy từ CLI lẫn lượt chạy thử trong cuộc chat (nhãn "chạy thử"); lượt chạy đang diễn ra được cập nhật liên tục.
+Trang **Plan** (`pnpm aitest -c aitest.web.yml serve`) gom plan và lượt chạy vào một nơi. Trang có hai tab: **Danh sách plan** và **Lượt chạy**.
+
+**Danh sách plan.** Plan được nhóm theo thư mục. Viền trái của mỗi thẻ có màu theo kết quả lần chạy gần nhất: xanh là đạt hết, đỏ là có case chưa đạt, vàng là plan lỗi cú pháp.
+
+| Thao tác | Cách làm |
+|---|---|
+| Tìm plan | Gõ tên, mã plan, mã hoặc tên case, đường dẫn |
+| Lọc theo trạng thái | Chip "Chưa chạy", "Đạt hết", "Có case chưa đạt", "Plan lỗi", kèm số lượng |
+| Xem lần chạy gần nhất | Bấm cột kết quả trên thẻ; lượt chạy thật được ưu tiên hơn lượt chạy thử |
+| Chạy plan | "▶ Chạy" → chọn case, điền đầu vào (mục 6.1) → "▶ Chạy N case". Giao diện chuyển ngay sang màn theo dõi lượt chạy |
+| Sửa cùng agent | Mở plan trong một cuộc chat mới (mục 5.6) |
+| Soạn plan mới | "+ Soạn plan mới cùng agent" |
+
+**Chi tiết plan.** Bấm một thẻ để xem chi tiết:
+
+- Đường dẫn, namespace tool, hệ thống trong catalog, kết quả lần chạy gần nhất.
+- Tab **Case**: bảng đầu vào (ghi rõ giá trị lấy từ đâu khi để trống), các case kèm kết quả lần chạy gần nhất; bấm case để xem bước và kết quả mong đợi.
+- Tab **Lịch sử chạy**: mọi lượt chạy của plan này.
+- Tab **Nội dung YAML**: nguyên văn plan và cảnh báo khi kiểm tra.
+
+Plan chưa hợp lệ không chạy được; trang liệt kê lỗi và gợi ý "Sửa cùng agent". Giao diện cho chạy tối đa 2 lượt cùng lúc; cấu hình bằng `maxConcurrent` của row `plan-manager`.
+
+**Xem một lượt chạy.** Tab **Lượt chạy** liệt kê mọi lượt chạy, gồm lượt chạy từ CLI, từ trang Plan và lượt chạy thử trong cuộc chat (nhãn "chạy thử"). Màn chi tiết lượt chạy agent đã làm gì và vì sao case ra kết quả đó, không cần mở file log. Lượt chạy đang diễn ra được cập nhật liên tục. Nút quay lại dẫn về plan của lượt chạy.
 
 Chọn một lượt chạy rồi chọn case. Case không đạt được mở sẵn. Phần đầu case ghi model agent đã dùng.
 

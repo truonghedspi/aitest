@@ -447,7 +447,18 @@ Plugin `@aitest/knowledge` lưu tri thức tích luỹ thành file Markdown tron
 
 Hướng dẫn cho agent dùng bản ghi chú nạp gần nhất. Ghi chú sửa trực tiếp trong file có hiệu lực sau lần gọi tool tri thức kế tiếp hoặc khi Host khởi động lại.
 
-### 7.7. Xem log lượt chạy
+### 7.7. Quản lý plan và xem log lượt chạy
+
+Trang **Plan** gom plan và lượt chạy. Plugin `@aitest/plan-manager` cung cấp ba method:
+
+| Method | Cơ chế |
+|---|---|
+| `plans.list` | Gọi `list_plans` của `authoring-catalog` với scope không ghi log; dùng chung thư mục plan với agent soạn plan |
+| `plans.get` | Đọc bằng `read_plan` (giữ giới hạn thư mục), kiểm tra bằng `ctx.authoring.validate`; trả case kèm bước, đầu vào kèm cách lấy giá trị |
+| `plans.run` | Kiểm tra plan, chọn case, gọi `ctx.runner.run` ở nền với `runId` sinh trước rồi trả ngay; giới hạn `maxConcurrent` lượt đồng thời |
+
+Kết quả lần chạy gần nhất của mỗi plan được giao diện ghép từ `runs.list` của `run-viewer`. `runs.list` nhận `planId`, `limit`, và trả `plan.source`. Tóm tắt lượt chạy được lưu tạm theo thời điểm sửa file log, nên lượt chạy đã xong không bị đọc lại. Sửa plan cùng agent đi qua `chats.openPlan`. Trang chi tiết lượt chạy `#/runs/<mã>` là trang con của "Plan" (`PageEntry.parent`).
+
 
 Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xem agent đã làm gì trong từng case và vì sao ra kết quả đó. Theo mẫu `ui-trajectory` của dsh, mọi thứ dựng từ run log `events.jsonl`, không có kho dữ liệu riêng.
 
@@ -476,6 +487,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | `packages/action-math/tests/math.test.ts` | `calc` với biến từ evidence; expectation dạng công thức bắt lỗi làm tròn số thực; kiểm tra công thức trong plan |
 | `packages/knowledge/tests/knowledge.test.ts` | Tra và đề xuất ghi chú, quy ước trong hướng dẫn, đánh dấu lỗi đã biết, có thể đã sửa, lỗi mới; method cho trang Knowledge |
 | `packages/run-viewer/tests/run-viewer.test.ts` | Danh sách, snapshot, các lần thử và evidence trong log, theo dõi file đang ghi dở ở process khác, chặn mã lượt chạy không hợp lệ |
+| `packages/plan-manager/tests/plan-manager.test.ts` | Danh sách gồm plan lỗi, chi tiết plan, giới hạn thư mục, chạy plan ở nền với case và đầu vào, lọc lượt chạy theo plan |
 | `packages/plugin-manager/tests/mcp-import.test.ts` | Đọc các định dạng cấu hình MCP, namespace, che bí mật, đổi tham chiếu biến môi trường |
 | `packages/plugin-manager/tests/plugin-manager.test.ts` | Tool theo plugin sở hữu, bật/tắt, cấu hình lỗi được quay lui, thêm/gỡ từ danh mục, thêm MCP server, tắt tool, khôi phục từ patch layer |
 | `packages/inputs/tests/inputs.test.ts` | Đủ bốn nguồn đầu vào, một phiên agent chuẩn bị, giá trị chỉ từ evidence, dọn sau mọi case, `blocked` khi không thoả `require` hoặc thiếu giá trị, kiểm tra khi soạn, `--input` |

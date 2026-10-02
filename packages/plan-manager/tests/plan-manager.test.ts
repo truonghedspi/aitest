@@ -1,0 +1,120 @@
+/**
+ * Kiểm thử quản lý plan qua WebSocket thật: danh sách, chi tiết, chạy plan ở nền với agent kịch bản,
+ * lọc lượt chạy theo plan.
+ */
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join, relative } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import type {} from '@aitest/web-host'
+import { toPosix } from '@aitest/core'
+import { setupHarness, WsClient, type Harness, type Script } from '../../runner/tests/support.ts'
+
+const PORT = 4185
+const BASE = `http://127.0.0.1:${PORT}`
+
+const PLAN = `id: TP-PM
+name: Plan quản lý
+requires: [http]
+inputs:
+  symbol: { desc: Mã, default: FPT }
+cases:
+  - id: PM-01
+    title: Liệt kê lệnh
+    steps: ["Gọi GET ${BASE}/orders."]
+    expect:
+      - { id: http-200, desc: API trả 200, check: { op: eq, value: 200 } }
+  - id: PM-02
+    title: Tra cứu lệnh không tồn tại
+    steps: ["Gọi GET ${BASE}/orders/999999."]
+    expect:
+      - { id: http-404, desc: API trả 404, check: { op: eq, value: 404 } }
+`
+
+const scripts: Record<string, Script> = {
+  async 'PM-01'(call) {
+    const res = await call('http_request', { method: 'GET', url: `${BASE}/orders` })
+    await call('assert_expectation', { expectId: 'http-200', evidenceId: res.evidenceId, path: '$.status' })
+  },
+  async 'PM-02'(call) {
+    const res = await call('http_request', { method: 'GET', url: `${BASE}/orders/999999` })
+    await call('assert_expectation', { expectId: 'http-404', evidenceId: res.evidenceId, path: '$.status' })
+  },
+}
+
+describe('plan manager over WebSocket', () => {
+  let harness: Harness
+  let ws: WsClient
+  let planPath: string
+  let brokenPath: string
+
+  beforeAll(async () => {
+    harness = await setupHarness({
+      port: PORT,
+      config: 'aitest.web.yml',
+      scripts,
+      rows: (dir) => [
+        { id: 'web', name: '@aitest/web-host', config: { port: 0, staticDir: join(dir, 'static') } },
+        { id: 'authoring-catalog', name: '@aitest/authoring/catalog', config: { planDirs: [join(dir, 'plans')] } },
+      ],
+    })
+    harness.kernel.ctx.runner.config.agent = 'scripted'
+    await mkdir(join(harness.dir, 'plans/team'), { recursive: true })
+    await writeFile(join(harness.dir, 'plans/team/pm.plan.yaml'), PLAN)
+    await writeFile(join(harness.dir, 'plans/broken.plan.yaml'), 'id: BROKEN\n')
+    planPath = toPosix(relative(process.cwd(), join(harness.dir, 'plans/team/pm.plan.yaml')))
+    brokenPath = toPosix(relative(process.cwd(), join(harness.dir, 'plans/broken.plan.yaml')))
+    ws = await WsClient.open((await harness.kernel.ctx.web.ready()).replace('http', 'ws') + '/ws')
+  }, 60_000)
+
+  afterAll(async () => {
+    ws?.socket.close()
+    await harness?.dispose()
+  })
+
+  it('lists plans, including ones that fail to parse', async () => {
+    const plans = await ws.call('plans.list')
+    expect(plans).toEqual([
+      expect.objectContaining({ path: brokenPath, error: expect.any(String) }),
+      expect.objectContaining({ path: planPath, id: 'TP-PM', cases: [{ id: 'PM-01', title: 'Liệt kê lệnh' }, { id: 'PM-02', title: 'Tra cứu lệnh không tồn tại' }] }),
+    ])
+  })
+
+  it('returns plan detail with cases, inputs and validation', async () => {
+    const detail = await ws.call('plans.get', { path: planPath })
+    expect(detail).toMatchObject({
+      valid: true,
+      content: PLAN,
+      plan: {
+        id: 'TP-PM', requires: ['http'],
+        inputs: [{ name: 'symbol', default: 'FPT', mode: 'user' }],
+        cases: [{ id: 'PM-01', steps: [`Gọi GET ${BASE}/orders.`], expect: [{ id: 'http-200' }] }, { id: 'PM-02' }],
+      },
+    })
+    const broken = await ws.call('plans.get', { path: brokenPath })
+    expect(broken.valid).toBe(false)
+    await expect(ws.call('plans.get', { path: 'package.json' })).rejects.toThrow(/outside plan directories/)
+  })
+
+  it('runs a plan in the background and lists its runs by plan', async () => {
+    await expect(ws.call('plans.run', { path: brokenPath })).rejects.toThrow(/plan is invalid/)
+    await expect(ws.call('plans.run', { path: planPath, cases: ['NOPE'] })).rejects.toThrow(/unknown case: NOPE/)
+
+    const { runId } = await ws.call('plans.run', { path: planPath, cases: ['PM-02'], inputs: { symbol: 'VNM', empty: '' } })
+    expect(runId).toMatch(/TP-PM$/)
+    let runs: any[] = []
+    for (let i = 0; i < 100; i++) {
+      runs = await ws.call('runs.list', { planId: 'TP-PM' })
+      if (runs[0]?.finished) break
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({
+      runId, finished: true, dryRun: false, plan: { id: 'TP-PM', source: planPath },
+      cases: [{ id: 'PM-02', verdict: 'pass' }],
+    })
+    const subscribed = await ws.call('runs.subscribe', { runId })
+    const resolved = subscribed.events.find((e: any) => e.type === 'inputs/resolved')
+    expect(resolved.data.inputs).toEqual([{ name: 'symbol', source: 'user', value: 'VNM' }])
+    expect(await ws.call('runs.list', { planId: 'OTHER' })).toEqual([])
+  })
+})

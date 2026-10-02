@@ -6,7 +6,7 @@ Các quy tắc dưới đây bổ sung cho [quy ước chung](../AGENTS.md#quy-�
 - **Khai báo `inject` đầy đủ.** Plugin dùng `ctx.<service>` phải liệt kê service đó trong `inject`, để plugin chờ service xuất hiện thay vì ném lỗi khi nạp.
 - **`Config` dùng schemastery** (`z` export từ `@aitest/core`) và có `.description()` tiếng Việt cho trường không hiển nhiên. Giá trị mặc định phải an toàn: chỉ đọc, giới hạn thời gian, không mở cổng ra ngoài `127.0.0.1`.
 - **Phụ thuộc:** mọi package khai báo `@aitest/core: workspace:*` và `@deepseek-ai/cordis: ~4.0.4`. Package mới thêm vào `dependencies` của `package.json` gốc để `aitest.yml` phân giải được.
-- **Plugin không import lẫn nhau.** Giao tiếp qua service và event trong `@aitest/core`. Hàm dùng chung đặt trong core (ví dụ `readPath`, `compare` ở `core/src/match.ts`). Ngoại lệ hiện có: `runner` dùng kiểu của `mcp-gateway`; `authoring` dùng kiểu của `runner`; `chat` dùng `authoring`, `mcp-gateway`, `web-host`.
+- **Plugin không import lẫn nhau.** Giao tiếp qua service và event trong `@aitest/core`. Hàm dùng chung đặt trong core (ví dụ `readPath`, `compare` ở `core/src/match.ts`). Ngoại lệ hiện có: `runner` dùng kiểu của `mcp-gateway`; `authoring` dùng kiểu của `runner`; `chat` dùng `authoring`, `mcp-gateway`, `web-host`; `plan-manager` dùng kiểu của `authoring`, `runner`, `web-host`.
 - **`core/src/types.ts` chỉ chứa kiểu**, không chứa mã chạy.
 - **Trạng thái theo case** lưu trong `WeakMap<CaseScope, ...>` của plugin, không gắn thêm trường vào `CaseScope`. Tài nguyên theo case (sink webhook, endpoint) dọn ở `case/end` hoặc qua hàm `close` trả về.
 - **Tài nguyên dài hạn** (HTTP server, kết nối DB, process con) mở lười khi cần và đóng trong `ctx.effect`. Process con phải bị dừng khi plugin unload.

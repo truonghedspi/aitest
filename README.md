@@ -41,7 +41,7 @@ pnpm web:build
 pnpm aitest -c aitest.web.yml serve     # mở http://127.0.0.1:4300
 ```
 
-Trang **Lượt chạy** cho xem lại agent đã làm gì trong từng case và vì sao ra kết quả đó: giá trị thật nền tảng đọc được, evidence, prompt, dòng thời gian; lượt chạy đang diễn ra được cập nhật liên tục. Trang **Knowledge** lưu tri thức của nhóm trong `kb/`: lỗi đã biết (báo cáo tách lỗi đã biết khỏi lỗi mới), quy ước (agent soạn plan luôn áp dụng), bài học. Giao diện có thêm trang **Plugin** (bật/tắt, cấu hình, thêm plugin, thêm MCP server) và trang **Tool** (bật/tắt, chạy thử từng tool). Thay đổi ghi vào `aitest.web.patch.yml`, không sửa cấu hình gốc.
+Trang **Plan** quản lý plan: tìm, lọc theo kết quả lần chạy gần nhất, xem case và lịch sử chạy, chạy plan (chọn case, điền đầu vào), mở plan để sửa cùng agent. Tab **Lượt chạy** cho xem lại agent đã làm gì trong từng case và vì sao ra kết quả đó: giá trị thật nền tảng đọc được, evidence, prompt, dòng thời gian; lượt chạy đang diễn ra được cập nhật liên tục. Trang **Knowledge** lưu tri thức của nhóm trong `kb/`: lỗi đã biết (báo cáo tách lỗi đã biết khỏi lỗi mới), quy ước (agent soạn plan luôn áp dụng), bài học. Giao diện có thêm trang **Plugin** (bật/tắt, cấu hình, thêm plugin, thêm MCP server) và trang **Tool** (bật/tắt, chạy thử từng tool). Thay đổi ghi vào `aitest.web.patch.yml`, không sửa cấu hình gốc.
 
 Người dùng terminal có thể dùng Kiro chat với cùng bộ tool: `kiro-cli chat --agent aitest-author`.
 

@@ -37,7 +37,8 @@ packages/            @aitest/<tên> — mỗi package là một hoặc nhiều p
   authoring/         soạn plan cùng agent: service lõi + plugin catalog, context-files, explore, validate, dry-run, save
   chat/              cuộc chat soạn plan: log, cầu nối ACP sang event, duyệt quyền
   web-host/          HTTP, WebSocket /ws, registry method
-  run-viewer/        trang Lượt chạy: danh sách, giải thích kết quả, dòng thời gian, theo dõi lượt chạy đang diễn ra
+  plan-manager/      trang Plan: danh sách, chi tiết, chạy plan (plans.list/get/run)
+  run-viewer/        lượt chạy (trang con của Plan): danh sách, giải thích kết quả, dòng thời gian, theo dõi lượt chạy đang diễn ra
   knowledge/         tri thức của nhóm trong kb/: tool kb_list/kb_read/kb_propose, quy ước vào hướng dẫn, đánh dấu lỗi đã biết
   plugin-manager/    trang Plugin và Tool: bật/tắt, cấu hình, thêm/gỡ, thêm MCP server, tắt tool, chạy thử
   inputs/            đầu vào của lượt chạy: người chạy điền, fill, agent prepare (provide_input, register_cleanup), default, blocked
