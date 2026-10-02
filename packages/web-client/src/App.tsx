@@ -13,6 +13,9 @@ export function App() {
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
+  const [outdated, setOutdated] = useState(connection.missingMethod)
+  useEffect(() => connection.onOutdated(setOutdated), [])
+  const staleUi = useStaleUi()
   const [online, setOnline] = useState(connection.connected)
   useEffect(() => {
     setOnline(connection.connected)
@@ -36,9 +39,41 @@ export function App() {
         </nav>
         {Sidebar && <Sidebar param={route.param} navigate={navigate} />}
       </aside>
+      {staleUi && (
+        <div className="host-outdated" role="alert">
+          <b>Đã có bản giao diện mới.</b> Tải lại trang để dùng các tính năng mới.{' '}
+          <button className="primary" onClick={() => location.reload()}>Tải lại</button>
+        </div>
+      )}
+      {outdated && !staleUi && (
+        <div className="host-outdated" role="alert">
+          <b>Host đang chạy phiên bản cũ hơn giao diện</b> (thiếu <code>{outdated}</code>), nên một số tính năng chưa dùng được.
+          {' '}Khởi động lại Host: dừng <code>aitest … serve</code> bằng Ctrl+C, chạy lại, rồi tải lại trang (Cmd+Shift+R).
+        </div>
+      )}
       <Page param={route.param} navigate={navigate} />
     </div>
   )
+}
+
+/**
+ * Giao diện đang chạy cũ hơn bản Host phục vụ: so đường dẫn script (có mã băm của bản build)
+ * khi kết nối và mỗi phút một lần.
+ */
+function useStaleUi() {
+  const [stale, setStale] = useState(false)
+  useEffect(() => {
+    const own = document.querySelector<HTMLScriptElement>('script[type=module][src]')?.getAttribute('src')
+    if (!own) return
+    const check = () => {
+      connection.call<{ script?: string }>('web.build').then((b) => setStale(!!b.script && b.script !== own), () => {})
+    }
+    check()
+    const stop = connection.onOpen(check)
+    const timer = setInterval(check, 60_000)
+    return () => { stop(); clearInterval(timer) }
+  }, [])
+  return stale
 }
 
 function parseRoute() {

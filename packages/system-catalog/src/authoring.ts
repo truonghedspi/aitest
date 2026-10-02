@@ -12,6 +12,9 @@ import type {} from './index.ts'
 export const name = 'system-catalog-authoring'
 export const inject = ['systems', 'actions', 'authoring']
 
+/** Namespace của tool nội bộ, không phải hệ thống dưới kiểm thử. */
+const INTERNAL = new Set(['authoring', 'verdict', 'wait', 'webhook', 'math', 'inputs', 'knowledge'])
+
 export function apply(ctx: Context) {
   /** Namespace đang có tool cho agent chạy test; tool bị tắt bằng `restrict` không được tính. */
   const installed = (env?: string) => new Set(ctx.actions.list({ kind: 'case', namespaces: new Set(), phase: 'setup', env }).map((a) => a.namespace))
@@ -31,7 +34,15 @@ export function apply(ctx: Context) {
     async execute(_args: Record<string, never>, { scope }) {
       const catalog = await ctx.systems.load(scope.env)
       const available = installed(scope.env)
+      // Namespace có tool nhưng không gắn với hệ thống nào trong catalog (ví dụ MCP server cơ sở dữ liệu người dùng tự thêm).
+      const described = new Set(catalog.systems.flatMap((sys) => [
+        ...sys.data.map((d) => d.namespace),
+        ...sys.events.map((e) => catalog.env.brokers[e.broker]?.namespace).filter((n): n is string => !!n),
+      ]))
+      const otherNamespaces = [...available].filter((ns) => !described.has(ns) && !INTERNAL.has(ns)).sort()
       return {
+        note: 'Catalog chỉ mô tả các service đã khai báo. Hệ thống, cơ sở dữ liệu, bảng không có ở đây vẫn dùng được nếu list_actions có tool; khảo sát bằng explore.',
+        otherNamespaces,
         env: catalog.env.name,
         systems: catalog.systems.map((s) => ({
           id: s.id,
@@ -108,6 +119,7 @@ export function apply(ctx: Context) {
     render: () => [
       '## Catalog hệ thống',
       '- Gọi `list_systems` trước khi viết bước gọi API hoặc chờ sự kiện. Khai báo hệ thống dùng tới trong `systems` của plan.',
+      '- Catalog không bắt buộc: hệ thống, cơ sở dữ liệu chưa khai báo vẫn dùng được qua tool trong `list_actions` (xem `otherNamespaces`).',
       '- Dùng `{{<system>.url}}` thay cho URL cố định, để plan chạy được ở mọi môi trường.',
       '- Viết bước theo tên trong catalog, ví dụ "Gọi order-service.createOrder (POST {{order-service.url}}/orders) với body ...",',
       '  "Chờ sự kiện order-service.order-events order.created của lệnh vừa tạo". Xem schema bằng `describe_system`.',

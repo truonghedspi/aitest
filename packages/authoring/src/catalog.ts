@@ -27,7 +27,8 @@ export function apply(ctx: Context, config: Config) {
     readOnly: true,
     evidence: false,
     description: [
-      'Liệt kê các action mà agent chạy test được dùng, kèm namespace và input schema.',
+      'Liệt kê MỌI tool đang có mà agent chạy test được dùng, kể cả MCP server người dùng tự thêm (ví dụ cơ sở dữ liệu),',
+      'kèm namespace, nguồn và input schema. Đây là nguồn sự thật về tool; gọi trước khi kết luận thiếu tool.',
       'Namespace dùng cho trường `requires` của plan; action có `alwaysAvailable` không cần khai báo.',
     ].join(' '),
     inputSchema: {
@@ -35,8 +36,8 @@ export function apply(ctx: Context, config: Config) {
       properties: { namespace: { type: 'string', description: 'Chỉ liệt kê action của namespace này.' } },
       additionalProperties: false,
     },
-    async execute(args: { namespace?: string }) {
-      const actions = ctx.actions.list({ kind: 'case', namespaces: new Set(), phase: 'setup' })
+    async execute(args: { namespace?: string }, { scope }) {
+      const actions = ctx.actions.list({ kind: 'case', namespaces: new Set(), phase: 'setup', env: scope.env })
         .filter((a) => !args.namespace || a.namespace === args.namespace)
         .map((a) => ({
           name: a.name,
@@ -46,8 +47,21 @@ export function apply(ctx: Context, config: Config) {
           alwaysAvailable: a.always ?? false,
           inputSchema: a.inputSchema,
         }))
-      const namespaces = [...new Set(actions.map((a) => a.namespace))]
-      return { namespaces, actions }
+      // Nguồn của từng namespace: plugin nội bộ hay MCP server người dùng thêm, để agent biết tool đến từ đâu.
+      const kernel = ctx.get('kernel') as { ownerOf(fiber: unknown): string | undefined; rows: Map<string, { row: { name: string } }> } | undefined
+      const sources = [...new Set(actions.map((a) => a.namespace))].map((namespace) => {
+        const list = actions.filter((a) => a.namespace === namespace)
+        const row = kernel?.ownerOf(ctx.actions.ownerOf(list[0].name, scope.env))
+        const plugin = row ? kernel?.rows.get(row)?.row.name : undefined
+        return {
+          namespace,
+          source: plugin === '@aitest/action-mcp-proxy' ? 'mcp-server' : 'plugin',
+          row,
+          tools: list.length,
+          readOnlyTools: list.filter((a) => a.readOnly).map((a) => a.name),
+        }
+      })
+      return { namespaces: sources.map((s) => s.namespace), sources, actions }
     },
     present: (_args, outcome) => {
       const value = outcome.value as { actions?: Array<{ name: string; namespace: string }> } | undefined
@@ -122,8 +136,13 @@ export function apply(ctx: Context, config: Config) {
     id: 'authoring/catalog',
     order: 30,
     render: () => [
-      '## Action và plan có sẵn',
-      '- `list_actions`: biết plan được dùng action nào; chỉ khai báo trong `requires` các namespace có thật.',
+      '## Tool, action và plan có sẵn',
+      '- `list_actions` là nguồn sự thật về tool đang có, gồm cả MCP server người dùng tự thêm (`source: mcp-server`).',
+      '  Luôn gọi trước khi kết luận thiếu tool. Chỉ khai báo trong `requires` các namespace có thật.',
+      '- `list_tool_catalog` chỉ liệt kê tool CÓ THỂ THÊM; `list_systems` chỉ mô tả các service đã khai báo. Hệ thống, cơ sở dữ liệu,',
+      '  bảng không có ở hai nơi này vẫn dùng được khi `list_actions` có tool tương ứng.',
+      '- Tìm bảng, cột bằng `explore` với tool chỉ đọc của namespace đó (ví dụ truy vấn danh mục bảng của cơ sở dữ liệu).',
+      '  Tool chưa chỉ đọc thì `explore` từ chối: nhờ người dùng bật "Chỉ đọc" trên trang Tool, hoặc dùng trong bước của plan rồi `dry_run`.',
       '- `list_plans`, `read_plan`: đọc plan có sẵn để theo cùng phong cách và không trùng `id`.',
     ].join('\n'),
   })

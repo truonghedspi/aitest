@@ -180,6 +180,8 @@ describe('catalog in runs and authoring', () => {
     const { ctx } = harness.kernel
     const list = await ctx.actions.invoke(session.scope, 'list_systems', {})
     expect(list.value).toMatchObject({
+      note: expect.stringContaining('list_actions'),
+      otherNamespaces: expect.arrayContaining(['http', 'dbadmin']),
       env: 'local',
       systems: [{ id: 'order-service', url: harness.baseUrl, operations: expect.arrayContaining(['createOrder: POST /orders']) }],
     })

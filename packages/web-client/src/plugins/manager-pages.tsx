@@ -68,6 +68,7 @@ function PluginsPage(_: PageProps) {
 
 function PluginCard({ plugin, onChange }: { plugin: PluginInfo; onChange(): void }) {
   const [open, setOpen] = useState(false)
+  const [readOnly, setReadOnly] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const run = async (method: string, params: Record<string, unknown>) => {
@@ -106,8 +107,14 @@ function PluginCard({ plugin, onChange }: { plugin: PluginInfo; onChange(): void
       {plugin.tools.length > 0 && <div className="tags">{plugin.tools.map((t) => <span key={t} className="tag">{t}</span>)}</div>}
       <div className="actions">
         <button onClick={() => setOpen(!open)}>{open ? 'Đóng cấu hình' : 'Cấu hình'}</button>
+        {plugin.name === '@aitest/action-mcp-proxy' && plugin.tools.length > 0 && (
+          <button onClick={() => setReadOnly(!readOnly)} title="Chọn tool chỉ lấy dữ liệu để agent trong cuộc chat gọi thử được">
+            {readOnly ? 'Đóng' : 'Tool chỉ đọc…'}
+          </button>
+        )}
         {plugin.removable && <button disabled={busy} onClick={() => run('plugins.remove', { id: plugin.id })}>Gỡ</button>}
       </div>
+      {readOnly && <McpReadOnly servers={[{ name: plugin.id, id: plugin.id }]} onClose={() => setReadOnly(false)} onDone={onChange} embedded />}
       {open && (
         <ConfigForm
           fields={plugin.fields}
@@ -307,7 +314,7 @@ interface McpTool { name: string; raw: string; description: string; readOnly: bo
  * Bước cuối: đánh dấu tool chỉ đọc. Agent trong cuộc chat chỉ gọi thử (`explore`) được tool chỉ đọc;
  * khi chạy plan thì mọi tool có namespace trong `requires` đều dùng được.
  */
-function McpReadOnly({ servers, onClose, onDone }: { servers: AddedServer[]; onClose(): void; onDone(): void }) {
+function McpReadOnly({ servers, onClose, onDone, embedded }: { servers: AddedServer[]; onClose(): void; onDone(): void; embedded?: boolean }) {
   const [tools, setTools] = useState<Record<string, McpTool[]>>({})
   const [checked, setChecked] = useState<Record<string, Set<string>>>({})
   const [busy, setBusy] = useState(false)
@@ -343,8 +350,8 @@ function McpReadOnly({ servers, onClose, onDone }: { servers: AddedServer[]; onC
   }
   return (
     <>
-      <Steps current={3} />
-      <div className="ok">✓ Đã thêm {servers.map((s) => <code key={s.id}>{s.id}</code>)}. Tool có hiệu lực ngay, không cần tải lại trang.</div>
+      {!embedded && <Steps current={3} />}
+      {!embedded && <div className="ok">✓ Đã thêm {servers.map((s) => <code key={s.id}>{s.id}</code>)}. Tool có hiệu lực ngay, không cần tải lại trang.</div>}
       <p className="small">
         Chọn tool <b>chỉ đọc</b> (chỉ lấy dữ liệu, không tạo, sửa, xoá). Agent trong cuộc chat chỉ gọi thử được tool chỉ đọc.
         Khi chạy plan, mọi tool đều dùng được nếu namespace có trong <code>requires</code>.
@@ -365,7 +372,7 @@ function McpReadOnly({ servers, onClose, onDone }: { servers: AddedServer[]; onC
         </div>
       ))}
       <div className="actions">
-        <button onClick={onClose}>Bỏ qua</button>
+        <button onClick={onClose}>{embedded ? 'Huỷ' : 'Bỏ qua'}</button>
         <button className="primary" disabled={busy} onClick={save}>{busy ? 'Đang lưu…' : 'Lưu và đóng'}</button>
       </div>
       {error && <div className="bad small">{error}</div>}
@@ -594,7 +601,9 @@ function ToolRow({ tool, onChange }: { tool: ToolInfo; onChange(): void }) {
         <button className="link" onClick={() => setOpen(!open)}>{open ? '▾' : '▸'} <b>{tool.name}</b></button>
         <span className="muted small">{tool.owner ?? '—'}</span>
         <span className="tags">
-          {tool.readOnly && <span className="tag">chỉ đọc</span>}
+          {tool.mcp && tool.owner
+            ? <McpReadOnlyToggle tool={tool} owner={tool.owner} onChange={onChange} compact />
+            : tool.readOnly && <span className="tag">chỉ đọc</span>}
           {tool.always && <span className="tag">luôn bật</span>}
           {tool.scopes.map((s) => <span key={s} className="tag">{s}</span>)}
         </span>
@@ -606,7 +615,6 @@ function ToolRow({ tool, onChange }: { tool: ToolInfo; onChange(): void }) {
       {open && (
         <div className="tool-detail">
           <p>{tool.description}</p>
-          {tool.mcp && tool.owner && <McpReadOnlyToggle tool={tool} owner={tool.owner} onChange={onChange} />}
           <details><summary>Input schema</summary><Json value={tool.inputSchema} /></details>
           {tool.tryable && tool.enabled && <TryTool tool={tool} />}
         </div>
@@ -617,7 +625,7 @@ function ToolRow({ tool, onChange }: { tool: ToolInfo; onChange(): void }) {
 }
 
 /** Đánh dấu một tool của MCP server là chỉ đọc, để agent soạn plan gọi thử được qua `explore`. */
-function McpReadOnlyToggle({ tool, owner, onChange }: { tool: ToolInfo; owner: string; onChange(): void }) {
+function McpReadOnlyToggle({ tool, owner, onChange, compact }: { tool: ToolInfo; owner: string; onChange(): void; compact?: boolean }) {
   const [list, setList] = useState<McpTool[]>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -636,6 +644,14 @@ function McpReadOnlyToggle({ tool, owner, onChange }: { tool: ToolInfo; owner: s
     }
   }
   if (!self) return error ? <div className="bad small">{error}</div> : null
+  if (compact) {
+    return (
+      <label className={`tag toggle ${self.readOnly ? 'on' : ''}`} title={self.source === 'hint' ? 'Server tự đánh dấu chỉ đọc' : 'Bật khi tool chỉ lấy dữ liệu: agent trong cuộc chat được gọi thử'}>
+        <input type="checkbox" checked={self.readOnly} disabled={busy || self.source === 'hint'} onChange={(e) => void change(e.target.checked)} />
+        {' '}chỉ đọc
+      </label>
+    )
+  }
   return (
     <label className="small" title="Agent soạn plan chỉ gọi thử được tool chỉ đọc">
       <input type="checkbox" checked={self.readOnly} disabled={busy || self.source === 'hint'} onChange={(e) => void change(e.target.checked)} />

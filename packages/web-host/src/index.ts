@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { extname, join, normalize, resolve } from 'node:path'
@@ -58,6 +58,12 @@ export class WebHost extends Service {
       this.start()
       return () => this.stop()
     }, 'web.http')
+    // Bản giao diện Host đang phục vụ (đường dẫn script trong `index.html`, có mã băm của bản build).
+    // Giao diện so với bản của chính nó để nhắc người dùng tải lại trang sau khi build mới.
+    this.method('web.build', async () => {
+      const html = await readFile(join(resolve(this.config.staticDir), 'index.html'), 'utf8').catch(() => '')
+      return { script: /<script[^>]+src="([^"]+)"/.exec(html)?.[1] }
+    })
   }
 
   method(name: string, handler: MethodHandler) {
@@ -89,7 +95,12 @@ export class WebHost extends Service {
       if (!info || info.isDirectory()) file = join(root, 'index.html')
       const exists = await stat(file).catch(() => undefined)
       if (!exists) return void res.writeHead(404).end('web client is not built; run `pnpm web:build`')
-      res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' })
+      // `index.html` luôn được kiểm tra lại để trình duyệt nhận bản build mới; file trong `assets/` có mã băm nên cache lâu dài.
+      const hashed = /[\\/]assets[\\/]/.test(file.slice(root.length))
+      res.writeHead(200, {
+        'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+        'cache-control': hashed ? 'public, max-age=31536000, immutable' : 'no-cache',
+      })
       createReadStream(file).pipe(res)
     })
     const wss = new WebSocketServer({ server: http, path: '/ws' })

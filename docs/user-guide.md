@@ -305,7 +305,11 @@ Hộp thoại đi qua ba bước, hiện ở đầu hộp thoại:
 2. **Xem trước và chọn server**, rồi bấm **"Thêm N server vào aitest"**. Mỗi server được kết nối thử. Server lỗi được báo riêng và không được ghi, các server khác vẫn được thêm.
 3. **Đánh dấu tool chỉ đọc**: chọn tool chỉ lấy dữ liệu, không tạo, sửa, xoá, rồi bấm "Lưu và đóng". Agent trong cuộc chat chỉ gọi thử (`explore`) được tool chỉ đọc. Tool mà server tự khai báo chỉ đọc (`readOnlyHint`) được đánh dấu sẵn. Khi chạy plan, mọi tool đều dùng được nếu namespace có trong `requires`.
 
-Tool có hiệu lực ngay, không cần tải lại trang. Sau này, đổi trạng thái chỉ đọc trên trang **Tool**: mở tool rồi bật hoặc tắt "Chỉ đọc".
+Tool có hiệu lực ngay, không cần tải lại trang. Đổi trạng thái chỉ đọc sau này bằng một trong ba cách:
+
+- Trang **Tool**: tick ô **"chỉ đọc"** ngay trên dòng của tool.
+- Trang **Plugin**: trên thẻ `mcp-<tên>`, bấm **"Tool chỉ đọc…"**, chọn tool, rồi bấm "Lưu và đóng".
+- Trang **Plugin** → "Cấu hình": điền trường `readOnly` bằng tên tool **không có tiền tố namespace**, ví dụ tool `timesten_query` thì điền `["query"]`, rồi bấm "Lưu và nạp lại". Cách này dùng được cả trên bản cũ.
 
 MCP server khai báo trong cấu hình riêng của Kiro (`~/.kiro/settings/mcp.json`) **không** được agent của aitest dùng. Mọi tool phải thêm qua aitest để có guard, evidence và log.
 
@@ -781,6 +785,9 @@ Guard chặn action. Ví dụ, câu lệnh ghi (`DELETE`, `UPDATE`) qua `db_quer
 | Gửi tin nhắn báo "agent is still working" | Chờ agent xong lượt hiện tại, hoặc bấm "Dừng" |
 | Agent dừng với lỗi `agent process exited` | Kiểm tra đăng nhập Kiro; tin nhắn tiếp theo tự kết nối lại |
 | `validate_plan` báo `namespace dbadmin is fixture-only` | Bỏ `dbadmin` khỏi `requires`; fixture vẫn dùng được `dbadmin_query` |
+| Agent báo "không có <tên> trong catalog" hoặc "không có bảng … trong hệ thống đã khai báo" với MCP server vừa thêm | Danh mục tool và catalog hệ thống chỉ là mô tả bổ sung; MCP server tự thêm không cần có ở đó. Nhắc agent: "gọi list_actions, dùng namespace <tên> và khảo sát bảng bằng explore". Đánh dấu chỉ đọc cho tool truy vấn (trang Tool) để agent khảo sát được. Muốn agent hiểu cơ sở dữ liệu thuộc service nào, khai báo `data: [{ namespace: <tên>, tables: [...] }]` trong `systems/<id>/service.yml` |
+| Giao diện hiện "Đã có bản giao diện mới" | Bấm "Tải lại". Giao diện được build lại khi Host đang chạy |
+| Giao diện hiện "Host đang chạy phiên bản cũ hơn giao diện" | Dừng `serve` bằng Ctrl+C, chạy lại, rồi tải lại trang |
 | Agent trong chat không thấy MCP server vừa thêm | Kiểm tra trang Plugin có row `mcp-<tên>` ở trạng thái "Đang chạy" (chưa bấm "Thêm … vào aitest" thì server chưa được thêm). Server thêm vào cấu hình của Kiro không được dùng |
 | Agent báo `explore only allows read-only calls` với tool của MCP server | Tool chưa được đánh dấu chỉ đọc. Nếu tool chỉ lấy dữ liệu, bật "Chỉ đọc" trên trang Tool; nếu tool ghi dữ liệu, dùng trong bước của plan và chạy thử |
 | Thêm MCP server báo lỗi kết nối | Chạy thử lệnh trong terminal; kiểm tra đường dẫn lệnh và tham số; với HTTP kiểm tra URL kết thúc bằng `/mcp` |

@@ -271,6 +271,7 @@ export function apply(ctx: Context, config: Config) {
     async execute() {
       const { entries, errors } = await loadCatalog(config.dirs)
       return {
+        note: 'Chỉ liệt kê tool có thể thêm từ danh mục đã kiểm duyệt. Tool đang có, kể cả MCP server người dùng tự thêm, xem bằng list_actions.',
         entries: entries.map((entry) => {
           const installed = installedRow(entry, entry.namespace)
           return {

@@ -166,5 +166,11 @@ describe('plugin manager', () => {
     expect((await patch()).find((r) => r.id === 'mcp-pricefeed').config.readOnly).toEqual(['get'])
     expect((await ws.call('tools.list')).find((t: any) => t.name === 'pricefeed_get')).toMatchObject({ mcp: true, readOnly: true })
     await expect(ws.call('mcp.tools', { id: 'action-http' })).rejects.toThrow(/not an MCP server/)
+
+    // Agent soạn plan thấy MCP server tự thêm trong list_actions, kèm nguồn.
+    const listed = await ws.call('tools.try', { name: 'list_actions', args: { namespace: 'pricefeed' } })
+    expect(listed.value.sources).toEqual([
+      { namespace: 'pricefeed', source: 'mcp-server', row: 'mcp-pricefeed', tools: 2, readOnlyTools: ['pricefeed_get'] },
+    ])
   })
 })

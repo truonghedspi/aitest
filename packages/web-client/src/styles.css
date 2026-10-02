@@ -330,3 +330,7 @@ table.matrix .current { background: var(--surface-2); }
 .steps li::before { content: counter(step) ". "; }
 .steps li.active { color: inherit; border-color: var(--accent, #2f6fde); font-weight: 600; }
 .steps li.done { color: var(--ok); border-color: var(--ok); }
+.host-outdated { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 100; max-width: min(760px, 92vw); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--warn); background: var(--surface); box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18); font-size: 13px; }
+.tag.toggle { cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+.tag.toggle input { width: auto; margin: 0; }
+.tag.toggle.on { border-color: var(--ok); color: var(--ok); }

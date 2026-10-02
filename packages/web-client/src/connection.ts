@@ -12,7 +12,13 @@ export class Connection {
   private readonly openListeners = new Set<() => void>()
   private readonly statusListeners = new Set<(connected: boolean) => void>()
   private queue: string[] = []
+  private readonly outdatedListeners = new Set<(method: string) => void>()
   connected = false
+  /**
+   * Method mà Host không có: giao diện mới hơn Host (Host chưa khởi động lại sau khi cập nhật mã).
+   * Giao diện hiện cảnh báo thay vì để từng trang báo lỗi khó hiểu.
+   */
+  missingMethod?: string
 
   constructor(private readonly url: string) {
     this.open()
@@ -22,7 +28,16 @@ export class Connection {
     const id = ++this.seq
     const payload = JSON.stringify({ id, method, params })
     return new Promise<T>((resolve, reject) => {
-      this.waiting.set(id, { resolve, reject })
+      this.waiting.set(id, {
+        resolve,
+        reject: (error) => {
+          if (/^unknown method/.test(error.message) && !this.missingMethod) {
+            this.missingMethod = method
+            for (const l of this.outdatedListeners) l(method)
+          }
+          reject(error)
+        },
+      })
       if (this.connected) this.socket!.send(payload)
       else this.queue.push(payload)
     })
@@ -37,6 +52,12 @@ export class Connection {
   onStatus(listener: (connected: boolean) => void) {
     this.statusListeners.add(listener)
     return () => { this.statusListeners.delete(listener) }
+  }
+
+  /** Theo dõi khi phát hiện Host thiếu method mà giao diện cần. */
+  onOutdated(listener: (method: string) => void) {
+    this.outdatedListeners.add(listener)
+    return () => { this.outdatedListeners.delete(listener) }
   }
 
   onOpen(listener: () => void) {
