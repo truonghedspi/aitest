@@ -60,6 +60,8 @@ export interface ToolInfo {
   readOnly: boolean
   always: boolean
   owner?: string
+  /** Tool đến từ MCP server (`@aitest/action-mcp-proxy`): người dùng đánh dấu chỉ đọc được. */
+  mcp: boolean
   enabled: boolean
   tryable: boolean
   inputSchema: unknown
@@ -112,6 +114,7 @@ export function apply(ctx: Context, config: Config) {
     readOnly: def.readOnly ?? false,
     always: def.always ?? false,
     owner,
+    mcp: !!owner && kernel.rows.get(owner)?.row.name === '@aitest/action-mcp-proxy',
     enabled: !disabled.has(def.name),
     tryable: def.readOnly === true || typeof def.isReadOnlyCall === 'function',
     inputSchema: def.inputSchema,
@@ -236,6 +239,40 @@ export function apply(ctx: Context, config: Config) {
       }
     }
     return results
+  })
+
+  /** Row `action-mcp-proxy` và tiền tố tên action của nó. */
+  const mcpRow = (id: string) => {
+    const state = kernel.rows.get(id)
+    if (!state || state.row.name !== '@aitest/action-mcp-proxy') throw new Error(`row ${id} is not an MCP server`)
+    const config = (state.row.config ?? {}) as { namespace?: string; prefix?: string; readOnly?: string[] }
+    return { state, config, prefix: config.prefix ?? `${config.namespace}_` }
+  }
+
+  /**
+   * Tool của một MCP server kèm trạng thái chỉ đọc: `hint` khi server tự đánh dấu (`readOnlyHint`, không gỡ được),
+   * `config` khi người dùng đánh dấu trong cấu hình.
+   */
+  ctx.web.method('mcp.tools', (params: { id: string }) => {
+    const { config, prefix } = mcpRow(params.id)
+    const owners = toolOwners()
+    return ctx.actions.all().filter((def) => owners.get(def.name) === params.id).map((def) => {
+      const raw = def.name.startsWith(prefix) ? def.name.slice(prefix.length) : def.name
+      const configured = (config.readOnly ?? []).includes(raw)
+      return {
+        name: def.name, raw, description: def.description.split('\n')[0],
+        readOnly: def.readOnly === true, source: configured ? 'config' : def.readOnly ? 'hint' : undefined,
+      }
+    }).sort((a, b) => a.name.localeCompare(b.name))
+  })
+
+  /** Đánh dấu tool chỉ đọc của MCP server: ghi `readOnly` vào cấu hình row rồi nạp lại. */
+  ctx.web.method('mcp.setReadOnly', async (params: { id: string; tools: string[] }) => {
+    const { config, prefix } = mcpRow(params.id)
+    const raw = [...new Set(params.tools.map((name) => name.startsWith(prefix) ? name.slice(prefix.length) : name))].sort()
+    await kernel.configure(params.id, { ...config, readOnly: raw })
+    await log('mcp/read-only', { id: params.id, tools: raw })
+    return { id: params.id, readOnly: raw }
   })
 
   ctx.web.method('tools.list', () => {

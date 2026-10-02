@@ -59,7 +59,13 @@ export function apply(ctx: Context) {
         .find((a) => a.name === input.action)
       if (!target) throw new Error(`action ${input.action} is not available for exploration`)
       const readOnly = target.readOnly === true || target.isReadOnlyCall?.(args) === true
-      if (!readOnly) throw new Error(`call to ${input.action} may modify data; explore only allows read-only calls`)
+      if (!readOnly) {
+        throw new Error([
+          `call to ${input.action} may modify data; explore only allows read-only calls.`,
+          'If this tool only reads data, ask the user to mark it read-only (Tool page, or the MCP server dialog on the Plugin page);',
+          'otherwise use it in a plan step and try it with dry_run.',
+        ].join(' '))
+      }
       const outcome = await ctx.actions.invoke(exploreScopeOf(scope), input.action, args)
       if (outcome.status !== 'ok') throw new Error(`${outcome.status}: ${outcome.error}`)
       return outcome.value

@@ -21,6 +21,8 @@ export interface SecretField {
   envSet: boolean
   /** Giá trị đã là tham chiếu `${env...}`/`${...}`, không cần xử lý. */
   reference: boolean
+  /** Giá trị trông như bí mật (tên khoá như token, key, password, hoặc chuỗi dài ngẫu nhiên); chỉ khi đó mới được che. */
+  secret: boolean
 }
 
 export interface McpCandidate {
@@ -112,7 +114,8 @@ export function buildRow(raw: RawServer, candidate: McpCandidate, selection: Mcp
   const namespace = selection.namespace?.trim() || candidate.namespace
   if (!/^[a-z][a-z0-9]*$/.test(namespace)) throw new Error(`namespace ${namespace} must match ^[a-z][a-z0-9]*$`)
   const resolve = (fields: SecretField[], values: Record<string, unknown> | undefined) => Object.fromEntries(fields.map((f) => {
-    const use = selection.useEnv?.[f.key] ?? f.envSet
+    // Mặc định chỉ thay giá trị bí mật bằng `${env.TÊN}`, và chỉ khi biến đó đã có trên Host.
+    const use = selection.useEnv?.[f.key] ?? (f.secret && f.envSet)
     return [f.key, f.reference || !use ? toEnvRef(String(values?.[f.key] ?? '')) : `\${env.${f.envName}}`]
   }))
   const config: Record<string, unknown> = { namespace, transport: candidate.transport }
@@ -137,9 +140,11 @@ function secretFields(values: Record<string, unknown> | undefined, namespace: st
   return Object.entries(values ?? {}).map(([key, value]) => {
     const text = String(value ?? '')
     const envName = isEnv ? key : `${namespace.toUpperCase()}_${key.replace(/[^A-Za-z0-9]+/g, '_').toUpperCase()}`
+    const masked = mask(key, text)
     return {
       key,
-      masked: mask(key, text),
+      masked,
+      secret: masked !== text,
       envName,
       envSet: process.env[envName] !== undefined,
       reference: /^\$\{[^}]+\}$/.test(text.trim()),

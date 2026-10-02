@@ -292,7 +292,8 @@ export interface AgentSessionOptions {
 export interface AgentSession {
   id: string
   /** Model hiện tại và danh sách model chọn được, nếu agent công bố. */
-  models?: { current?: string; available: AgentModel[] }
+  /** `fallbackFrom`: model mặc định đã cấu hình nhưng agent không có, nên session dùng `current`. */
+  models?: { current?: string; available: AgentModel[]; fallbackFrom?: string }
   /** Đổi model của session; không có khi agent không hỗ trợ đổi model. */
   setModel?(modelId: string): Promise<void>
   prompt(text: string, signal: AbortSignal): Promise<{ stopReason: string }>

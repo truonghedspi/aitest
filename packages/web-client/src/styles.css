@@ -325,3 +325,8 @@ table.plain th, table.plain td { text-align: left; padding: 4px 12px 4px 0; bord
 table.matrix td, table.matrix th { text-align: center; }
 table.matrix td:first-child, table.matrix th:first-child { text-align: left; }
 table.matrix .current { background: var(--surface-2); }
+.steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 4px 0 8px; font-size: 12px; color: var(--muted); flex-wrap: wrap; counter-reset: step; }
+.steps li { counter-increment: step; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; }
+.steps li::before { content: counter(step) ". "; }
+.steps li.active { color: inherit; border-color: var(--accent, #2f6fde); font-weight: 600; }
+.steps li.done { color: var(--ok); border-color: var(--ok); }

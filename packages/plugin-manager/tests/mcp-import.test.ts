@@ -42,8 +42,8 @@ describe('describeServers and buildRow', () => {
     ])
     const github = list.find((c) => c.name === 'github')!
     expect(github.env).toEqual([
-      { key: 'GITHUB_PERSONAL_ACCESS_TOKEN', masked: 'gh••••23 (34 ký tự)', envName: 'GITHUB_PERSONAL_ACCESS_TOKEN', envSet: true, reference: false },
-      { key: 'LOG_LEVEL', masked: 'debug', envName: 'LOG_LEVEL', envSet: false, reference: false },
+      { key: 'GITHUB_PERSONAL_ACCESS_TOKEN', masked: 'gh••••23 (34 ký tự)', envName: 'GITHUB_PERSONAL_ACCESS_TOKEN', envSet: true, reference: false, secret: true },
+      { key: 'LOG_LEVEL', masked: 'debug', envName: 'LOG_LEVEL', envSet: false, reference: false, secret: false },
     ])
     expect(JSON.stringify(list)).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz0123')
     expect(JSON.stringify(list)).not.toContain('secret-value-123')

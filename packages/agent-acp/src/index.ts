@@ -32,7 +32,10 @@ export const Config = z.object({
   args: z.array(z.string()).default(['acp']),
   env: z.dict(z.string()).default({}),
   mode: z.string().description('Session mode của agent, ví dụ `kiro_default`.'),
-  model: z.string().description('Model mặc định cho mọi session, ví dụ `claude-sonnet-4.5`; bỏ trống thì dùng mặc định của agent.'),
+  model: z.string().description(
+    'Model mặc định cho mọi session (chạy test, chuẩn bị dữ liệu, chat). Agent không có model này thì dùng model của agent '
+    + 'và ghi cảnh báo; bỏ trống thì dùng mặc định của agent. Model chọn riêng (runner, cuộc chat) được ưu tiên.',
+  ),
   stderrLines: z.natural().default(50).description('Số dòng stderr cuối cùng giữ lại để chẩn đoán lỗi.'),
 })
 
@@ -116,7 +119,7 @@ async function connect(config: Config, cwd: string, logger: ReturnType<Context['
 
       // Danh sách model nằm trong phần mở rộng chưa ổn định của ACP (`models`); Kiro đổi model bằng `session/set_model`.
       const announced = (created as { models?: { currentModelId?: string; availableModels?: Array<{ modelId: string; name?: string; description?: string }> } }).models
-      const models = announced?.availableModels
+      const models: AgentSession['models'] = announced?.availableModels
         ? {
           current: announced.currentModelId,
           available: announced.availableModels.map((m) => ({ id: m.modelId, name: m.name ?? m.modelId, description: m.description ?? undefined })),
@@ -129,8 +132,17 @@ async function connect(config: Config, cwd: string, logger: ReturnType<Context['
         await conn.extMethod('session/set_model', { sessionId, modelId })
         if (models) models.current = modelId
       }
-      const initial = options.model ?? config.model
-      if (initial && initial !== models?.current) await setModel(initial)
+      // Model chọn riêng cho session phải có thật; model mặc định của cấu hình thì được bỏ qua khi agent không có.
+      if (options.model) {
+        if (options.model !== models?.current) await setModel(options.model)
+      } else if (config.model && config.model !== models?.current) {
+        if (models && !models.available.some((m) => m.id === config.model)) {
+          logger.warn('default model %s is not offered by the agent; using %s', config.model, models.current)
+          models.fallbackFrom = config.model
+        } else {
+          await setModel(config.model)
+        }
+      }
 
       return {
         id: sessionId,

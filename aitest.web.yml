@@ -10,6 +10,7 @@ plugins:
       name: kiro-chat
       command: kiro-cli
       args: [acp, --agent, aitest-chat]
+      model: ${env.AITEST_MODEL:-claude-sonnet-5}
   - id: chat
     name: '@aitest/chat'
     config:

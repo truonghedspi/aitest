@@ -21,7 +21,7 @@ interface PluginInfo {
 
 interface ToolInfo {
   name: string; namespace: string; description: string; scopes: string[]; readOnly: boolean; always: boolean
-  owner?: string; enabled: boolean; tryable: boolean; inputSchema: any
+  owner?: string; mcp: boolean; enabled: boolean; tryable: boolean; inputSchema: any
 }
 
 interface CatalogItem { name: string; source: string; loaded: boolean; fields: Field[] }
@@ -264,22 +264,116 @@ function suggestId(name: string) {
   return name.replace(/^@aitest\//, '').replace(/^\.\/.*\//, '').replace(/\.(ts|js|mjs)$/, '').replace(/[^\w.-]/g, '-')
 }
 
+/** Server vừa thêm, chuyển sang bước đánh dấu tool chỉ đọc. */
+interface AddedServer { name: string; id: string }
+
 function AddMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
   const [mode, setMode] = useState<'paste' | 'form'>('paste')
+  const [added, setAdded] = useState<AddedServer[]>()
+  const onAdded = (servers: AddedServer[]) => { onDone(); setAdded(servers) }
   return (
     <section className="dialog">
-      <header><h3>Thêm MCP server</h3><button onClick={onClose}>Đóng</button></header>
-      <p className="muted small">Tool của server được đăng ký thành action <code>&lt;namespace&gt;_&lt;tool&gt;</code>, đi qua guard, evidence và run log như action nội bộ.</p>
-      <div className="tabs">
-        <button className={mode === 'paste' ? 'active' : ''} onClick={() => setMode('paste')}>Dán cấu hình</button>
-        <button className={mode === 'form' ? 'active' : ''} onClick={() => setMode('form')}>Điền form</button>
-      </div>
-      {mode === 'paste' ? <PasteMcp onClose={onClose} onDone={onDone} /> : <McpForm onClose={onClose} onDone={onDone} />}
+      <header><h3>Thêm MCP server vào aitest</h3><button onClick={onClose}>Đóng</button></header>
+      <p className="muted small">
+        Tool của server được đăng ký thành action <code>&lt;namespace&gt;_&lt;tool&gt;</code>, đi qua guard, evidence và run log như action nội bộ.
+        Agent của aitest chỉ dùng MCP server thêm tại đây; server khai báo trong cấu hình riêng của Kiro (<code>~/.kiro/settings/mcp.json</code>) không được dùng.
+      </p>
+      {added ? <McpReadOnly servers={added} onClose={onClose} onDone={onDone} /> : (
+        <>
+          <div className="tabs">
+            <button className={mode === 'paste' ? 'active' : ''} onClick={() => setMode('paste')}>Dán cấu hình</button>
+            <button className={mode === 'form' ? 'active' : ''} onClick={() => setMode('form')}>Điền form</button>
+          </div>
+          {mode === 'paste' ? <PasteMcp onAdded={onAdded} /> : <McpForm onAdded={onAdded} />}
+        </>
+      )}
     </section>
   )
 }
 
-interface SecretField { key: string; masked: string; envName: string; envSet: boolean; reference: boolean }
+/** Các bước của hộp thoại; bước hiện tại được tô đậm. */
+function Steps({ current }: { current: 1 | 2 | 3 }) {
+  const steps = ['Dán cấu hình', 'Xem trước và chọn server', 'Đánh dấu tool chỉ đọc']
+  return (
+    <ol className="steps">
+      {steps.map((s, i) => <li key={s} className={i + 1 === current ? 'active' : i + 1 < current ? 'done' : ''}>{s}</li>)}
+    </ol>
+  )
+}
+
+interface McpTool { name: string; raw: string; description: string; readOnly: boolean; source?: 'config' | 'hint' }
+
+/**
+ * Bước cuối: đánh dấu tool chỉ đọc. Agent trong cuộc chat chỉ gọi thử (`explore`) được tool chỉ đọc;
+ * khi chạy plan thì mọi tool có namespace trong `requires` đều dùng được.
+ */
+function McpReadOnly({ servers, onClose, onDone }: { servers: AddedServer[]; onClose(): void; onDone(): void }) {
+  const [tools, setTools] = useState<Record<string, McpTool[]>>({})
+  const [checked, setChecked] = useState<Record<string, Set<string>>>({})
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  useEffect(() => {
+    void Promise.all(servers.map(async (s) => [s.id, await connection.call<McpTool[]>('mcp.tools', { id: s.id })] as const)).then((entries) => {
+      setTools(Object.fromEntries(entries))
+      setChecked(Object.fromEntries(entries.map(([id, list]) => [id, new Set(list.filter((t) => t.readOnly).map((t) => t.name))])))
+    }, (e) => setError((e as Error).message))
+  }, [])
+  const toggle = (id: string, name: string, on: boolean) => {
+    const next = new Set(checked[id])
+    if (on) next.add(name)
+    else next.delete(name)
+    setChecked({ ...checked, [id]: next })
+  }
+  const save = async () => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      for (const s of servers) {
+        // Tool server tự đánh dấu chỉ đọc không cần ghi vào cấu hình.
+        const configured = (tools[s.id] ?? []).filter((t) => checked[s.id]?.has(t.name) && t.source !== 'hint').map((t) => t.name)
+        const before = (tools[s.id] ?? []).filter((t) => t.source === 'config').map((t) => t.name)
+        if (configured.sort().join() !== before.sort().join()) await connection.call('mcp.setReadOnly', { id: s.id, tools: configured })
+      }
+      onDone()
+      onClose()
+    } catch (e) {
+      setError((e as Error).message)
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <Steps current={3} />
+      <div className="ok">✓ Đã thêm {servers.map((s) => <code key={s.id}>{s.id}</code>)}. Tool có hiệu lực ngay, không cần tải lại trang.</div>
+      <p className="small">
+        Chọn tool <b>chỉ đọc</b> (chỉ lấy dữ liệu, không tạo, sửa, xoá). Agent trong cuộc chat chỉ gọi thử được tool chỉ đọc.
+        Khi chạy plan, mọi tool đều dùng được nếu namespace có trong <code>requires</code>.
+      </p>
+      {servers.map((s) => (
+        <div key={s.id} className="mcp-candidate">
+          <b>{s.name}</b>
+          {!tools[s.id] ? <span className="muted small">Đang tải tool…</span> : !tools[s.id].length ? <span className="warn small">Server không cung cấp tool nào.</span> : (
+            <div className="case-checklist">
+              {tools[s.id].map((t) => (
+                <label key={t.name} title={t.source === 'hint' ? 'Server tự đánh dấu chỉ đọc' : t.description}>
+                  <input type="checkbox" disabled={t.source === 'hint'} checked={checked[s.id]?.has(t.name) ?? false} onChange={(e) => toggle(s.id, t.name, e.target.checked)} />
+                  <code>{t.name}</code> <span className="muted small">{t.description}{t.source === 'hint' ? ' · server tự đánh dấu' : ''}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+      <div className="actions">
+        <button onClick={onClose}>Bỏ qua</button>
+        <button className="primary" disabled={busy} onClick={save}>{busy ? 'Đang lưu…' : 'Lưu và đóng'}</button>
+      </div>
+      {error && <div className="bad small">{error}</div>}
+    </>
+  )
+}
+
+interface SecretField { key: string; masked: string; envName: string; envSet: boolean; reference: boolean; secret: boolean }
 interface McpCandidate {
   name: string; namespace: string; id: string; transport: string; command?: string; args: string[]; url?: string
   env: SecretField[]; headers: SecretField[]; disabled: boolean; warnings: string[]
@@ -287,7 +381,7 @@ interface McpCandidate {
 interface ImportResult { name: string; id?: string; ok: boolean; tools?: string[]; error?: string }
 
 /** Dán cấu hình MCP đang dùng ở công cụ khác (Claude, Cursor, Kiro, VS Code), xem trước rồi thêm các server được chọn. */
-function PasteMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
+function PasteMcp({ onAdded }: { onAdded(servers: AddedServer[]): void }) {
   const [text, setText] = useState('')
   const [candidates, setCandidates] = useState<McpCandidate[]>()
   const [choice, setChoice] = useState<Record<string, { on: boolean; namespace: string; useEnv: Record<string, boolean> }>>({})
@@ -304,7 +398,7 @@ function PasteMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
       setChoice(Object.fromEntries(list.map((c) => [c.name, {
         on: !c.disabled,
         namespace: c.namespace,
-        useEnv: Object.fromEntries([...c.env, ...c.headers].filter((f) => !f.reference).map((f) => [f.key, f.envSet])),
+        useEnv: Object.fromEntries([...c.env, ...c.headers].filter((f) => !f.reference && f.secret).map((f) => [f.key, f.envSet])),
       }])))
     } catch (e) {
       setCandidates(undefined)
@@ -319,8 +413,9 @@ function PasteMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
       const select = Object.entries(choice).filter(([, c]) => c.on).map(([name, c]) => ({ name, namespace: c.namespace, useEnv: c.useEnv }))
       const out = await connection.call<ImportResult[]>('mcp.import', { text, select })
       setResults(out)
-      onDone()
-      if (out.every((r) => r.ok)) onClose()
+      // Có server thêm được và không có lỗi thì sang bước đánh dấu chỉ đọc; có lỗi thì ở lại để người dùng đọc lỗi.
+      const ok = out.filter((r) => r.ok && r.id).map((r) => ({ name: r.name, id: r.id! }))
+      if (ok.length && ok.length === out.length) onAdded(ok)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -332,13 +427,15 @@ function PasteMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
   const selected = Object.values(choice).filter((c) => c.on).length
   return (
     <>
+      <Steps current={candidates ? 2 : 1} />
       <textarea
         className="editor small"
         value={text}
         onChange={(e) => { setText(e.target.value); setCandidates(undefined) }}
         placeholder={'Dán nội dung mcp.json, ví dụ:\n{\n  "mcpServers": {\n    "postgres": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-postgres", "${PG_URL}"] }\n  }\n}'}
       />
-      <div className="actions"><button disabled={!text.trim()} onClick={parse}>Đọc cấu hình</button></div>
+      {!candidates && <div className="actions"><button className="primary" disabled={!text.trim()} onClick={parse}>Xem trước</button></div>}
+      {candidates && <p className="small">Chọn server cần thêm, kiểm tra namespace và giá trị bí mật, rồi bấm <b>Thêm vào aitest</b>.</p>}
       {candidates?.map((c) => {
         const ch = choice[c.name]
         const secrets = [...c.env, ...c.headers]
@@ -357,7 +454,7 @@ function PasteMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
                 {secrets.map((f) => (
                   <div key={f.key}>
                     <code>{f.key}</code> = <code>{f.masked}</code>{' '}
-                    {f.reference ? <span className="muted">(tham chiếu biến môi trường)</span> : (
+                    {f.reference ? <span className="muted">(tham chiếu biến môi trường)</span> : !f.secret ? null : (
                       <label>
                         <input
                           type="checkbox"
@@ -378,7 +475,8 @@ function PasteMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
       })}
       {candidates && (
         <div className="actions">
-          <button className="primary" disabled={busy || !selected} onClick={submit}>{busy ? 'Đang kết nối…' : `Thêm ${selected} server`}</button>
+          <button onClick={() => setCandidates(undefined)} disabled={busy}>← Sửa cấu hình</button>
+          <button className="primary" disabled={busy || !selected} onClick={submit}>{busy ? 'Đang kết nối…' : `Thêm ${selected} server vào aitest`}</button>
         </div>
       )}
       {results?.map((r) => (
@@ -386,12 +484,19 @@ function PasteMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
           {r.ok ? `✓ ${r.name} → ${r.id}: ${r.tools?.join(', ') || 'không có tool'}` : `✗ ${r.name}: ${r.error}`}
         </div>
       ))}
+      {results && results.some((r) => !r.ok) && results.some((r) => r.ok) && (
+        <div className="actions">
+          <button className="primary" onClick={() => onAdded(results.filter((r) => r.ok && r.id).map((r) => ({ name: r.name, id: r.id! })))}>
+            Tiếp tục với server đã thêm
+          </button>
+        </div>
+      )}
       {error && <div className="bad small">{error}</div>}
     </>
   )
 }
 
-function McpForm({ onClose, onDone }: { onClose(): void; onDone(): void }) {
+function McpForm({ onAdded }: { onAdded(servers: AddedServer[]): void }) {
   const [form, setForm] = useState({
     id: '', namespace: '', transport: 'stdio', command: '', args: '', url: '', prefix: '', include: '',
   })
@@ -412,8 +517,7 @@ function McpForm({ onClose, onDone }: { onClose(): void; onDone(): void }) {
         prefix: form.prefix || undefined,
         include: form.include ? form.include.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
       })
-      onDone()
-      onClose()
+      onAdded([{ name: form.namespace, id: form.id || `mcp-${form.namespace}` }])
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -438,7 +542,7 @@ function McpForm({ onClose, onDone }: { onClose(): void; onDone(): void }) {
       )}
       <label className="field"><span className="field-name">Tiền tố tên action</span><input value={form.prefix} onChange={set('prefix')} placeholder={`${form.namespace || '<namespace>'}_ (để trống dùng mặc định)`} /></label>
       <label className="field"><span className="field-name">Chỉ nhận các tool (cách nhau bởi dấu phẩy)</span><input value={form.include} onChange={set('include')} placeholder="để trống: nhận tất cả" /></label>
-      <div className="actions"><button className="primary" disabled={busy || !form.namespace} onClick={submit}>{busy ? 'Đang kết nối…' : 'Thêm MCP server'}</button></div>
+      <div className="actions"><button className="primary" disabled={busy || !form.namespace} onClick={submit}>{busy ? 'Đang kết nối…' : 'Thêm vào aitest'}</button></div>
       {error && <div className="bad small">{error}</div>}
     </>
   )
@@ -502,12 +606,43 @@ function ToolRow({ tool, onChange }: { tool: ToolInfo; onChange(): void }) {
       {open && (
         <div className="tool-detail">
           <p>{tool.description}</p>
+          {tool.mcp && tool.owner && <McpReadOnlyToggle tool={tool} owner={tool.owner} onChange={onChange} />}
           <details><summary>Input schema</summary><Json value={tool.inputSchema} /></details>
           {tool.tryable && tool.enabled && <TryTool tool={tool} />}
         </div>
       )}
       {error && <div className="bad small">{error}</div>}
     </div>
+  )
+}
+
+/** Đánh dấu một tool của MCP server là chỉ đọc, để agent soạn plan gọi thử được qua `explore`. */
+function McpReadOnlyToggle({ tool, owner, onChange }: { tool: ToolInfo; owner: string; onChange(): void }) {
+  const [list, setList] = useState<McpTool[]>()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  useEffect(() => { connection.call<McpTool[]>('mcp.tools', { id: owner }).then(setList, (e) => setError((e as Error).message)) }, [owner])
+  const self = list?.find((t) => t.name === tool.name)
+  const change = async (on: boolean) => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      const configured = (list ?? []).filter((t) => t.source === 'config' && t.name !== tool.name).map((t) => t.name)
+      await connection.call('mcp.setReadOnly', { id: owner, tools: on ? [...configured, tool.name] : configured })
+      onChange()
+    } catch (e) {
+      setError((e as Error).message)
+      setBusy(false)
+    }
+  }
+  if (!self) return error ? <div className="bad small">{error}</div> : null
+  return (
+    <label className="small" title="Agent soạn plan chỉ gọi thử được tool chỉ đọc">
+      <input type="checkbox" checked={self.readOnly} disabled={busy || self.source === 'hint'} onChange={(e) => void change(e.target.checked)} />
+      {' '}Chỉ đọc: tool chỉ lấy dữ liệu, agent trong cuộc chat được gọi thử
+      {self.source === 'hint' && <span className="muted"> (server tự đánh dấu)</span>}
+      {error && <span className="bad"> {error}</span>}
+    </label>
   )
 }
 

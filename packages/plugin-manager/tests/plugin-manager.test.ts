@@ -133,7 +133,7 @@ describe('plugin manager', () => {
     process.env.AITEST_QUOTE_TOKEN = 'tok_0123456789abcdefghijkl'
     const text = JSON.stringify({
       mcpServers: {
-        'price-feed': { command: process.execPath, args: QUOTE_SERVER.args, env: { AITEST_QUOTE_TOKEN: 'tok_0123456789abcdefghijkl' } },
+        'price-feed': { command: process.execPath, args: QUOTE_SERVER.args, env: { AITEST_QUOTE_TOKEN: 'tok_0123456789abcdefghijkl', QUOTE_NO_HINTS: '1' } },
         broken: { command: '/nonexistent/server' },
       },
     })
@@ -147,8 +147,24 @@ describe('plugin manager', () => {
       expect.objectContaining({ name: 'broken', id: 'mcp-broken', ok: false }),
     ])
     const row = (await patch()).find((r) => r.id === 'mcp-pricefeed')
-    expect(row.config.env).toEqual({ AITEST_QUOTE_TOKEN: '${env.AITEST_QUOTE_TOKEN}' })
+    expect(row.config.env).toEqual({ AITEST_QUOTE_TOKEN: '${env.AITEST_QUOTE_TOKEN}', QUOTE_NO_HINTS: '1' })
     expect(await readFile(patchFile, 'utf8')).not.toContain('tok_0123456789abcdefghijkl')
     expect((await patch()).some((r) => r.id === 'mcp-broken')).toBe(false)
+
+    // Server không khai báo readOnlyHint: tool chưa chỉ đọc; người dùng đánh dấu thì agent soạn plan gọi thử được.
+    expect(await ws.call('mcp.tools', { id: 'mcp-pricefeed' })).toEqual([
+      expect.objectContaining({ name: 'pricefeed_get', raw: 'get', readOnly: false }),
+      expect.objectContaining({ name: 'pricefeed_list', raw: 'list', readOnly: false }),
+    ])
+    await expect(ws.call('tools.try', { name: 'pricefeed_get', args: { symbol: 'vnm' } })).rejects.toThrow(/read-only/)
+    await ws.call('mcp.setReadOnly', { id: 'mcp-pricefeed', tools: ['pricefeed_get'] })
+    expect(await ws.call('mcp.tools', { id: 'mcp-pricefeed' })).toEqual([
+      expect.objectContaining({ name: 'pricefeed_get', readOnly: true, source: 'config' }),
+      expect.objectContaining({ name: 'pricefeed_list', readOnly: false }),
+    ])
+    expect((await ws.call('tools.try', { name: 'pricefeed_get', args: { symbol: 'vnm' } })).status).toBe('ok')
+    expect((await patch()).find((r) => r.id === 'mcp-pricefeed').config.readOnly).toEqual(['get'])
+    expect((await ws.call('tools.list')).find((t: any) => t.name === 'pricefeed_get')).toMatchObject({ mcp: true, readOnly: true })
+    await expect(ws.call('mcp.tools', { id: 'action-http' })).rejects.toThrow(/not an MCP server/)
   })
 })

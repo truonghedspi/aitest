@@ -166,7 +166,7 @@ export class Runner extends Service {
         onPermission: (request) => this.decidePermission(scope, exposure.endpoint.name, request),
         model,
       })
-      scope.log('agent/session', { sessionId: session.id, model: session.models?.current ?? model, scope: scope.kind })
+      scope.log('agent/session', { sessionId: session.id, model: session.models?.current ?? model, scope: scope.kind, ...fallbackOf(session) })
       scope.log('agent/prompt', { sessionId: session.id, text: prompt, scope: scope.kind })
       const result = await withGrace(session.prompt(prompt, controller.signal), controller.signal, this.config.cancelGrace * 1000)
       if (controller.signal.aborted) throw controller.signal.reason
@@ -237,7 +237,7 @@ export class Runner extends Service {
         model,
       })
       // Ghi model thật sự dùng, để người xem log biết kết quả đến từ model nào.
-      scope.log('agent/session', { sessionId: session.id, model: session.models?.current ?? model })
+      scope.log('agent/session', { sessionId: session.id, model: session.models?.current ?? model, ...fallbackOf(session) })
       const prompt = this.ctx.prompt.build(scope, this.ctx.actions.list(scope))
       scope.log('agent/prompt', { sessionId: session.id, text: prompt })
       const result = await withGrace(session.prompt(prompt, controller.signal), controller.signal, this.config.cancelGrace * 1000)
@@ -347,6 +347,12 @@ function clip(value: unknown, max = 4000): unknown {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
   if (text.length <= max) return value
   return `${text.slice(0, max)}… [đã cắt ${text.length - max} ký tự]`
+}
+
+/** Ghi model mặc định bị bỏ qua vì agent không có, để người xem log biết vì sao model khác cấu hình. */
+function fallbackOf(session: AgentSession) {
+  const from = session.models?.fallbackFrom
+  return from ? { modelFallbackFrom: from } : {}
 }
 
 /** Chờ promise; nếu đã huỷ mà agent không dừng sau `graceMs` thì bỏ qua. */

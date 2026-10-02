@@ -109,6 +109,8 @@ function Item({ item, chatId }: { item: TimelineItem; chatId: string }) {
 
 interface ModelState {
   current?: string
+  /** Model mặc định đã cấu hình nhưng agent không có. */
+  fallbackFrom?: string
   available: Array<{ id: string; name: string; description?: string }>
   switchable: boolean
 }
@@ -148,6 +150,11 @@ function ModelPicker({ chatId, busy }: { chatId: string; busy: boolean }) {
       <select value={state.current ?? ''} disabled={busy || saving || !state.switchable} onChange={(e) => change(e.target.value)}>
         {state.available.map((m) => <option key={m.id} value={m.id} title={m.description}>{m.name}</option>)}
       </select>
+      {state.fallbackFrom && (
+        <span className="warn small" title={`Model mặc định ${state.fallbackFrom} không có trong danh sách của agent; đang dùng ${state.current}. Đổi model mặc định bằng AITEST_MODEL.`}>
+          ⚠ không có {state.fallbackFrom}
+        </span>
+      )}
       {error && <span className="bad small" title={error}>!</span>}
     </label>
   )

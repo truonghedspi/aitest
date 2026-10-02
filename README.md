@@ -11,6 +11,39 @@ Nền tảng cho AI agent tự đọc test plan, tự thực thi các bước qu
 - `kiro-cli` đã đăng nhập (`kiro-cli acp --help` chạy được)
 - macOS, Linux hoặc Windows 11. Bộ test đã chạy thật trên macOS và Linux; Windows được kiểm chứng qua CI (`.github/workflows/ci.yml`). Chi tiết ở mục 2.2 của [hướng dẫn sử dụng](docs/user-guide.md).
 
+## Cài đặt
+
+**1. Node.js 22.18 trở lên.** Kiểm tra bằng `node -v`. Nên cài qua [nvm](https://github.com/nvm-sh/nvm) (macOS, Linux) hoặc [nvm-windows](https://github.com/coreybutler/nvm-windows):
+
+```bash
+nvm install 22
+nvm use 22
+```
+
+**2. pnpm 11.** Repo khai báo phiên bản pnpm trong `package.json` (`"packageManager": "pnpm@11.22.0"`). Chọn một trong các cách sau:
+
+| Cách | Lệnh | Ghi chú |
+|---|---|---|
+| Corepack (khuyến nghị) | `corepack enable` | Corepack đi kèm Node 22, 24; tự dùng đúng phiên bản pnpm của repo. Node 25 trở lên không còn kèm Corepack: cài trước bằng `npm install -g corepack` |
+| npm | `npm install -g pnpm@11` | Dùng khi không bật được Corepack |
+| Homebrew (macOS) | `brew install pnpm` | |
+| Script độc lập (macOS, Linux) | `curl -fsSL https://get.pnpm.io/install.sh \| sh -` | Không cần Node có sẵn; mở terminal mới sau khi cài |
+| Script độc lập (Windows PowerShell) | `Invoke-WebRequest https://get.pnpm.io/install.ps1 -UseBasicParsing \| Invoke-Expression` | Mở PowerShell mới sau khi cài |
+
+Kiểm tra: `pnpm -v` in ra `11.x`. Gặp lỗi quyền với `npm install -g` trên macOS, Linux thì dùng Corepack hoặc Node cài qua nvm, không dùng `sudo`.
+
+**3. Lấy mã nguồn và cài phụ thuộc:**
+
+```bash
+git clone https://github.com/truonghedspi/aitest.git
+cd aitest
+pnpm install
+```
+
+**4. Kiro CLI** cho agent thật: cài theo hướng dẫn của Kiro, rồi đăng nhập. Bộ kiểm thử (`pnpm test`) không cần Kiro.
+
+**5. Model mặc định** cho mọi agent là `claude-sonnet-5`, đổi bằng biến `AITEST_MODEL`, ví dụ `AITEST_MODEL=claude-sonnet-4.5 pnpm aitest run …`. Agent không có model đã chọn thì dùng model của agent, ghi cảnh báo vào log và giao diện chat. Cuộc chat vẫn đổi model riêng được ở đầu cuộc chat.
+
 ## Bắt đầu nhanh
 
 ```bash

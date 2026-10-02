@@ -29,6 +29,8 @@ Kết luận pass/fail **không do AI quyết định**. Agent chỉ chỉ ra d�
 
 ### 2.3. Cài đặt
 
+Chưa có Node.js 22.18 hoặc pnpm 11: xem mục "Cài đặt" trong [README](../README.md#cài-đặt). Cách nhanh nhất khi đã có Node 22 là chạy `corepack enable`.
+
 ```bash
 pnpm install
 pnpm test        # khoảng 10 giây, không gọi AI; mọi bài test phải đạt
@@ -49,6 +51,7 @@ Hai file đọc địa chỉ hệ thống từ biến môi trường:
 | `ORDER_DB` | Đường dẫn file SQLite | `examples/order-api/orders.db` |
 | `AITEST_BROWSER` | Trình duyệt cho test giao diện | `chrome` |
 | `AITEST_ENV` | Môi trường mặc định (`envs/<tên>.yml`), xem mục 5.10 | `local` |
+| `AITEST_MODEL` | Model mặc định cho mọi agent: chạy test, chuẩn bị dữ liệu, cuộc chat. Agent không có model này thì dùng model của agent và ghi cảnh báo | `claude-sonnet-5` |
 
 Khi áp dụng cho hệ thống của bạn, sửa các row `action-db`, `action-dbadmin` trong `aitest.yml` và biến trong `vars` của plan.
 
@@ -296,7 +299,15 @@ Khi chạy `pnpm aitest -c aitest.web.yml serve`, thanh điều hướng có th�
 - Tham chiếu `${TÊN}`, `${env:TÊN}` của công cụ khác được đổi sang `${env.TÊN}`.
 - Server có `disabled` được bỏ chọn sẵn. Server chỉ hỗ trợ SSE nhận cảnh báo, vì aitest dùng Streamable HTTP.
 
-Bấm "Thêm N server". Mỗi server được kết nối thử: server lỗi được báo riêng và không được ghi, các server khác vẫn được thêm.
+Hộp thoại đi qua ba bước, hiện ở đầu hộp thoại:
+
+1. **Dán cấu hình** rồi bấm "Xem trước". Bước này chưa thêm gì.
+2. **Xem trước và chọn server**, rồi bấm **"Thêm N server vào aitest"**. Mỗi server được kết nối thử. Server lỗi được báo riêng và không được ghi, các server khác vẫn được thêm.
+3. **Đánh dấu tool chỉ đọc**: chọn tool chỉ lấy dữ liệu, không tạo, sửa, xoá, rồi bấm "Lưu và đóng". Agent trong cuộc chat chỉ gọi thử (`explore`) được tool chỉ đọc. Tool mà server tự khai báo chỉ đọc (`readOnlyHint`) được đánh dấu sẵn. Khi chạy plan, mọi tool đều dùng được nếu namespace có trong `requires`.
+
+Tool có hiệu lực ngay, không cần tải lại trang. Sau này, đổi trạng thái chỉ đọc trên trang **Tool**: mở tool rồi bật hoặc tắt "Chỉ đọc".
+
+MCP server khai báo trong cấu hình riêng của Kiro (`~/.kiro/settings/mcp.json`) **không** được agent của aitest dùng. Mọi tool phải thêm qua aitest để có guard, evidence và log.
 
 Ví dụ thêm MCP server bảng giá mẫu: namespace `quote`, lệnh `node`, tham số mỗi dòng một giá trị: `--import`, `tsx`, `examples/mcp/quote-server.ts`.
 
@@ -770,6 +781,8 @@ Guard chặn action. Ví dụ, câu lệnh ghi (`DELETE`, `UPDATE`) qua `db_quer
 | Gửi tin nhắn báo "agent is still working" | Chờ agent xong lượt hiện tại, hoặc bấm "Dừng" |
 | Agent dừng với lỗi `agent process exited` | Kiểm tra đăng nhập Kiro; tin nhắn tiếp theo tự kết nối lại |
 | `validate_plan` báo `namespace dbadmin is fixture-only` | Bỏ `dbadmin` khỏi `requires`; fixture vẫn dùng được `dbadmin_query` |
+| Agent trong chat không thấy MCP server vừa thêm | Kiểm tra trang Plugin có row `mcp-<tên>` ở trạng thái "Đang chạy" (chưa bấm "Thêm … vào aitest" thì server chưa được thêm). Server thêm vào cấu hình của Kiro không được dùng |
+| Agent báo `explore only allows read-only calls` với tool của MCP server | Tool chưa được đánh dấu chỉ đọc. Nếu tool chỉ lấy dữ liệu, bật "Chỉ đọc" trên trang Tool; nếu tool ghi dữ liệu, dùng trong bước của plan và chạy thử |
 | Thêm MCP server báo lỗi kết nối | Chạy thử lệnh trong terminal; kiểm tra đường dẫn lệnh và tham số; với HTTP kiểm tra URL kết thúc bằng `/mcp` |
 | Plugin ở trạng thái "Chờ service" | Plugin cần một service chưa có, ví dụ plugin bị tắt; bật plugin cung cấp service đó |
 | Muốn huỷ mọi thay đổi trên trang Plugin | Dừng Host, xoá `aitest.web.patch.yml`, khởi động lại |

@@ -17,19 +17,22 @@ const QUOTES: Record<string, { ref: number; ceiling: number; floor: number }> = 
 
 const server = new Server({ name: 'quote', version: '0.1.0' }, { capabilities: { tools: {} } })
 
+// `QUOTE_NO_HINTS=1`: không khai báo `readOnlyHint`, giống phần lớn MCP server; dùng khi kiểm thử đánh dấu chỉ đọc thủ công.
+const hint = process.env.QUOTE_NO_HINTS === '1' ? {} : { annotations: { readOnlyHint: true } }
+
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'get',
       description: 'Lấy giá tham chiếu, giá trần, giá sàn của một mã chứng khoán.',
       inputSchema: { type: 'object', properties: { symbol: { type: 'string' } }, required: ['symbol'] },
-      annotations: { readOnlyHint: true },
+      ...hint,
     },
     {
       name: 'list',
       description: 'Liệt kê các mã chứng khoán có giá.',
       inputSchema: { type: 'object', properties: {} },
-      annotations: { readOnlyHint: true },
+      ...hint,
     },
   ],
 }))

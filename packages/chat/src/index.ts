@@ -346,7 +346,12 @@ export class Chat {
   /** Model hiện tại và danh sách model; mở session agent nếu chưa có, để lấy danh sách từ agent. */
   async models() {
     const session = await this.ensureAgentSession()
-    return { current: session.models?.current ?? this.preferredModel(), available: session.models?.available ?? [], switchable: !!session.setModel }
+    return {
+      current: session.models?.current ?? this.preferredModel(),
+      available: session.models?.available ?? [],
+      switchable: !!session.setModel,
+      ...(session.models?.fallbackFrom ? { fallbackFrom: session.models.fallbackFrom } : {}),
+    }
   }
 
   /** Đổi model cho các lượt sau của cuộc chat. Không đổi được khi agent đang làm việc. */
