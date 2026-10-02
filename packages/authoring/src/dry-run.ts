@@ -50,11 +50,12 @@ export function apply(ctx: Context, config: Config) {
       properties: {
         content: { type: 'string', description: 'Toàn bộ nội dung plan.' },
         cases: { type: 'array', items: { type: 'string' }, description: 'Mã các case cần chạy.' },
+        inputs: { type: 'object', description: 'Giá trị đầu vào theo tên input của plan; bỏ trống để dùng fill, prepare hoặc default.' },
       },
       required: ['content'],
       additionalProperties: false,
     },
-    async execute(args: { content: string; cases?: string[] }, { scope }) {
+    async execute(args: { content: string; cases?: string[]; inputs?: Record<string, unknown> }, { scope }) {
       const result = await ctx.authoring.validate(args.content)
       if (!result.valid || !result.plan) {
         throw new Error(`plan is invalid: ${result.issues.filter((i) => i.level === 'error').map((i) => i.message).join('; ')}`)
@@ -69,7 +70,7 @@ export function apply(ctx: Context, config: Config) {
       const runId = `dryrun-${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
       const tracked: Tracked = {
         startedAt: Date.now(),
-        promise: ctx.runner.run({ plan, cases, runId }),
+        promise: ctx.runner.run({ plan, cases, runId, inputs: args.inputs }),
       }
       tracked.promise.then(
         (report) => { tracked.report = report },

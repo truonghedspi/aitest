@@ -54,6 +54,13 @@ function fakeAgent(prompts: string[]): AgentDriver {
             },
             async prompt(text) {
               prompts.push(text)
+              if (text.includes('Thêm RabbitMQ')) {
+                // Tool tự xin duyệt: agent được phép gọi ngay, người dùng duyệt trên thẻ có bản xem trước.
+                const allowed = await options.onPermission!({ title: 'Running: @aitest/propose_tool', raw: { toolCallId: 'p1' } })
+                const result = allowed ? await call('propose_tool', { catalogId: 'rabbitmq', params: { url: '${env.AITEST_CHAT_RABBITMQ_URL}' }, reason: 'Kiểm tra sự kiện' }) : undefined
+                options.onUpdate({ kind: 'message', text: result?.result?.added ? 'Đã thêm.' : 'Không thêm.', raw: {} })
+                return { stopReason: 'end_turn' }
+              }
               options.onUpdate({ kind: 'message', text: 'Đang soạn ', raw: {} })
               options.onUpdate({ kind: 'message', text: 'bản nháp.', raw: {} })
               options.onUpdate({ kind: 'tool_call', text: 'Running: @aitest/validate_plan', raw: { toolCallId: 'v1', title: 'Running: @aitest/validate_plan' } })
@@ -89,6 +96,7 @@ describe('chat host over WebSocket', () => {
         { id: 'web', name: '@aitest/web-host', config: { port: 0, staticDir: join(dir, 'static') } },
         { id: 'chat', name: '@aitest/chat', config: { agent: 'fake-chat', dir: join(dir, 'chats') } },
         { id: 'authoring-save', name: '@aitest/authoring/save', config: { dir: join(dir, 'plans') } },
+        { id: 'tool-catalog', name: '@aitest/tool-catalog', config: { auditDir: join(dir, 'tool-catalog') } },
       ],
     })
     harness.kernel.ctx.agents.register(fakeAgent(prompts))
@@ -197,5 +205,68 @@ describe('chat host over WebSocket', () => {
     expect(restored.events(lastSeq)[0].seq).toBe(lastSeq + 1)
     // Model đã chọn trước khi khởi động lại được áp dụng cho session mới.
     expect(modelLog.at(-1)).toBe('open:fast')
+  })
+
+  it('shows the proposed tool config on one approval card and adds the tool when approved', async () => {
+    process.env.AITEST_CHAT_RABBITMQ_URL = 'amqp://guest:guest@127.0.0.1:5672'
+    const chat = await ws.call('chats.create', { title: 'Thêm tool' })
+    await ws.call('chats.subscribe', { chatId: chat.id })
+    const pushedBefore = ws.pushed.length
+    await ws.call('chats.send', { chatId: chat.id, text: 'Thêm RabbitMQ để kiểm tra sự kiện' })
+    const request = await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'permission/request')
+    expect(request.event.data).toMatchObject({
+      tool: 'propose_tool',
+      title: 'Thêm tool RabbitMQ',
+      preview: { kind: 'tool-proposal', access: 'read', config: { namespace: 'rabbitmq', url: '${env.AITEST_CHAT_RABBITMQ_URL}' } },
+    })
+    await ws.call('chats.decide', { chatId: chat.id, requestId: request.event.data.requestId, allowed: true })
+    await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'turn/end')
+
+    const events = (await ws.call('chats.subscribe', { chatId: chat.id })).events
+    // Chỉ một thẻ duyệt: lời xin quyền ở tầng agent được duyệt theo chính sách.
+    expect(events.filter((e: any) => e.type === 'permission/request')).toHaveLength(1)
+    expect(events.find((e: any) => e.type === 'permission/decision' && e.data.title === 'Running: @aitest/propose_tool').data.by).toBe('policy')
+    expect(events.find((e: any) => e.type === 'action/call' && e.data.name === 'propose_tool').data.view).toMatchObject({ kind: 'tool-added', added: true })
+    expect(events.filter((e: any) => e.type === 'agent/message').at(-1).data.text).toBe('Đã thêm.')
+    expect(harness.kernel.ctx.actions.get('rabbitmq_tap')).toBeDefined()
+  })
+
+  it('opens an existing plan as the draft, validates it and tells the agent on the next turn', async () => {
+    const chat = await ws.call('chats.create', {})
+    await ws.call('chats.subscribe', { chatId: chat.id })
+    const plans = await ws.call('chats.listPlans', { chatId: chat.id })
+    expect(plans).toContainEqual(expect.objectContaining({ path: 'examples/plans/order.plan.yaml', id: 'TP-ORDER-001' }))
+    await expect(ws.call('chats.openPlan', { chatId: chat.id, path: 'package.json' })).rejects.toThrow(/outside plan directories/)
+
+    const opened = await ws.call('chats.openPlan', { chatId: chat.id, path: 'examples/plans/order.plan.yaml' })
+    expect(opened.content).toContain('id: TP-ORDER-001')
+    let events = (await ws.call('chats.subscribe', { chatId: chat.id })).events
+    expect(events.map((e: any) => e.type)).toEqual(expect.arrayContaining(['draft/open', 'chat/renamed', 'action/call']))
+    expect(events.find((e: any) => e.type === 'chat/renamed').data.title).toBe('Plan examples/plans/order.plan.yaml')
+    // Chỉ lời gọi kiểm tra được ghi; đọc file và liệt kê plan không tạo thẻ tool trong cuộc chat.
+    const calls = events.filter((e: any) => e.type === 'action/call')
+    expect(calls.map((e: any) => [e.data.name, e.data.phase, e.data.value?.valid])).toEqual([['validate_plan', 'user', true]])
+    expect(calls[0].data.value.summary.cases.map((c: any) => c.id)).toEqual(['TC-01', 'TC-02', 'TC-03'])
+
+    const before = prompts.length
+    const pushedBefore = ws.pushed.length
+    await ws.call('chats.send', { chatId: chat.id, text: 'Thêm một case huỷ lệnh' })
+    const request = await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'permission/request')
+    await ws.call('chats.decide', { chatId: chat.id, requestId: request.event.data.requestId, allowed: false })
+    await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'turn/end')
+    expect(prompts[before]).toContain('Người dùng đã mở plan có sẵn `examples/plans/order.plan.yaml`')
+    expect(prompts[before]).toContain('id: TP-ORDER-001')
+    // Tin nhắn đầu tiên không đổi tiêu đề đã đặt theo plan; sau khi đã nhắn, mở plan khác cũng không đổi tiêu đề.
+    await ws.call('chats.openPlan', { chatId: chat.id, path: 'examples/plans/order-fee.plan.yaml' })
+    events = (await ws.call('chats.subscribe', { chatId: chat.id })).events
+    expect(events.filter((e: any) => e.type === 'chat/renamed').map((e: any) => e.data.title)).toEqual(['Plan examples/plans/order.plan.yaml'])
+  })
+
+  it('renames an untouched chat after the plan opened last', async () => {
+    const chat = await ws.call('chats.create', {})
+    await ws.call('chats.openPlan', { chatId: chat.id, path: 'examples/plans/order.plan.yaml' })
+    await ws.call('chats.openPlan', { chatId: chat.id, path: 'examples/plans/order-fee.plan.yaml' })
+    const [summary] = (await ws.call('chats.list')).filter((c: any) => c.id === chat.id)
+    expect(summary.title).toBe('Plan examples/plans/order-fee.plan.yaml')
   })
 })

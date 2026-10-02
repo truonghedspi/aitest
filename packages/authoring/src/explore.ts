@@ -20,7 +20,8 @@ export function apply(ctx: Context) {
       scope = {
         kind: 'explore',
         id: parent.id,
-        namespaces: new Set(ctx.actions.list().map((a) => a.namespace)),
+        // Tính lại mỗi lần đọc: tool thêm giữa phiên (ví dụ qua `propose_tool`) khảo sát được ngay.
+        get namespaces() { return new Set(ctx.actions.list().map((a) => a.namespace)) },
         phase: 'agent',
         signal: parent.signal,
         log: parent.log,

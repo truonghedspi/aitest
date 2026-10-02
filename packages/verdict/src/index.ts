@@ -173,7 +173,7 @@ export function apply(ctx: Context, config: Config) {
   })
 
   ctx.on('case/verdict', async (scope, base, next) => {
-    if (base.verdict === 'error' || base.verdict === 'skipped') return next()
+    if (base.verdict === 'error' || base.verdict === 'skipped' || base.verdict === 'blocked') return next()
     return decide(scope, stateOf(scope))
   })
 

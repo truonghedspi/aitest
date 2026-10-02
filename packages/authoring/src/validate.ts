@@ -1,4 +1,4 @@
-import { z, type Context, type FixtureStep, type TestPlan } from '@aitest/core'
+import { BUILTIN_VARS, PLACEHOLDER, z, type Context, type FixtureStep, type TestPlan } from '@aitest/core'
 import type { LintIssue, ValidationResult } from './index.ts'
 
 /**
@@ -20,7 +20,6 @@ export const Config = z.object({
   ),
 })
 
-const PLACEHOLDER = /\{\{\s*([\w.-]+)\s*\}\}/g
 
 export function apply(ctx: Context, config: Config) {
   ctx.actions.register({
@@ -52,10 +51,29 @@ export function apply(ctx: Context, config: Config) {
     }),
   })
 
+  // Đầu vào: namespace agent dùng khi chuẩn bị phải có tool; input bắt buộc nên có cách lấy giá trị.
+  ctx.on('authoring/lint', async (plan, issues) => {
+    const known = new Set(ctx.actions.list({ kind: 'prepare', namespaces: new Set(), phase: 'setup' }).map((a) => a.namespace))
+    for (const input of plan.inputs ?? []) {
+      const path = `inputs.${input.name}`
+      if (input.prepare) {
+        for (const ns of input.uses ?? plan.requires) {
+          if (!known.has(ns)) issues.push({ level: 'error', path, message: `prepare uses namespace ${ns}, which has no registered action` })
+        }
+      }
+      if (input.required && !input.fill.length && !input.prepare && input.default === undefined) {
+        issues.push({ level: 'warning', path, message: `input ${input.name} has no fill, prepare or default; the run is blocked unless the runner provides it` })
+      }
+      if (input.cleanup.length && !input.fill.length) {
+        issues.push({ level: 'warning', path, message: `cleanup of ${input.name} only runs when the value comes from fill` })
+      }
+    }
+  })
+
   ctx.on('authoring/lint', async (plan, issues) => {
     const known = new Set(ctx.actions.list({ kind: 'case', namespaces: new Set(), phase: 'setup' }).map((a) => a.namespace))
     for (const ns of plan.requires) {
-      if (!known.has(ns)) issues.push({ level: 'error', path: 'requires', message: `namespace ${ns} has no registered action` })
+      if (!known.has(ns)) issues.push({ level: 'error', path: 'requires', message: `namespace ${ns} has no registered action; add a tool for it (list_tool_catalog, propose_tool) or remove it from requires` })
     }
   })
 
@@ -101,10 +119,10 @@ export function apply(ctx: Context, config: Config) {
     })
   })
 
-  // Biến `{{tên}}` phải có trong `vars` hoặc được `save` bởi fixture chạy trước bước đó.
+  // Biến `{{tên}}` phải có trong `vars`, được `save` bởi fixture chạy trước bước đó, hoặc do catalog hệ thống cung cấp.
   ctx.on('authoring/lint', async (plan, issues) => {
     plan.cases.forEach((c, i) => {
-      const known = new Set(Object.keys(plan.vars))
+      const known = new Set([...Object.keys(plan.vars), ...(plan.inputs ?? []).map((i) => i.name), ...BUILTIN_VARS])
       for (const step of [...plan.setup, ...c.setup]) for (const name of Object.keys(step.save ?? {})) known.add(name)
       const texts: Array<[string, unknown]> = [
         ...c.steps.map((s, j) => [`cases[${i}].steps[${j}]`, s] as [string, unknown]),
@@ -113,6 +131,8 @@ export function apply(ctx: Context, config: Config) {
       ]
       for (const [path, value] of texts) {
         for (const name of placeholders(value)) {
+          // Biến `{{<system>.<khoá>}}` do catalog hệ thống cung cấp; quy tắc của catalog kiểm tra khoá.
+          if (plan.systems?.some((id) => name.startsWith(`${id}.`))) continue
           if (!known.has(name)) issues.push({ level: 'error', path, message: `undefined variable {{${name}}}` })
         }
       }
@@ -159,6 +179,10 @@ export function summarize(result: ValidationResult) {
       id: plan.id,
       name: plan.name,
       requires: plan.requires,
+      inputs: (plan.inputs ?? []).map((i) => ({
+        name: i.name, desc: i.desc, default: i.default, required: i.required,
+        mode: i.fill.length ? 'fill' : i.prepare ? 'prepare' : 'user',
+      })),
       cases: plan.cases.map((c) => ({ id: c.id, title: c.title, steps: c.steps.length, expectations: c.expect.length })),
     },
   }

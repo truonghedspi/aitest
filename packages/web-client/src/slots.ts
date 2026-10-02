@@ -34,6 +34,8 @@ export interface PageEntry {
   component: ComponentType<PageProps>
   /** Nội dung riêng của trang trong cột trái, ví dụ danh sách cuộc chat. */
   sidebar?: ComponentType<PageProps>
+  /** Trang con: không hiện trên thanh điều hướng; khi mở, mục `parent` được đánh dấu đang chọn. */
+  parent?: string
 }
 
 class Registry<K, V> {

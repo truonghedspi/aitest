@@ -2,5 +2,9 @@
   "name": "@aitest-example/order-api",
   "version": "0.1.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "amqplib": "^2.2.0",
+    "kafkajs": "^2.2.4"
+  }
 }

@@ -24,6 +24,9 @@ plugins:
       serverName: aitest
   - id: verdict
     name: '@aitest/verdict'
+  # Đầu vào của lượt chạy: người chạy điền, bước fill, agent chuẩn bị (prepare), mặc định; không đủ điều kiện thì blocked.
+  - id: inputs
+    name: '@aitest/inputs'
   - id: runner
     name: '@aitest/runner'
     config:
@@ -97,6 +100,16 @@ plugins:
           paths: [examples/order-api/SPEC.md]
   - id: authoring-explore
     name: '@aitest/authoring/explore'
+  # Catalog hệ thống dưới kiểm thử (systems/, envs/): biến {{<system>.url}}, mô tả service cho agent, kiểm tra tham chiếu trong plan.
+  - id: system-catalog
+    name: '@aitest/system-catalog'
+    config:
+      env: ${env.AITEST_ENV:-local}
+  - id: system-catalog-authoring
+    name: '@aitest/system-catalog/authoring'
+  # Danh mục tool đã kiểm duyệt (tool-catalog/*.yml): agent đề xuất, người dùng duyệt trong chat, row mới ghi vào patch layer.
+  - id: tool-catalog
+    name: '@aitest/tool-catalog'
   - id: authoring-validate
     name: '@aitest/authoring/validate'
     config:

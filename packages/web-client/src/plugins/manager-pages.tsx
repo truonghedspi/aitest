@@ -265,6 +265,133 @@ function suggestId(name: string) {
 }
 
 function AddMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
+  const [mode, setMode] = useState<'paste' | 'form'>('paste')
+  return (
+    <section className="dialog">
+      <header><h3>Thêm MCP server</h3><button onClick={onClose}>Đóng</button></header>
+      <p className="muted small">Tool của server được đăng ký thành action <code>&lt;namespace&gt;_&lt;tool&gt;</code>, đi qua guard, evidence và run log như action nội bộ.</p>
+      <div className="tabs">
+        <button className={mode === 'paste' ? 'active' : ''} onClick={() => setMode('paste')}>Dán cấu hình</button>
+        <button className={mode === 'form' ? 'active' : ''} onClick={() => setMode('form')}>Điền form</button>
+      </div>
+      {mode === 'paste' ? <PasteMcp onClose={onClose} onDone={onDone} /> : <McpForm onClose={onClose} onDone={onDone} />}
+    </section>
+  )
+}
+
+interface SecretField { key: string; masked: string; envName: string; envSet: boolean; reference: boolean }
+interface McpCandidate {
+  name: string; namespace: string; id: string; transport: string; command?: string; args: string[]; url?: string
+  env: SecretField[]; headers: SecretField[]; disabled: boolean; warnings: string[]
+}
+interface ImportResult { name: string; id?: string; ok: boolean; tools?: string[]; error?: string }
+
+/** Dán cấu hình MCP đang dùng ở công cụ khác (Claude, Cursor, Kiro, VS Code), xem trước rồi thêm các server được chọn. */
+function PasteMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
+  const [text, setText] = useState('')
+  const [candidates, setCandidates] = useState<McpCandidate[]>()
+  const [choice, setChoice] = useState<Record<string, { on: boolean; namespace: string; useEnv: Record<string, boolean> }>>({})
+  const [results, setResults] = useState<ImportResult[]>()
+  const [error, setError] = useState<string>()
+  const [busy, setBusy] = useState(false)
+
+  const parse = async () => {
+    setError(undefined)
+    setResults(undefined)
+    try {
+      const list = await connection.call<McpCandidate[]>('mcp.parse', { text })
+      setCandidates(list)
+      setChoice(Object.fromEntries(list.map((c) => [c.name, {
+        on: !c.disabled,
+        namespace: c.namespace,
+        useEnv: Object.fromEntries([...c.env, ...c.headers].filter((f) => !f.reference).map((f) => [f.key, f.envSet])),
+      }])))
+    } catch (e) {
+      setCandidates(undefined)
+      setError((e as Error).message)
+    }
+  }
+
+  const submit = async () => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      const select = Object.entries(choice).filter(([, c]) => c.on).map(([name, c]) => ({ name, namespace: c.namespace, useEnv: c.useEnv }))
+      const out = await connection.call<ImportResult[]>('mcp.import', { text, select })
+      setResults(out)
+      onDone()
+      if (out.every((r) => r.ok)) onClose()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const update = (name: string, patch: Partial<(typeof choice)[string]>) => setChoice({ ...choice, [name]: { ...choice[name], ...patch } })
+  const selected = Object.values(choice).filter((c) => c.on).length
+  return (
+    <>
+      <textarea
+        className="editor small"
+        value={text}
+        onChange={(e) => { setText(e.target.value); setCandidates(undefined) }}
+        placeholder={'Dán nội dung mcp.json, ví dụ:\n{\n  "mcpServers": {\n    "postgres": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-postgres", "${PG_URL}"] }\n  }\n}'}
+      />
+      <div className="actions"><button disabled={!text.trim()} onClick={parse}>Đọc cấu hình</button></div>
+      {candidates?.map((c) => {
+        const ch = choice[c.name]
+        const secrets = [...c.env, ...c.headers]
+        return (
+          <div key={c.name} className="mcp-candidate">
+            <label className="row">
+              <input type="checkbox" checked={ch?.on ?? false} onChange={(e) => update(c.name, { on: e.target.checked })} />
+              <b>{c.name}</b>
+              <span className="muted small">{c.transport === 'stdio' ? `${c.command} ${c.args.join(' ')}` : c.url}</span>
+            </label>
+            <label className="field"><span className="field-name">Namespace</span>
+              <input value={ch?.namespace ?? ''} onChange={(e) => update(c.name, { namespace: e.target.value })} />
+            </label>
+            {secrets.length > 0 && (
+              <div className="small">
+                {secrets.map((f) => (
+                  <div key={f.key}>
+                    <code>{f.key}</code> = <code>{f.masked}</code>{' '}
+                    {f.reference ? <span className="muted">(tham chiếu biến môi trường)</span> : (
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={ch?.useEnv[f.key] ?? false}
+                          onChange={(e) => update(c.name, { useEnv: { ...ch.useEnv, [f.key]: e.target.checked } })}
+                        />
+                        {' '}dùng <code>{'${env.' + f.envName + '}'}</code>
+                        {f.envSet ? <span className="ok"> (đã đặt trên Host)</span> : <span className="warn"> (chưa đặt; không chọn thì giá trị được ghi vào file patch, không commit)</span>}
+                      </label>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {c.warnings.map((w) => <div key={w} className="warn small">{w}</div>)}
+          </div>
+        )
+      })}
+      {candidates && (
+        <div className="actions">
+          <button className="primary" disabled={busy || !selected} onClick={submit}>{busy ? 'Đang kết nối…' : `Thêm ${selected} server`}</button>
+        </div>
+      )}
+      {results?.map((r) => (
+        <div key={r.name} className={r.ok ? 'ok small' : 'bad small'}>
+          {r.ok ? `✓ ${r.name} → ${r.id}: ${r.tools?.join(', ') || 'không có tool'}` : `✗ ${r.name}: ${r.error}`}
+        </div>
+      ))}
+      {error && <div className="bad small">{error}</div>}
+    </>
+  )
+}
+
+function McpForm({ onClose, onDone }: { onClose(): void; onDone(): void }) {
   const [form, setForm] = useState({
     id: '', namespace: '', transport: 'stdio', command: '', args: '', url: '', prefix: '', include: '',
   })
@@ -294,9 +421,7 @@ function AddMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
     }
   }
   return (
-    <section className="dialog">
-      <header><h3>Thêm MCP server</h3><button onClick={onClose}>Đóng</button></header>
-      <p className="muted small">Tool của server được đăng ký thành action <code>&lt;namespace&gt;_&lt;tool&gt;</code>, đi qua guard, evidence và run log như action nội bộ.</p>
+    <>
       <label className="field"><span className="field-name">Namespace *</span><input value={form.namespace} onChange={set('namespace')} placeholder="pg, kafka, quote…" /></label>
       <label className="field"><span className="field-name">Mã row</span><input value={form.id} onChange={set('id')} placeholder={`mcp-${form.namespace || '<namespace>'}`} /></label>
       <label className="field">
@@ -315,7 +440,7 @@ function AddMcp({ onClose, onDone }: { onClose(): void; onDone(): void }) {
       <label className="field"><span className="field-name">Chỉ nhận các tool (cách nhau bởi dấu phẩy)</span><input value={form.include} onChange={set('include')} placeholder="để trống: nhận tất cả" /></label>
       <div className="actions"><button className="primary" disabled={busy || !form.namespace} onClick={submit}>{busy ? 'Đang kết nối…' : 'Thêm MCP server'}</button></div>
       {error && <div className="bad small">{error}</div>}
-    </section>
+    </>
   )
 }
 

@@ -72,6 +72,12 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
     return { ok: true }
   })
 
+  ctx.web.method('chats.listPlans', async (params: { chatId: string }) => (await chats.get(params.chatId)).listPlans())
+
+  ctx.web.method('chats.openPlan', async (params: { chatId: string; path: string }) => {
+    return (await chats.get(params.chatId)).openPlan(params.path)
+  })
+
   ctx.web.method('chats.models', async (params: { chatId: string }) => (await chats.get(params.chatId)).models())
 
   ctx.web.method('chats.setModel', async (params: { chatId: string; modelId: string }) => {

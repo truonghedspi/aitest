@@ -10,6 +10,7 @@
     "@deepseek-ai/cordis": "~4.0.4",
     "@deepseek-ai/schemastery": "~3.18.4",
     "yaml": "^2.8.0",
-    "bigdecimal.js": "^1.7.1"
+    "bigdecimal.js": "^1.7.1",
+    "lossless-json": "^4.3.1"
   }
 }

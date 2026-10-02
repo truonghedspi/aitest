@@ -11,12 +11,13 @@ import { Json } from './tool-views.tsx'
  * Mọi thứ dựng từ run log (`events.jsonl`); lượt chạy chưa kết thúc được cập nhật liên tục.
  */
 export const runsPage: ClientPlugin = (s) => {
-  s.page.register('runs', { id: 'runs', title: 'Lượt chạy', order: 3, component: RunsPage })
+  // Trang con của "Plan": danh sách lượt chạy nằm ở tab của trang Plan, chi tiết lượt chạy mở tại `runs/<mã>`.
+  s.page.register('runs', { id: 'runs', title: 'Lượt chạy', order: 3, component: RunsPage, parent: 'plans' })
 }
 
-interface RunSummary {
+export interface RunSummary {
   runId: string
-  plan?: { id: string; name: string }
+  plan?: { id: string; name: string; source?: string }
   agent?: string
   startedAt?: string
   finished: boolean
@@ -24,11 +25,12 @@ interface RunSummary {
   durationMs: number
   totals?: Record<string, number>
   cases: Array<{ id: string; title: string; verdict: string }>
+  blocked?: string[]
 }
 
-const ICON: Record<string, string> = { pass: '✅', fail: '❌', error: '💥', inconclusive: '❔', skipped: '⏭️', running: '⏳' }
-const VERDICT: Record<string, string> = {
-  pass: 'Đạt', fail: 'Không đạt', error: 'Lỗi', inconclusive: 'Chưa kết luận', skipped: 'Bỏ qua', running: 'Đang chạy',
+export const ICON: Record<string, string> = { pass: '✅', fail: '❌', error: '💥', inconclusive: '❔', skipped: '⏭️', blocked: '🚧', running: '⏳' }
+export const VERDICT: Record<string, string> = {
+  pass: 'Đạt', fail: 'Không đạt', error: 'Lỗi', inconclusive: 'Chưa kết luận', skipped: 'Bỏ qua', blocked: 'Chưa đủ điều kiện', running: 'Đang chạy',
 }
 
 /* ------------------------------------------------------------------ store */
@@ -135,48 +137,76 @@ function readPath(root: unknown, path: string): unknown {
 /* ------------------------------------------------------------------ pages */
 
 function RunsPage({ param, navigate }: PageProps) {
-  return param ? <RunDetail runId={param.split('/')[0]} caseId={param.split('/')[1]} navigate={navigate} /> : <RunList navigate={navigate} />
+  // Đường dẫn cũ `#/runs` chuyển sang tab Lượt chạy của trang Plan.
+  useEffect(() => { if (!param) navigate('plans/runs') }, [param])
+  return param ? <RunDetail runId={param.split('/')[0]} caseId={param.split('/')[1]} navigate={navigate} /> : null
 }
 
-function RunList({ navigate }: { navigate(path: string): void }) {
-  const [runs, setRuns] = useState<RunSummary[]>()
+/** Danh sách mọi lượt chạy, đặt trong tab "Lượt chạy" của trang Plan; tự làm mới mỗi 5 giây. */
+export function RunList({ navigate }: { navigate(path: string): void }) {
+  const runs = useRuns()
   const [filter, setFilter] = useState('')
   const [hideDry, setHideDry] = useState(false)
-  useEffect(() => {
-    const load = () => { void connection.call<RunSummary[]>('runs.list').then(setRuns) }
-    load()
-    const timer = setInterval(load, 5000)
-    return () => clearInterval(timer)
-  }, [])
   const shown = (runs ?? []).filter((r) => (!hideDry || !r.dryRun) && `${r.runId} ${r.plan?.id} ${r.plan?.name}`.toLowerCase().includes(filter.toLowerCase()))
   return (
-    <main className="manager runs">
-      <header>
-        <h2>Lượt chạy</h2>
+    <>
+      <div className="toolbar">
         <input placeholder="Lọc theo plan, mã lượt chạy…" value={filter} onChange={(e) => setFilter(e.target.value)} />
         <label className="muted small"><input type="checkbox" checked={hideDry} onChange={(e) => setHideDry(e.target.checked)} /> Ẩn lượt chạy thử</label>
-      </header>
-      <p className="muted">Xem lại agent đã làm gì trong từng test case, dữ liệu thật mà nền tảng đọc được, và vì sao case ra kết quả đó.</p>
-      {!runs && <div className="muted">Đang tải…</div>}
-      <table className="run-table">
-        <thead><tr><th>Bắt đầu</th><th>Plan</th><th>Kết quả</th><th>Case</th><th>Thời lượng</th></tr></thead>
-        <tbody>
-          {shown.map((r) => (
-            <tr key={r.runId} onClick={() => navigate(`runs/${r.runId}`)}>
-              <td>{r.startedAt ? new Date(r.startedAt).toLocaleString('vi-VN') : '—'}{r.dryRun && <span className="tag">chạy thử</span>}</td>
-              <td><b>{r.plan?.name ?? r.runId}</b><div className="muted small">{r.plan?.id} · {r.agent}</div></td>
-              <td>{!r.finished ? <span className="badge pending">Đang chạy</span> : <Totals totals={r.totals} />}</td>
-              <td>{r.cases.map((c) => <span key={c.id} title={`${c.id}: ${VERDICT[c.verdict] ?? c.verdict}`}>{ICON[c.verdict] ?? '·'}</span>)}</td>
-              <td>{(r.durationMs / 1000).toFixed(1)} s</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </main>
+      </div>
+      <p className="muted small">Bấm một lượt chạy để xem agent đã làm gì trong từng case, dữ liệu thật nền tảng đọc được, và vì sao case ra kết quả đó.</p>
+      {!runs ? <div className="muted">Đang tải…</div> : !shown.length ? <div className="empty">Chưa có lượt chạy nào.</div> : <RunTable runs={shown} navigate={navigate} showPlan />}
+    </>
   )
 }
 
-function Totals({ totals }: { totals?: Record<string, number> }) {
+/** Lượt chạy gần nhất, làm mới mỗi 5 giây; `planId` lọc theo plan. */
+export function useRuns(planId?: string, limit?: number) {
+  const [runs, setRuns] = useState<RunSummary[]>()
+  useEffect(() => {
+    let alive = true
+    const load = () => { void connection.call<RunSummary[]>('runs.list', { planId, limit }).then((r) => { if (alive) setRuns(r) }) }
+    load()
+    const timer = setInterval(load, 5000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [planId, limit])
+  return runs
+}
+
+export function RunTable({ runs, navigate, showPlan }: { runs: RunSummary[]; navigate(path: string): void; showPlan?: boolean }) {
+  return (
+    <table className="run-table">
+      <thead><tr><th>Bắt đầu</th>{showPlan && <th>Plan</th>}<th>Kết quả</th><th>Case</th><th>Thời lượng</th></tr></thead>
+      <tbody>
+        {runs.map((r) => (
+          <tr key={r.runId} onClick={() => navigate(`runs/${r.runId}`)}>
+            <td>
+              {r.startedAt ? <span title={new Date(r.startedAt).toLocaleString('vi-VN')}>{timeAgo(r.startedAt)}</span> : '—'}
+              {r.dryRun && <span className="tag">chạy thử</span>}
+            </td>
+            {showPlan && <td><b>{r.plan?.name ?? r.runId}</b><div className="muted small">{r.plan?.id} · {r.agent}</div></td>}
+            <td>{!r.finished ? <span className="badge pending">Đang chạy</span> : r.blocked ? <b className="warn">🚧 Chưa đủ điều kiện</b> : <Totals totals={r.totals} />}</td>
+            <td>{r.cases.map((c) => <span key={c.id} title={`${c.id}: ${VERDICT[c.verdict] ?? c.verdict}`}>{ICON[c.verdict] ?? '·'}</span>)}</td>
+            <td>{(r.durationMs / 1000).toFixed(1)} s</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+/** Thời gian tương đối dễ đọc: "vừa xong", "5 phút trước", "hôm qua", hoặc ngày. */
+export function timeAgo(iso: string) {
+  const diff = (Date.now() - Date.parse(iso)) / 1000
+  if (diff < 60) return 'vừa xong'
+  if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`
+  if (diff < 86400) return `${Math.floor(diff / 3600)} giờ trước`
+  if (diff < 172800) return 'hôm qua'
+  if (diff < 7 * 86400) return `${Math.floor(diff / 86400)} ngày trước`
+  return new Date(iso).toLocaleDateString('vi-VN')
+}
+
+export function Totals({ totals }: { totals?: Record<string, number> }) {
   if (!totals) return null
   return (
     <span className="small">
@@ -184,6 +214,7 @@ function Totals({ totals }: { totals?: Record<string, number> }) {
       {totals.fail > 0 && <> · <b className="bad">{totals.fail} không đạt</b></>}
       {totals.error > 0 && <> · <b className="bad">{totals.error} lỗi</b></>}
       {totals.inconclusive > 0 && <> · <b className="warn">{totals.inconclusive} chưa kết luận</b></>}
+      {totals.blocked > 0 && <> · <b className="warn">{totals.blocked} chưa đủ điều kiện</b></>}
     </span>
   )
 }
@@ -195,7 +226,7 @@ function RunDetail({ runId, caseId, navigate }: { runId: string; caseId?: string
   const finished = events.some((e) => e.type === 'run/end')
   // Tổng số tính lại từ log để luôn khớp khi lượt chạy đang diễn ra; snapshot ban đầu có thể đã cũ.
   const totals = useMemo(() => {
-    const out: Record<string, number> = { pass: 0, fail: 0, error: 0, inconclusive: 0 }
+    const out: Record<string, number> = { pass: 0, fail: 0, error: 0, inconclusive: 0, blocked: 0 }
     for (const c of cases) if (c.end) out[c.end.verdict] = (out[c.end.verdict] ?? 0) + 1
     return out
   }, [cases])
@@ -203,7 +234,9 @@ function RunDetail({ runId, caseId, navigate }: { runId: string; caseId?: string
   return (
     <main className="manager run-detail">
       <header>
-        <button onClick={() => navigate('runs')}>← Danh sách</button>
+        <button onClick={() => navigate(summary?.plan?.source ? `plans/${summary.plan.source}` : 'plans/runs')}>
+          ← {summary?.plan?.source ? 'Về plan' : 'Lượt chạy'}
+        </button>
         <h2>{summary?.plan?.name ?? runId}</h2>
         {!finished && <span className="badge pending">Đang chạy…</span>}
         <Totals totals={totals} />
@@ -212,6 +245,7 @@ function RunDetail({ runId, caseId, navigate }: { runId: string; caseId?: string
         <code>{runId}</code> · agent {summary?.agent} · {summary?.startedAt && new Date(summary.startedAt).toLocaleString('vi-VN')}
         {runLevel.some((e) => e.type === 'agent/connected') && <> · {runLevel.find((e) => e.type === 'agent/connected')!.data.name} {runLevel.find((e) => e.type === 'agent/connected')!.data.version}</>}
       </p>
+      <RunPreparation events={runLevel} />
       <div className="run-layout">
         <nav className="case-list">
           {cases.map((c) => (
@@ -224,6 +258,60 @@ function RunDetail({ runId, caseId, navigate }: { runId: string; caseId?: string
         {current ? <CaseDetail key={current.id} item={current} /> : <div className="muted">Chưa có case nào.</div>}
       </div>
     </main>
+  )
+}
+
+const SOURCE: Record<string, string> = { user: 'người chạy điền', fill: 'bước fill', agent: 'agent chuẩn bị', default: 'mặc định', missing: 'thiếu' }
+
+/** Đầu vào của lượt chạy, nguồn giá trị, lý do bị chặn và các lời gọi tool khi chuẩn bị dữ liệu. */
+function RunPreparation({ events }: { events: RunEvent[] }) {
+  const inputs = events.find((e) => e.type === 'inputs/resolved')?.data.inputs as Array<{
+    name: string; source: string; value?: unknown; error?: string; evidence?: { evidenceId: string; path: string }
+  }> | undefined
+  const blocked = events.find((e) => e.type === 'run/blocked')?.data.reasons as string[] | undefined
+  const calls = events.filter((e) => e.type === 'action/call')
+  const failures = events.filter((e) => ['inputs/fill-failed', 'inputs/prepare-failed', 'run/cleanup-failed'].includes(e.type))
+  if (!inputs && !blocked && !calls.length) return null
+  return (
+    <section className="run-prep">
+      {blocked && (
+        <div className="bad">
+          🚧 Lượt chạy bị chặn, các case không được chạy:
+          <ul>{blocked.map((r) => <li key={r}>{r}</li>)}</ul>
+        </div>
+      )}
+      {inputs && (
+        <table>
+          <thead><tr><th>Đầu vào</th><th>Giá trị</th><th>Nguồn</th><th>Ghi chú</th></tr></thead>
+          <tbody>
+            {inputs.map((i) => (
+              <tr key={i.name}>
+                <td><code>{i.name}</code></td>
+                <td>{i.value === undefined ? '—' : <code>{JSON.stringify(i.value)}</code>}</td>
+                <td>{SOURCE[i.source] ?? i.source}</td>
+                <td className={i.error ? 'bad' : 'muted'}>{i.error ?? (i.evidence ? `${i.evidence.evidenceId} ${i.evidence.path}` : '')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {(calls.length > 0 || failures.length > 0) && (
+        <details>
+          <summary>Chuẩn bị và dọn dữ liệu ({calls.length} lời gọi{failures.length ? `, ${failures.length} lỗi` : ''})</summary>
+          <ul className="small">
+            {calls.map((e) => (
+              <li key={e.seq}>
+                <span className={e.data.status === 'ok' ? 'ok' : 'bad'}>{e.data.status === 'ok' ? '✓' : '✗'}</span>{' '}
+                <code>{e.data.name}</code> <span className="muted">{e.data.phase === 'teardown' ? 'dọn' : 'chuẩn bị'}</span>
+                {(e.data.reason || e.data.args?.desc) && <span className="muted"> · {e.data.reason ?? e.data.args.desc}</span>}
+                {e.data.error && <span className="bad"> · {e.data.error}</span>}
+              </li>
+            ))}
+            {failures.map((e) => <li key={e.seq} className="bad">{e.type}: {e.data.error}</li>)}
+          </ul>
+        </details>
+      )}
+    </section>
   )
 }
 

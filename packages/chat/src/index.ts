@@ -200,7 +200,7 @@ export class Chat {
     const isFirstTurn = !this.agentSession
     const untitled = !this.log.events.some((e) => e.type === 'user/message')
     this.log.append('user/message', { text })
-    if (untitled && (this.log.events[0].data as { title: string }).title === DEFAULT_TITLE) {
+    if (untitled && chatTitle(this.log.events) === DEFAULT_TITLE) {
       this.log.append('chat/renamed', { title: text.replace(/\s+/g, ' ').trim().slice(0, 60) })
     }
     this.setStatus('running')
@@ -244,6 +244,41 @@ export class Chat {
     this.notes.push(`Người dùng đã sửa bản nháp plan trên giao diện. Nội dung hiện tại:\n\`\`\`yaml\n${content}\n\`\`\``)
   }
 
+  /** Danh sách plan có sẵn cho bộ chọn trên giao diện. Không ghi vào log: đây là thao tác duyệt, không phải hành động của cuộc chat. */
+  async listPlans() {
+    const session = await this.ensureAuthoring()
+    const outcome = await this.ctx.actions.invoke({ ...session.scope, phase: 'user', log: () => {} }, 'list_plans', {})
+    if (outcome.status !== 'ok') throw new Error(outcome.error)
+    return (outcome.value as { plans: unknown[] }).plans
+  }
+
+  /**
+   * Người dùng mở một plan có sẵn làm bản nháp để sửa hoặc chạy thử.
+   * Log ghi `draft/open` kèm nội dung; Host kiểm tra plan ngay để bảng plan có danh sách case.
+   * Agent nhận nội dung và đường dẫn ở lượt tiếp theo.
+   */
+  async openPlan(path: string) {
+    if (this.status !== 'idle') throw new Error('agent is still working on the previous message')
+    const session = await this.ensureAuthoring()
+    const read = await this.ctx.actions.invoke({ ...session.scope, phase: 'user', log: () => {} }, 'read_plan', { path })
+    if (read.status !== 'ok') throw new Error(read.error)
+    const { content } = read.value as { content: string }
+    this.log.append('draft/open', { path, content })
+    // Tiêu đề theo plan đang mở, khi tiêu đề chưa do người dùng hay tin nhắn đầu tiên đặt.
+    const renamed = this.log.events.findLast((e) => e.type === 'chat/renamed')
+    const autoTitle = chatTitle(this.log.events) === DEFAULT_TITLE || (renamed?.data as { from?: string } | undefined)?.from === 'open'
+    if (autoTitle && !this.log.events.some((e) => e.type === 'user/message')) {
+      this.log.append('chat/renamed', { title: `Plan ${path}`, from: 'open' })
+    }
+    await this.ctx.actions.invoke({ ...session.scope, phase: 'user' }, 'validate_plan', { content })
+    this.notes.push([
+      `Người dùng đã mở plan có sẵn \`${path}\` làm bản nháp để sửa hoặc chạy thử. Nội dung hiện tại:`,
+      '```yaml', content, '```',
+      `Khi lưu thay đổi, gọi \`save_plan\` với \`overwrite: true\` nếu \`${path}\` nằm trong thư mục lưu plan; nếu không, lưu thành file mới và báo người dùng đường dẫn.`,
+    ].join('\n'))
+    return { path, content }
+  }
+
   /** Người dùng bấm chạy một tool soạn plan trực tiếp (kiểm tra, chạy thử, lưu) mà không qua agent. */
   async invoke(tool: string, args: Record<string, unknown>) {
     if (!this.service.config.userTools.includes(tool)) throw new Error(`tool ${tool} cannot be invoked from the UI`)
@@ -263,7 +298,10 @@ export class Chat {
   }
 
   private async ensureAuthoring() {
-    this.authoring ??= await this.ctx.authoring.createSession({ log: this.log })
+    this.authoring ??= await this.ctx.authoring.createSession({
+      log: this.log,
+      confirm: (request) => this.ask({ requestId: randomUUID(), tool: request.tool, title: request.title, preview: request.preview }),
+    })
     return this.authoring
   }
 
@@ -382,15 +420,22 @@ export class Chat {
     const tool = /@[\w-]+\/(\w+)/.exec(request.title)?.[1]
     const definition = tool ? this.ctx.actions.get(tool) : undefined
     const requestId = raw.toolCallId ?? randomUUID()
-    if (definition?.readOnly && definition.scopes?.includes('authoring')) {
+    // Tool tự xin duyệt (`selfConfirm`) hiện thẻ duyệt riêng kèm bản xem trước khi chạy, nên không hỏi ở đây.
+    if ((definition?.readOnly || definition?.selfConfirm) && definition.scopes?.includes('authoring')) {
       this.log.append('permission/decision', { requestId, tool, title: request.title, allowed: true, by: 'policy' })
       return true
     }
-    this.log.append('permission/request', { requestId, tool, title: request.title, args: raw.rawInput })
+    return this.ask({ requestId, tool, title: request.title, args: raw.rawInput })
+  }
+
+  /** Hiện thẻ duyệt và chờ người dùng quyết định. Ngoài lượt của agent thì từ chối ngay. */
+  private async ask(request: { requestId: string; tool?: string; title: string; args?: unknown; preview?: unknown }): Promise<boolean> {
+    if (!this.controller) return false
+    this.log.append('permission/request', request)
     this.setStatus('waiting')
-    const allowed = await new Promise<boolean>((resolve) => this.pending.set(requestId, { resolve }))
-    this.pending.delete(requestId)
-    this.log.append('permission/decision', { requestId, tool, title: request.title, allowed, by: 'user' })
+    const allowed = await new Promise<boolean>((resolve) => this.pending.set(request.requestId, { resolve }))
+    this.pending.delete(request.requestId)
+    this.log.append('permission/decision', { requestId: request.requestId, tool: request.tool, title: request.title, allowed, by: 'user' })
     if (this.controller) this.setStatus('running')
     return allowed
   }

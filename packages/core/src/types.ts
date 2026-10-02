@@ -50,6 +50,28 @@ export interface FixtureStep {
   desc?: string
 }
 
+/**
+ * Một đầu vào của plan, phân giải một lần trước mọi case của lượt chạy và dùng như biến `{{tên}}`.
+ * Nguồn giá trị theo thứ tự ưu tiên: người chạy điền → `fill` → agent `prepare` → `default`.
+ */
+export interface PlanInput {
+  name: string
+  desc?: string
+  default?: unknown
+  /** Thiếu giá trị sau mọi nguồn thì lượt chạy bị chặn (`blocked`). Mặc định `true`. */
+  required: boolean
+  /** Bước lấy giá trị xác định (gọi API, INSERT, truy vấn dữ liệu có sẵn); một bước phải `save` vào tên input. */
+  fill: FixtureStep[]
+  /** Mô tả bằng lời cách chuẩn bị; agent thực hiện qua tool và trả giá trị từ evidence. */
+  prepare?: string
+  /** Namespace agent được dùng khi `prepare`; mặc định là `requires` của plan. */
+  uses?: string[]
+  /** Điều kiện giá trị phải thoả; không thoả thì lượt chạy bị chặn. */
+  require?: { op: AssertOp; value?: unknown }
+  /** Bước dọn chạy sau mọi case, theo thứ tự ngược với lúc chuẩn bị. */
+  cleanup: FixtureStep[]
+}
+
 export interface TestCase {
   id: string
   title: string
@@ -72,6 +94,10 @@ export interface TestPlan {
   format: string
   /** Các namespace action mà plan được phép dùng, ví dụ `http`, `db`. */
   requires: string[]
+  /** Đầu vào của lượt chạy, theo thứ tự khai báo; input sau được dùng giá trị của input trước. */
+  inputs?: PlanInput[]
+  /** Hệ thống trong catalog mà plan dùng tới, ví dụ `order-service`; cung cấp biến `{{order-service.url}}`. */
+  systems?: string[]
   vars: Record<string, unknown>
   /** Bối cảnh nghiệp vụ bổ sung cho agent. */
   context?: string
@@ -99,7 +125,7 @@ export type CasePhase = 'setup' | 'agent' | 'teardown'
  * - `authoring`: một phiên soạn plan cùng agent.
  * - `explore`: lời gọi khảo sát hệ thống từ phiên soạn plan; chỉ cho phép lời gọi chỉ đọc.
  */
-export type ScopeKind = 'case' | 'authoring' | 'explore'
+export type ScopeKind = 'case' | 'authoring' | 'explore' | 'prepare'
 
 /** Pha của lời gọi: chuẩn bị, agent, dọn dẹp, hoặc người dùng thao tác trực tiếp trên giao diện. */
 export type ActionPhase = CasePhase | 'user'
@@ -120,6 +146,18 @@ export interface ActionScope {
   signal: AbortSignal
   /** Ghi một event vào log append-only của scope. */
   log(type: string, data: unknown): void
+  /**
+   * Xin người dùng duyệt một thao tác kèm bản xem trước. Chỉ có khi scope gắn với người dùng trực tiếp,
+   * ví dụ cuộc chat. Action có tác động lâu dài phải gọi hàm này và từ chối chạy khi scope không có hàm.
+   */
+  confirm?(request: ConfirmRequest): Promise<boolean>
+}
+
+/** Yêu cầu duyệt do action gửi tới người dùng. `preview` là dữ liệu thuần JSON, có `kind` để giao diện chọn cách hiển thị. */
+export interface ConfirmRequest {
+  tool: string
+  title: string
+  preview: { kind: string; [key: string]: unknown }
 }
 
 /** Phạm vi của một test case trong lượt chạy. */
@@ -165,6 +203,11 @@ export interface ActionDefinition<A = any> {
   scopes?: ScopeKind[]
   /** Action chỉ đọc, không gây side effect. */
   readOnly?: boolean
+  /**
+   * Action tự xin duyệt qua `scope.confirm` kèm bản xem trước đầy đủ. Host không hỏi thêm lần nữa
+   * khi agent xin quyền dùng tool này, để người dùng chỉ thấy một thẻ duyệt có đủ thông tin.
+   */
+  selfConfirm?: boolean
   /**
    * Với action không chỉ đọc, cho biết một lời gọi cụ thể có chỉ đọc hay không.
    * Ví dụ `http_request` với method GET. Dùng khi khảo sát hệ thống lúc soạn plan.
@@ -264,7 +307,8 @@ export interface AgentDriver {
   connect(options: { cwd: string }): Promise<AgentConnection>
 }
 
-export type Verdict = 'pass' | 'fail' | 'error' | 'inconclusive' | 'skipped'
+/** `blocked`: môi trường hoặc dữ liệu chưa đủ điều kiện để chạy (đầu vào thiếu, không thoả `require`); case không được chạy. */
+export type Verdict = 'pass' | 'fail' | 'error' | 'inconclusive' | 'skipped' | 'blocked'
 
 export interface VerdictDecision {
   verdict: Verdict
@@ -346,6 +390,52 @@ export interface RunReport {
   finishedAt?: string
   durationMs: number
   totals: Record<Verdict, number> & { total: number }
+  /** Đầu vào đã phân giải cho lượt chạy, kèm nguồn giá trị. */
+  inputs: ResolvedInput[]
+  /** Lý do lượt chạy bị chặn trước khi chạy case. */
+  blocked: string[]
   cases: CaseReport[]
   logFile?: string
+}
+
+export interface ResolvedInput {
+  name: string
+  source: 'user' | 'fill' | 'agent' | 'default' | 'missing'
+  value?: unknown
+  /** Với nguồn `agent`: evidence chứa giá trị. */
+  evidence?: EvidenceRef & { action?: string }
+  error?: string
+}
+
+/** Phạm vi chuẩn bị dữ liệu của lượt chạy: fixture của input và phiên agent `prepare`. */
+export interface PrepareScope extends ActionScope {
+  kind: 'prepare'
+  runId: string
+  plan: TestPlan
+  vars: Record<string, unknown>
+  phase: CasePhase
+}
+
+/**
+ * Ngữ cảnh chuẩn bị của một lượt chạy, truyền cho `run/prepare`. Plugin ghi biến dùng chung vào `vars`,
+ * lý do không chạy được vào `blocked`, bước dọn vào `cleanup`.
+ */
+export interface RunContext {
+  runId: string
+  plan: TestPlan
+  /** Giá trị đầu vào do người chạy truyền (CLI `--input`, form trên giao diện). */
+  given: Record<string, unknown>
+  /** Biến dùng chung cho mọi case: biến dựng sẵn `$run.*` và đầu vào đã phân giải. */
+  vars: Record<string, unknown>
+  blocked: string[]
+  /** Bước dọn chạy sau mọi case, theo thứ tự ngược với lúc thêm. */
+  cleanup: Array<{ scope: PrepareScope; step: FixtureStep }>
+  log(type: string, data: unknown): void
+  signal: AbortSignal
+  /** Tạo scope chuẩn bị gắn với run log của lượt chạy. */
+  createScope(namespaces: Iterable<string>): PrepareScope
+  /** Chạy bước fixture trong scope chuẩn bị; `save` ghi vào `scope.vars`. Ném lỗi ở bước đầu tiên thất bại. */
+  runFixtures(scope: PrepareScope, steps: FixtureStep[]): Promise<void>
+  /** Gửi một prompt cho agent của lượt chạy, qua endpoint MCP riêng của scope. Ném lỗi khi không có agent. */
+  promptAgent(scope: PrepareScope, prompt: string, timeoutMs: number): Promise<{ stopReason: string }>
 }

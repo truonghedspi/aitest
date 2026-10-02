@@ -1,5 +1,6 @@
-import { isSafeNumber, parse as parseLossless } from 'lossless-json'
-import { z, type Context } from '@aitest/core'
+import { parseJson, z, type Context } from '@aitest/core'
+
+export { parseJson }
 
 /**
  * Action gọi HTTP API. Namespace mặc định là `http`.
@@ -92,12 +93,4 @@ function parseBody(text: string, max: number) {
   } catch {
     return text.length > max ? text.slice(0, max) + '…' : text
   }
-}
-
-/**
- * Parse JSON mà không mất chữ số: số đổi sang `number` vẫn giữ nguyên giá trị thì trả về `number`;
- * số vượt độ chính xác của `number` (ví dụ `12345678901234567.89`) được giữ dạng chuỗi để so sánh bằng BigDecimal.
- */
-export function parseJson(text: string): unknown {
-  return parseLossless(text, null, (value: string) => (isSafeNumber(value) ? Number(value) : value))
 }

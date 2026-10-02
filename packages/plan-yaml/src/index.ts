@@ -28,6 +28,17 @@ const FixtureSchema = z.object({
 
 const Fixtures = z.array(FixtureSchema).default([])
 
+const InputSchema = z.object({
+  desc: z.string(),
+  default: z.any(),
+  required: z.boolean().default(true),
+  fill: Fixtures.description('Bước lấy giá trị xác định; một bước phải `save` vào tên input.'),
+  prepare: z.string().description('Mô tả bằng lời cách chuẩn bị; agent thực hiện.'),
+  uses: z.array(z.string()).description('Namespace agent được dùng khi prepare; mặc định là `requires`.'),
+  require: z.object({ op: AssertOp, value: z.any() }),
+  cleanup: Fixtures.description('Bước dọn sau mọi case; chạy khi giá trị lấy bằng `fill`.'),
+})
+
 const CaseSchema = z.object({
   id: z.string().required(),
   title: z.string().required(),
@@ -44,6 +55,8 @@ export const PlanSchema = z.object({
   name: z.string().required(),
   description: z.string(),
   requires: z.array(z.string()).default([]),
+  systems: z.array(z.string()).default([]),
+  inputs: z.dict(InputSchema).default({}),
   vars: z.dict(z.any()).default({}),
   context: z.string(),
   setup: Fixtures,
@@ -108,6 +121,12 @@ export function parsePlan(text: string, source: string): TestPlan {
       expectIds.add(e.id)
     }
   }
+  for (const [name, input] of Object.entries(data.inputs)) {
+    if (!/^[A-Za-z_][\w-]*$/.test(name)) issues.push(`input ${name}: name must match ^[A-Za-z_][\w-]*$`)
+    if (name in data.vars) issues.push(`input ${name}: a var with the same name exists`)
+    if (input.fill.length && !input.fill.some((step) => step.save && name in step.save)) issues.push(`input ${name}: a fill step must save ${name}`)
+    if (input.require?.value !== undefined && !input.require.op) issues.push(`input ${name}: require needs op`)
+  }
   if (issues.length) throw new PlanError(source, issues)
 
   const vars = interpolate(data.vars) as Record<string, unknown>
@@ -124,6 +143,18 @@ export function parsePlan(text: string, source: string): TestPlan {
     source,
     format: 'yaml',
     requires: data.requires,
+    systems: data.systems,
+    inputs: Object.entries(data.inputs).map(([name, i]) => ({
+      name,
+      desc: i.desc,
+      default: interpolate(i.default),
+      required: i.required,
+      fill: fixtures(i.fill),
+      prepare: i.prepare,
+      uses: i.uses?.length ? i.uses : undefined,
+      require: i.require?.op ? { op: i.require.op, value: i.require.value } : undefined,
+      cleanup: fixtures(i.cleanup),
+    })),
     vars,
     context: data.context && fill(data.context),
     setup: fixtures(data.setup),

@@ -1,7 +1,7 @@
 import { open, readdir, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import type {} from '@aitest/web-host'
-import { deriveReport, z, type Context, type RunEvent } from '@aitest/core'
+import { deriveReport, toPosix, z, type Context, type RunEvent } from '@aitest/core'
 import type { WebConnection } from '@aitest/web-host'
 
 /**
@@ -26,7 +26,8 @@ export const Config = z.object({
 
 export interface RunSummary {
   runId: string
-  plan?: { id: string; name: string }
+  /** `source`: đường dẫn file plan, tương đối với thư mục làm việc. */
+  plan?: { id: string; name: string; source?: string }
   agent?: string
   startedAt?: string
   finished: boolean
@@ -34,6 +35,8 @@ export interface RunSummary {
   durationMs: number
   totals?: Record<string, number>
   cases: Array<{ id: string; title: string; verdict: string }>
+  /** Lý do lượt chạy bị chặn trước khi chạy case. */
+  blocked?: string[]
 }
 
 const RUN_ID = /^[\w.-]+$/
@@ -48,15 +51,24 @@ export function apply(ctx: Context, config: Config) {
     return join(root(), runId, 'events.jsonl')
   }
 
-  ctx.web.method('runs.list', async () => {
+  // Tóm tắt theo thời điểm sửa file: lượt chạy đã xong không phải đọc lại log mỗi lần liệt kê.
+  const cache = new Map<string, { mtime: number; summary?: RunSummary }>()
+
+  /** Lượt chạy mới nhất trước; `planId` lọc theo plan, `limit` tối đa `config.limit`. */
+  ctx.web.method('runs.list', async (params: { planId?: string; limit?: number } = {}) => {
     const ids = (await readdir(root()).catch(() => [] as string[])).filter((id) => RUN_ID.test(id))
     const dated = await Promise.all(ids.map(async (id) => ({ id, mtime: (await stat(fileOf(id)).catch(() => undefined))?.mtimeMs })))
-    const recent = dated.filter((d) => d.mtime).sort((a, b) => b.mtime! - a.mtime!).slice(0, config.limit)
+    const limit = Math.min(params.limit ?? config.limit, config.limit)
     const out: RunSummary[] = []
-    for (const { id } of recent) {
-      const events = await ctx.runlog.read(fileOf(id)).catch(() => [] as RunEvent[])
-      if (!events.some((e) => e.type === 'run/start')) continue
-      out.push(summarize(id, events))
+    for (const { id, mtime } of dated.filter((d) => d.mtime).sort((a, b) => b.mtime! - a.mtime!)) {
+      if (out.length >= limit) break
+      let entry = cache.get(id)
+      if (!entry || entry.mtime !== mtime) {
+        const events = await ctx.runlog.read(fileOf(id)).catch(() => [] as RunEvent[])
+        entry = { mtime: mtime!, summary: events.some((e) => e.type === 'run/start') ? summarize(id, events) : undefined }
+        cache.set(id, entry)
+      }
+      if (entry.summary && (!params.planId || entry.summary.plan?.id === params.planId)) out.push(entry.summary)
     }
     return out
   })
@@ -109,7 +121,7 @@ async function readFrom(file: string, offset: number): Promise<{ events: RunEven
 }
 
 function summarize(runId: string, events: RunEvent[]): RunSummary {
-  const start = events.find((e) => e.type === 'run/start')?.data as { plan?: { id: string; name: string }; agent?: string } | undefined
+  const start = events.find((e) => e.type === 'run/start')?.data as { plan?: { id: string; name: string; source?: string }; agent?: string } | undefined
   const finished = events.some((e) => e.type === 'run/end')
   let report: ReturnType<typeof deriveReport> | undefined
   try {
@@ -121,7 +133,10 @@ function summarize(runId: string, events: RunEvent[]): RunSummary {
   const first = events[0]?.ts
   return {
     runId,
-    plan: start?.plan && { id: start.plan.id, name: start.plan.name },
+    plan: start?.plan && {
+      id: start.plan.id, name: start.plan.name,
+      source: start.plan.source ? toPosix(relative(process.cwd(), start.plan.source)) : undefined,
+    },
     agent: start?.agent,
     startedAt: first,
     finished,
@@ -132,5 +147,6 @@ function summarize(runId: string, events: RunEvent[]): RunSummary {
       id: c.id, title: c.title,
       verdict: finished || events.some((e) => e.caseId === c.id && e.type === 'case/end') ? c.verdict : 'running',
     })) ?? [],
+    ...(report?.blocked.length ? { blocked: report.blocked } : {}),
   }
 }

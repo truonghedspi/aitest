@@ -30,6 +30,8 @@ packages/            @aitest/<tên> — mỗi package là một hoặc nhiều p
   action-math/       calc, round_number: tính toán và làm tròn trên BigDecimal; biến lấy từ evidence
   action-wait/       wait_until cho xử lý bất đồng bộ
   action-webhook/    webhook_create, webhook_wait để nhận callback
+  action-kafka/      kafka_read, kafka_wait_for: đọc theo mốc thời gian bằng consumer group tạm; gửi bản tin khi bật
+  action-rabbitmq/   rabbitmq_tap, rabbitmq_wait_for: quan sát exchange bằng queue tạm; gửi bản tin khi bật
   guard-basic/       chặn SQL ghi, giới hạn host, chặn action theo tên
   reporters/         console, markdown, junit (mỗi subpath là một plugin)
   authoring/         soạn plan cùng agent: service lõi + plugin catalog, context-files, explore, validate, dry-run, save
@@ -38,16 +40,23 @@ packages/            @aitest/<tên> — mỗi package là một hoặc nhiều p
   run-viewer/        trang Lượt chạy: danh sách, giải thích kết quả, dòng thời gian, theo dõi lượt chạy đang diễn ra
   knowledge/         tri thức của nhóm trong kb/: tool kb_list/kb_read/kb_propose, quy ước vào hướng dẫn, đánh dấu lỗi đã biết
   plugin-manager/    trang Plugin và Tool: bật/tắt, cấu hình, thêm/gỡ, thêm MCP server, tắt tool, chạy thử
+  inputs/            đầu vào của lượt chạy: người chạy điền, fill, agent prepare (provide_input, register_cleanup), default, blocked
+  system-catalog/    catalog hệ thống (ctx.systems): biến {{system.url}}, section prompt, list_systems/describe_system, quy tắc kiểm tra
+  tool-catalog/      list_tool_catalog, propose_tool: agent đề xuất thêm tool từ danh mục, người dùng duyệt trong chat
   web-client/        giao diện React + Vite; plugin client đăng ký vào slot (page, toolView, panel)
   cli/               lệnh aitest
 examples/
-  order-api/         ứng dụng mẫu: API, giao diện web, SQLite, lỗi cố ý ở kiểm tra lô chẵn
-  plans/             plan mẫu: API, integration, E2E giao diện
+  order-api/         ứng dụng mẫu: API, giao diện web, SQLite, sự kiện Kafka/RabbitMQ, lỗi cố ý ở kiểm tra lô chẵn
+  plans/             plan mẫu: API, integration, E2E giao diện, sự kiện qua broker
   plugins/           plugin mẫu nạp theo đường dẫn tương đối
 docs/                architecture.md, user-guide.md, plan.schema.json
 kb/                  tri thức của nhóm: bug/, convention/, lesson/ (Markdown + frontmatter)
+systems/             catalog hệ thống: <id>/service.yml (OpenAPI, kênh sự kiện, consumer, dữ liệu)
+envs/                môi trường: URL của service, broker → namespace tool; chọn bằng AITEST_ENV
+tool-catalog/        danh mục tool đã kiểm duyệt: plugin, tham số, mẫu cấu hình chỉ đọc và phần ghi
 aitest.yml           cấu hình plugin mặc định
 aitest.e2e.yml       kế thừa aitest.yml, thêm Playwright MCP
+aitest.events.yml    kế thừa aitest.yml, thêm Kafka và RabbitMQ
 aitest.web.yml       kế thừa aitest.yml, thêm web host, chat, plugin-manager và agent Kiro cho chat
 aitest.*.patch.yml   patch layer do giao diện ghi (bị git bỏ qua)
 .kiro/agents/        profile Kiro: aitest-author (Kiro chat + aitest mcp), aitest-chat (agent cho giao diện)
@@ -63,7 +72,7 @@ pnpm test                    # vitest; agent kịch bản, không gọi LLM; kho
 AITEST_SKIP_BROWSER=1 pnpm test   # bỏ qua bài test trình duyệt khi máy không có Chrome
 pnpm demo:api                # Order API mẫu ở cổng 4100
 pnpm aitest validate <plan>
-pnpm aitest run <plan> [--case A,B] [--agent kiro]          # gọi Kiro thật, tốn lượt dùng
+pnpm aitest run <plan> [--case A,B] [--agent kiro] [--input tên=giá-trị]   # gọi Kiro thật, tốn lượt dùng
 pnpm aitest -c aitest.e2e.yml run examples/plans/order-ui.plan.yaml
 pnpm aitest report .aitest/runs/<id>/events.jsonl           # dựng lại báo cáo từ log
 pnpm web:build && pnpm aitest -c aitest.web.yml serve       # giao diện soạn plan tại http://127.0.0.1:4300
@@ -82,13 +91,15 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 - **Run log là nguồn sự thật.** Mọi thông tin xuất hiện trong báo cáo phải dựng lại được từ `events.jsonl` qua `deriveReport`. Thông tin mới trong báo cáo đòi hỏi một loại event mới, ghi qua `scope.log`.
 - **Mọi thao tác của agent đi qua gateway.** Không cấp cho agent MCP server nào khác ngoài endpoint của gateway. Tích hợp MCP server ngoài phải qua `action-mcp-proxy` để giữ guard, evidence và log.
 - **Thực thi quyết định tại nơi thực thi.** Giới hạn `requires` và guard được kiểm tra trong `ActionRegistry.invoke`, không chỉ ở danh sách tool hay prompt. Kiểm thử từ chối phải gọi qua `invoke`.
-- **Fixture không qua AI.** `setup`/`teardown` do runner chạy; lỗi setup cho verdict `error` và không gọi agent; teardown luôn chạy.
+- **Fixture không qua AI.** `setup`/`teardown` và `fill` của input do runner chạy; lỗi setup cho verdict `error` và không gọi agent; teardown luôn chạy. Agent chỉ chuẩn bị dữ liệu trong scope `prepare` (input có `prepare`): giá trị phải đọc từ evidence qua `provide_input`, dữ liệu tạo ra được dọn qua `register_cleanup`.
+- **Môi trường chưa đủ điều kiện là `blocked`, không phải `fail`.** Input thiếu hoặc không thoả `require` chặn cả lượt chạy; case không được chạy.
 - **Giao diện dựng từ log.** Mọi thứ giao diện hiển thị lâu dài phải là event trong log của cuộc chat; chỉ token đang stream đi qua `chat/live`. Thông tin hiển thị mới đòi hỏi event mới hoặc trường mới trong `view`.
 - **Thay đổi lúc chạy đi vào patch layer.** Bật/tắt, cấu hình, thêm/gỡ plugin và tắt tool chỉ đi qua `ctx.kernel`; kernel ghi `*.patch.yml` khi plugin nạp thành công. Không sửa file cấu hình gốc từ code.
 - **Mọi lời gọi tool của agent có lý do.** Gateway thêm `reason`, `step` vào schema và tách ra thành `intent` trước khi gọi `invoke`. Không bỏ cơ chế này: agent (Kiro) không gửi suy nghĩ qua ACP, nên đây là nguồn duy nhất giải thích vì sao agent lấy dữ liệu.
 - **Chạy được trên macOS, Linux, Windows.** Khởi chạy process bằng `cross-spawn` (hoặc qua MCP SDK); kiểm tra đường dẫn bằng `isInside`; ghi đường dẫn hiển thị bằng `toPosix`; đọc file văn bản chấp nhận CRLF. CI chạy cả ba hệ điều hành.
 - **Agent chạy test không đọc tri thức.** Tool `kb_*` chỉ có scope `authoring`; lỗi đã biết chỉ được dùng để phân loại kết quả trong báo cáo, qua `case/annotation`.
 - **Duyệt trước khi ghi.** Tool soạn plan chỉ đọc được duyệt tự động; `dry_run`, `save_plan` và tool riêng của agent cần người dùng duyệt.
+- **Agent chỉ thêm tool từ danh mục, qua người duyệt.** `propose_tool` dựng cấu hình từ mẫu trong `tool-catalog/`, không nhận cấu hình tự do. Tool tự duyệt qua `scope.confirm` (phía server) và từ chối khi scope không có người duyệt. Tool mới mặc định chỉ đọc; tham số bí mật chỉ nhận `${env.TÊN}`.
 - **Tính năng mới đi qua plugin.** Thêm hành vi bằng service, event hoặc action mới; chỉ sửa runner khi điểm mở rộng hiện có không đủ, và cập nhật docs/architecture.md cùng lúc.
 
 ## Quy ước
@@ -102,13 +113,15 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 - **Tên action** khớp `^[a-z][a-z0-9_]{0,63}$`, có dạng `<namespace>_<động từ>`. Action không sinh dữ liệu cần đối chiếu đặt `evidence: false`.
 - **Kết quả action** là JSON thuần, đủ để assert theo path. Giới hạn kích thước tại nơi biết kết quả hoàn chỉnh (gateway có `maxResultChars`).
 - **Bí mật** đọc qua `${env.NAME}` trong cấu hình; không commit giá trị thật.
+- **Plan không ghi địa chỉ.** Plan mới tham chiếu hệ thống qua `systems` và `{{<system>.url}}`; URL, topic, exchange nằm trong `systems/` và `envs/`. `envs/` không chứa bí mật.
 
 ## Kiểm thử
 
 - Bài test nằm ở `packages/<tên>/tests/`. Test tích hợp dùng `setupHarness` trong `packages/runner/tests/support.ts`: dựng kernel từ `aitest.yml` thật, khởi chạy Order API với DB tạm và đăng ký agent kịch bản gọi tool qua MCP client thật.
 - Plugin mới có test chạy qua cấu hình thật, không chỉ `ctx.plugin(...)` dựng tay.
 - Registry mới có test chứng minh gỡ plugin thì đóng góp biến mất.
-- Các file test chạy song song. Mỗi file dùng cổng riêng (4199, 4198, 4197...) và thư mục tạm riêng, dọn trong `afterAll`.
+- Các file test chạy song song. Mỗi file dùng cổng riêng (4199, 4198, 4197...) và thư mục tạm riêng, dọn trong `afterAll`. Không dùng cổng 4190: fetch của Node chặn cổng này.
+- Test cần hạ tầng ngoài (Kafka, RabbitMQ) bỏ qua khi thiếu biến môi trường (`KAFKA_BROKERS`, `RABBITMQ_URL`); CI chạy chúng trong job `brokers` với service container.
 - Thay đổi nội dung agent nhìn thấy cần thêm một lần chạy Kiro thật; ghi số liệu vào mục kết quả kiểm chứng của tài liệu kiến trúc khi số liệu thay đổi.
 
 ## Tài liệu

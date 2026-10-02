@@ -48,6 +48,7 @@ Hai file đọc địa chỉ hệ thống từ biến môi trường:
 | `ORDER_API_URL` | Địa chỉ API, dùng trong `vars` của plan mẫu | `http://127.0.0.1:4100` |
 | `ORDER_DB` | Đường dẫn file SQLite | `examples/order-api/orders.db` |
 | `AITEST_BROWSER` | Trình duyệt cho test giao diện | `chrome` |
+| `AITEST_ENV` | Môi trường của catalog hệ thống, đọc từ `envs/<tên>.yml` | `local` |
 
 Khi áp dụng cho hệ thống của bạn, sửa các row `action-db`, `action-dbadmin` trong `aitest.yml` và biến trong `vars` của plan.
 
@@ -115,6 +116,8 @@ cases:
 |---|---|---|
 | `id`, `name` | Có | Mã và tên plan |
 | `requires` | Không | Namespace action được bật: `http`, `db`, `webhook`, `browser`... Xem bằng `aitest actions` |
+| `inputs` | Không | Đầu vào của lượt chạy: người chạy điền, `fill`, agent `prepare`, `default`. Xem mục 6.1 |
+| `systems` | Không | Hệ thống trong catalog mà plan dùng tới, ví dụ `[order-service]`; cung cấp biến `{{order-service.url}}` theo môi trường. Xem mục 5.9 |
 | `vars` | Không | Biến dùng trong bước qua `{{tên}}`; hỗ trợ `${env.TÊN:-mặc định}` |
 | `context` | Không | Bối cảnh nghiệp vụ: cấu trúc bảng, quy tắc, ý nghĩa trạng thái |
 | `setup`, `teardown` | Không | Bước chuẩn bị và dọn dữ liệu, xem mục 6 |
@@ -225,7 +228,7 @@ pnpm aitest -c aitest.web.yml serve     # mở http://127.0.0.1:4300; đổi c�
 | Cột trái | Danh sách cuộc chat; tiêu đề tự đặt theo tin nhắn đầu tiên |
 | Đầu cuộc chat | Chọn **model** cho cuộc chat; danh sách lấy từ agent. Đổi model áp dụng cho các tin nhắn sau và được ghi vào hội thoại |
 | Cột giữa | Hội thoại; mỗi tool agent dùng hiện thành một thẻ, bấm để xem chi tiết |
-| Cột phải | "Plan đang soạn": YAML mới nhất, kết quả kiểm tra, kết quả chạy thử |
+| Cột phải | "Plan đang soạn": YAML mới nhất, kết quả kiểm tra, kết quả chạy thử; nút "Mở plan có sẵn" và ô chọn case chạy thử |
 
 Cách làm việc hiệu quả:
 
@@ -235,6 +238,16 @@ Cách làm việc hiệu quả:
 4. Góp ý bằng lời, hoặc sửa YAML trực tiếp ở cột phải rồi bấm "Kiểm tra", "Chạy thử", "Lưu". Agent được báo về phần bạn sửa ở tin nhắn tiếp theo.
 
 Khi chạy thử phát hiện case không đạt, agent phân biệt plan viết chưa rõ với lỗi thật của hệ thống. Plan không bị sửa để che lỗi của hệ thống.
+
+**Sửa hoặc chạy thử plan có sẵn.**
+
+1. Bấm "Mở plan có sẵn" ở cột phải, gõ để lọc theo tên, mã plan, mã hoặc tên case, đường dẫn, rồi chọn plan. Mỗi dòng ghi tên, mã, danh sách case; đường dẫn file ở cuối. Plan đang lỗi cú pháp vẫn mở được để sửa.
+2. Plan trở thành bản nháp và được kiểm tra ngay. Cuộc chat mới đổi tiêu đề thành "Plan <đường dẫn>".
+3. Nhờ agent sửa, ví dụ "Thêm case huỷ lệnh đã huỷ trả 409 rồi chạy thử riêng case mới". Agent nhận nguyên nội dung plan ở tin nhắn tiếp theo.
+4. Muốn tự chạy thử, bỏ chọn các case không cần ở dòng "Case chạy thử" rồi bấm "Chạy thử". Mỗi lần chạy thử có tối đa 3 case.
+5. Plan nằm trong `plans/` được ghi đè tại chỗ khi bấm "Lưu". Plan ở nơi khác, ví dụ `examples/plans/`, được lưu thành bản mới trong `plans/`.
+
+Mở plan khác sẽ thay bản nháp hiện tại. Khi bản nháp có thay đổi chưa lưu, bộ chọn hiện cảnh báo trước.
 
 #### Trên terminal với Kiro chat
 
@@ -272,8 +285,17 @@ Khi chạy `pnpm aitest -c aitest.web.yml serve`, thanh điều hướng có th�
 | Bật, tắt | Công tắc trên thẻ. Plugin giao diện phụ thuộc vào thì bị khoá |
 | Sửa cấu hình | "Cấu hình" → sửa theo form (có mô tả từng trường) hoặc chế độ JSON → "Lưu và nạp lại". Cấu hình sai thì plugin giữ cấu hình cũ và báo lỗi |
 | Thêm plugin | "+ Thêm plugin" → chọn từ danh mục → đặt mã row và cấu hình → "Thêm plugin" |
-| Thêm MCP server | "+ Thêm MCP server" → namespace, lệnh và tham số (stdio) hoặc URL (HTTP) → "Thêm MCP server". Tool của server hiện ngay trên trang Tool và dùng được trong plan với `requires: [<namespace>]` |
+| Thêm MCP server | "+ Thêm MCP server" → tab **Dán cấu hình** hoặc **Điền form**. Tool của server hiện ngay trên trang Tool và dùng được trong plan với `requires: [<namespace>]` |
 | Gỡ | Chỉ plugin thêm từ giao diện mới gỡ được; plugin trong file cấu hình thì tắt |
+
+**Dán cấu hình MCP đang dùng.** Chép nội dung `mcp.json` từ Claude Desktop, Claude Code, Cursor, Kiro hoặc VS Code (`mcpServers`, `servers`), hoặc chỉ một đoạn `"tên": {...}`. JSON có comment hay dấu phẩy thừa vẫn đọc được. Bấm "Đọc cấu hình" để xem trước từng server:
+
+- Namespace được đề xuất từ tên server và sửa được; server trùng namespace có sẵn được đánh số thêm.
+- Giá trị trong `env`, `headers` có dạng bí mật (token, key, password) được che. Mỗi giá trị có lựa chọn "dùng `${env.TÊN}`". Lựa chọn này bật sẵn khi biến đã có trên Host. Khi bỏ chọn, giá trị nguyên văn được ghi vào file patch; file này không được commit.
+- Tham chiếu `${TÊN}`, `${env:TÊN}` của công cụ khác được đổi sang `${env.TÊN}`.
+- Server có `disabled` được bỏ chọn sẵn. Server chỉ hỗ trợ SSE nhận cảnh báo, vì aitest dùng Streamable HTTP.
+
+Bấm "Thêm N server". Mỗi server được kết nối thử: server lỗi được báo riêng và không được ghi, các server khác vẫn được thêm.
 
 Ví dụ thêm MCP server bảng giá mẫu: namespace `quote`, lệnh `node`, tham số mỗi dòng một giá trị: `--import`, `tsx`, `examples/mcp/quote-server.ts`.
 
@@ -283,6 +305,18 @@ Ví dụ thêm MCP server bảng giá mẫu: namespace `quote`, lệnh `node`, t
 - Mở một tool để xem mô tả, input schema, và **chạy thử** với tham số JSON. Chỉ lời gọi chỉ đọc chạy thử được.
 
 **Thay đổi được lưu ở đâu.** Mọi thay đổi được ghi vào `aitest.web.patch.yml` cạnh file cấu hình. File cấu hình gốc không bị sửa. Xoá file patch rồi khởi động lại là quay về cấu hình gốc. Muốn đưa thay đổi thành cấu hình chung của nhóm, chép row từ file patch sang `aitest.yml`.
+
+**Thêm tool ngay trong cuộc chat.** Khi plan cần kiểm tra một hệ thống mà nền tảng chưa có tool, ví dụ Kafka, agent đề xuất thêm tool từ danh mục đã kiểm duyệt (`tool-catalog/*.yml`).
+
+1. Agent hỏi các tham số còn thiếu, ví dụ địa chỉ broker.
+2. Thẻ duyệt hiện lý do, quyền (chỉ đọc hoặc đọc và ghi), tool sẽ bật, biến môi trường cần có, và **cấu hình nguyên văn** sẽ ghi vào file patch.
+3. Bấm "Cho phép" thì tool được nạp ngay. Agent gọi thử một tool chỉ đọc để kiểm tra kết nối, rồi dùng namespace mới trong `requires`.
+
+Quy tắc của luồng này:
+- Mật khẩu và URL có mật khẩu **không nhập vào chat**. Đặt biến môi trường trước khi khởi động Host, ví dụ `RABBITMQ_URL=amqp://user:pass@host:5672`. Agent chỉ ghi tham chiếu `${env.RABBITMQ_URL}`.
+- Tool mặc định chỉ đọc. Muốn agent gửi bản tin hoặc ghi dữ liệu, nói rõ trong chat; thẻ duyệt ghi "đọc và ghi" bằng chữ đỏ.
+- Tool thêm qua chat là row trong `aitest.web.patch.yml`, gỡ được trên trang Plugin.
+- Danh mục hiện có: Kafka, RabbitMQ, PostgreSQL, trình duyệt (Playwright). Cách thêm mục mới: xem `docs/architecture.md`, mục "Đưa vào danh mục tool".
 
 ### 5.8. Tri thức của nhóm (Knowledge)
 
@@ -300,6 +334,80 @@ Ghi chú được tạo theo ba cách:
 - Viết file trực tiếp trong `kb/<loại>/<id>.md` theo mẫu của các file có sẵn.
 
 Đọc báo cáo: cột "Ghi chú" của bảng tổng hợp ghi "lỗi đã biết: <mã>" hoặc "**lỗi mới**" cho case không đạt. Case đạt mà vẫn khớp một lỗi đang mở được ghi "có thể đã sửa": kiểm tra lại rồi đổi trạng thái ghi chú.
+
+### 5.9. Catalog hệ thống
+
+Catalog mô tả các hệ thống dưới kiểm thử một lần, để mọi plan dùng lại. Plan tham chiếu hệ thống theo tên, không ghi URL, topic hay exchange.
+
+| Nơi | Chứa gì | Đổi khi |
+|---|---|---|
+| `systems/<id>/service.yml` | Hợp đồng của service: operation HTTP (từ OpenAPI), kênh sự kiện, consumer, dữ liệu, tài liệu | Service đổi API hoặc sự kiện |
+| `envs/<tên>.yml` | URL của từng service, ánh xạ broker → namespace tool | Đổi môi trường |
+| Plan | `systems: [<id>]` và các bước theo tên | Đổi kịch bản |
+
+**Khai báo một service.** Tạo thư mục trùng với `id`:
+
+```yaml
+# systems/order-service/service.yml
+id: order-service
+title: Order API
+owner: team-oms
+docs: [../../examples/order-api/SPEC.md]
+http:
+  openapi: ../../examples/order-api/openapi.yaml   # operation lấy theo operationId
+events:
+  - id: order-events                # kênh sự kiện: đơn vị hợp đồng
+    kind: kafka                     # hoặc rabbitmq, khi đó dùng exchange
+    broker: kafka-main              # tên logic; envs/<tên>.yml ánh xạ sang namespace tool
+    topic: order-events
+    correlation: $.value.orderId    # path lọc đúng bản tin của lượt chạy
+    messages: [{ name: order.created }, { name: order.cancelled }]
+consumers:                          # đơn vị xử lý và hệ quả quan sát được
+  - group: order-executor
+    effects: [orders.status chuyển NEW → FILLED]
+data:
+  - { namespace: db, tables: [orders] }
+```
+
+Service chưa có OpenAPI thì khai báo operation trực tiếp: `http.operations.createOrder: { method: POST, path: /orders, summary: Đặt lệnh }`. Operation khai báo trực tiếp ghi đè operation cùng id lấy từ OpenAPI.
+
+**Khai báo môi trường.** File `envs/<tên>.yml` không chứa bí mật; bí mật nằm trong cấu hình của tool qua `${env.TÊN}`.
+
+```yaml
+# envs/staging.yml
+systems:
+  order-service: { url: https://orders.staging.example.com }
+brokers:
+  kafka-main: { namespace: kafka }
+```
+
+Chọn môi trường khi chạy: `AITEST_ENV=staging pnpm aitest run <plan>`.
+
+**Dùng trong plan.**
+
+```yaml
+requires: [http, kafka]
+systems: [order-service]
+cases:
+  - steps:
+      - Gọi order-service.createOrder (POST {{order-service.url}}/orders) với body {...}; lấy id lệnh.
+      - Chờ sự kiện order.created trên order-service.order-events của lệnh vừa tạo, tối đa 20 giây.
+```
+
+Khi chạy, agent nhận thêm mục "Hệ thống liên quan" trong prompt: base URL, danh sách operation, topic hoặc exchange, namespace tool cần dùng, path lọc bản tin, consumer và bảng dữ liệu. Biến của plan (`vars`) cùng tên được ưu tiên hơn biến của catalog.
+
+`aitest validate` và `validate_plan` kiểm tra:
+
+| Lỗi | Mức |
+|---|---|
+| `systems` chứa hệ thống không có trong catalog, hoặc file `service.yml` lỗi | error |
+| `{{<system>.<khoá>}}` với hệ thống chưa khai báo trong `systems`, hoặc khoá khác `url` | error |
+| Bước nhắc `<system>.<tên>` không phải operation hay kênh sự kiện | warning |
+| Kênh sự kiện được dùng nhưng nền tảng chưa có tool cho namespace của kênh | error |
+| Kênh sự kiện được dùng, tool đã có nhưng namespace chưa có trong `requires` | warning |
+| Môi trường hiện tại không có URL cho hệ thống | warning |
+
+Agent soạn plan đọc catalog bằng `list_systems` và `describe_system` (schema request, response, danh sách bản tin), nên viết bước đúng tên operation và đúng trường ngay lần đầu. Mỗi kênh sự kiện kèm trạng thái tool: namespace cần dùng và đã có tool hay chưa. Khi chưa có, agent đề xuất thêm tool từ danh mục (mục 5.7) trước khi viết bước.
 
 ## 6. Chuẩn bị và dọn dữ liệu
 
@@ -339,6 +447,53 @@ Quy tắc:
 | Action | Fixture gọi được mọi action, kể cả action không có trong `requires` |
 
 Kết nối DB được tách làm hai: `db_query` chỉ đọc dành cho agent, còn `dbadmin_query` có quyền ghi và chỉ dùng trong fixture. Không khai báo `dbadmin` trong `requires`, để agent không thể sửa dữ liệu.
+
+### 6.1. Đầu vào của lượt chạy (`inputs`)
+
+Trên môi trường tích hợp dùng chung, dữ liệu thay đổi theo thời điểm và có người khác cùng dùng. Plan không nên ghi cứng mã tài khoản, mã lệnh hay ngày. Khai báo các giá trị này trong `inputs`. Mỗi input được phân giải **một lần trước mọi case** và dùng như biến `{{tên}}`.
+
+Nguồn giá trị theo thứ tự ưu tiên:
+
+| Thứ tự | Nguồn | Khai báo | Khi nào dùng |
+|---|---|---|---|
+| 1 | Người chạy điền | — | CLI `--input tên=giá-trị`; ô đầu vào trên bảng plan khi chạy thử |
+| 2 | `fill` | Bước fixture, một bước phải `save` vào tên input | Cách lấy cố định: gọi API, INSERT, truy vấn dữ liệu có sẵn |
+| 3 | `prepare` | Mô tả bằng lời, cùng `uses` (namespace được dùng) | Cách lấy cần suy luận: "tìm …, không có thì tạo …" |
+| 4 | `default` | Giá trị, hỗ trợ `${env.TÊN}` | Giá trị thường dùng |
+
+```yaml
+inputs:
+  symbol: { desc: Mã chứng khoán, default: FPT, require: { op: matches, value: '^[A-Z]{3}$' } }
+  new_order:
+    fill:
+      - action: http_request
+        args: { method: POST, url: '{{order-service.url}}/orders', body: { symbol: '{{symbol}}', side: BUY, qty: 100, price: 25000 } }
+        save: { new_order: $.body.id }
+    cleanup:                       # chạy sau mọi case, khi giá trị lấy bằng fill
+      - { action: http_request, args: { method: POST, url: '{{order-service.url}}/orders/{{new_order}}/cancel' } }
+  cancelled_order:
+    prepare: Tìm lệnh CANCELLED của mã {{symbol}}; không có thì đặt lệnh mới rồi huỷ.
+    uses: [db, http]
+    require: { op: gt, value: 0 }
+```
+
+Xem đầy đủ tại `examples/plans/order-inputs.plan.yaml`.
+
+**Agent chuẩn bị (`prepare`).** Một phiên agent riêng chuẩn bị các input có `prepare`, trước khi chạy case. Agent dùng tool trong `uses` và phải trả giá trị bằng `provide_input`, kèm evidence chứa giá trị đó. Agent không tự viết giá trị. Dữ liệu agent tạo mới được agent đăng ký dọn bằng `register_cleanup`. Agent chạy test của từng case vẫn không có quyền ghi.
+
+**`require` và verdict `blocked`.** Input bắt buộc không có giá trị, hoặc giá trị không thoả `require`, làm lượt chạy bị chặn. Khi đó các case nhận `blocked` (🚧 "chưa đủ điều kiện") và không được chạy. Báo cáo ghi lý do. `blocked` khác `fail` (hệ thống sai) và `error` (lỗi khi chạy). Dùng `require` để kiểm tra điều kiện môi trường, ví dụ phiên giao dịch đang mở.
+
+**Biến dựng sẵn**, cố định trong một lượt chạy và được ghi vào log:
+
+| Biến | Giá trị |
+|---|---|
+| `{{$run.short}}` | 6 ký tự riêng cho lượt chạy; gắn vào dữ liệu tạo ra để lọc và dọn đúng dữ liệu của mình |
+| `{{$run.id}}`, `{{$run.date}}`, `{{$run.time}}`, `{{$run.epoch}}` | Mã lượt chạy, ngày theo múi giờ máy, thời điểm bắt đầu |
+| `{{$case.id}}` | Mã case đang chạy |
+
+**Dọn dữ liệu.** Bước `cleanup` của input và bước agent đăng ký chạy sau mọi case, theo thứ tự ngược với lúc tạo. Các bước này chạy cả khi lượt chạy bị chặn. Lỗi khi dọn được ghi trong log, không đổi verdict. Trên môi trường dùng chung, không dọn theo điều kiện rộng như `DELETE … WHERE symbol = 'VNM'`; dọn theo mã vừa tạo.
+
+Trang Lượt chạy hiển thị bảng đầu vào: giá trị, nguồn, evidence với input do agent chuẩn bị. Trang cũng liệt kê các lời gọi tool khi chuẩn bị và dọn.
 
 ## 7. Mẫu theo loại test
 
@@ -388,6 +543,26 @@ Lưu ý khi soạn:
 - Expectation giao diện dùng `contains` hoặc `matches`, với chuỗi đặc trưng như "Đã đặt lệnh số", không phải chuỗi ngắn như "VCB". Chuỗi ngắn có thể khớp nhầm với nội dung ô nhập liệu.
 - Luôn thêm ít nhất một expectation kiểm tra DB.
 - Giữ `teardown: browser_close` để mỗi case bắt đầu với trình duyệt sạch.
+
+### 7.4. Test sự kiện qua Kafka và RabbitMQ
+
+Xem `examples/plans/order-events.plan.yaml`. Chạy bằng `-c aitest.events.yml`, hoặc thêm tool Kafka, RabbitMQ qua chat.
+
+```bash
+# Kafka và RabbitMQ chạy cục bộ bằng Docker
+docker run -d --name aitest-kafka -p 9092:9092 apache/kafka:4.1.0
+docker run -d --name aitest-rabbit -p 5672:5672 -p 15672:15672 rabbitmq:4-management
+KAFKA_BROKERS=127.0.0.1:9092 RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672 pnpm demo:api
+pnpm aitest -c aitest.events.yml run examples/plans/order-events.plan.yaml
+```
+
+Lưu ý khi soạn:
+
+- **Luôn lọc theo mã nghiệp vụ** vừa tạo (`$.value.orderId`), vì topic và exchange dùng chung với hệ thống khác và lượt chạy khác.
+- **Kafka:** viết bước "Dùng kafka_wait_for trên topic …, lọc … , tối đa 20 giây". Mặc định agent đọc từ 2 phút trước, nên bước này đặt sau lời gọi API vẫn thấy bản tin.
+- **RabbitMQ:** viết bước "Tạo tap RabbitMQ trên exchange … TRƯỚC khi gọi API". Bản tin phát ra trước khi có tap sẽ không được ghi nhận.
+- Bản tin JSON được parse sẵn trong `value`; assert với path như `$.messages[0].value.status`, routing key ở `$.messages[0].routingKey`.
+- Chờ quá thời gian thì kết quả có `satisfied: false` và case nhận `fail` ở expectation tương ứng, không nhận `error`.
 
 ## 8. Đọc kết quả
 
@@ -525,6 +700,13 @@ Guard chặn action. Ví dụ, câu lệnh ghi (`DELETE`, `UPDATE`) qua `db_quer
 | Thêm MCP server báo lỗi kết nối | Chạy thử lệnh trong terminal; kiểm tra đường dẫn lệnh và tham số; với HTTP kiểm tra URL kết thúc bằng `/mcp` |
 | Plugin ở trạng thái "Chờ service" | Plugin cần một service chưa có, ví dụ plugin bị tắt; bật plugin cung cấp service đó |
 | Muốn huỷ mọi thay đổi trên trang Plugin | Dừng Host, xoá `aitest.web.patch.yml`, khởi động lại |
+| Agent báo `environment variables not set` khi đề xuất tool | Đặt biến môi trường được nêu, khởi động lại Host, nhắn agent đề xuất lại |
+| Agent báo `param … is secret` | Agent đã định ghi giá trị bí mật vào cấu hình; nhắc agent dùng dạng `${env.TÊN}` |
+| Đề xuất tool báo `already installed` | Tool đã có; nếu đang tắt, bật trên trang Plugin |
+| `validate` báo `unknown system` | Kiểm tra `systems/<id>/service.yml` tồn tại và `id` trùng tên thư mục; lỗi đọc file được ghi trong thông báo |
+| Biến `{{order-service.url}}` không được thay khi chạy | Môi trường hiện tại (`AITEST_ENV`) thiếu URL của hệ thống; xem event `systems/resolved` trong `events.jsonl` |
+| `kafka_wait_for` trả `satisfied: false` dù hệ thống đã phát sự kiện | Kiểm tra tên topic bằng `kafka_list_topics` và điều kiện `match`; tăng `since` nếu bước chờ nằm xa lời gọi API |
+| `rabbitmq_wait_for` không nhận bản tin | Tap phải được tạo trước khi gọi API; kiểm tra routing key (`order.*` khớp một từ, `order.#` khớp nhiều từ) |
 
 ## 10. Thực hành tốt
 
@@ -543,3 +725,9 @@ Guard chặn action. Ví dụ, câu lệnh ghi (`DELETE`, `UPDATE`) qua `db_quer
 |---|---|---|
 | namespace | A | Nhóm action, dùng trong `requires` |
 | guard | A | Thành phần chặn action không được phép |
+| topic, exchange, routing key | A | Khái niệm của Kafka và RabbitMQ |
+| tap | A | Queue tạm để quan sát bản tin RabbitMQ mà không lấy mất bản tin của consumer thật |
+| danh mục tool | B | Các tool đã kiểm duyệt mà agent được đề xuất thêm |
+| catalog hệ thống | B | Mô tả các service dưới kiểm thử trong `systems/` |
+| operation | A | Một cặp method + path của API, định danh bằng `operationId` |
+| consumer | A | Thành phần đọc bản tin từ broker và xử lý |

@@ -96,3 +96,36 @@ function looseEqual(actual: unknown, expected: unknown): boolean {
   const b = toBigDecimal(expected)
   return !!a && !!b && a.compareTo(b) === 0
 }
+
+/** Một điều kiện lọc: giá trị tại `path` thoả `op` so với `value`. */
+export interface MatchCondition {
+  path: string
+  op: AssertOp
+  value?: unknown
+}
+
+/** Tài liệu thoả mọi điều kiện (AND). Không có điều kiện thì luôn thoả. Path sai cú pháp được coi là không thoả. */
+export function matchesAll(doc: unknown, conditions: MatchCondition[] = []): boolean {
+  return conditions.every((c) => {
+    try {
+      return compare(c.op, readPath(doc, c.path), c.value).passed
+    } catch {
+      return false
+    }
+  })
+}
+
+/** JSON Schema của danh sách điều kiện lọc, dùng chung cho tool chờ bản tin. */
+export const MATCH_SCHEMA = {
+  type: 'array',
+  description: 'Điều kiện lọc (tất cả phải đúng). Path tính từ bản tin, ví dụ `$.value.orderId`, `$.key`, `$.headers.type`.',
+  items: {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      op: { type: 'string', enum: ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains', 'matches', 'exists', 'not_exists'] },
+      value: {},
+    },
+    required: ['path', 'op'],
+  },
+} as const

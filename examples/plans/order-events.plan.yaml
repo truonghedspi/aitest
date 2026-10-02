@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=../../docs/plan.schema.json
+# Chạy: KAFKA_BROKERS=127.0.0.1:9092 RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672 pnpm demo:api
+#       pnpm aitest -c aitest.events.yml run examples/plans/order-events.plan.yaml
+id: TP-ORDER-EVENTS-001
+name: Sự kiện lệnh trên Kafka và RabbitMQ
+description: Kiểm tra Order API phát đúng sự kiện lệnh ra message broker.
+requires: [http, kafka, rabbitmq]
+# Địa chỉ, topic, exchange và cách lọc bản tin lấy từ catalog (systems/order-service) theo môi trường AITEST_ENV.
+systems: [order-service]
+context: |
+  Topic và exchange dùng chung với lượt chạy khác, nên luôn lọc bản tin theo mã lệnh vừa tạo.
+
+cases:
+  - id: EV-01
+    title: Đặt lệnh phát sự kiện order.created lên Kafka
+    timeout: 240
+    steps:
+      - Gọi order-service.createOrder (POST {{order-service.url}}/orders) với body {"symbol":"SSI","side":"BUY","qty":100,"price":30000}; lấy id lệnh.
+      - Chờ sự kiện order.created trên order-service.order-events của lệnh vừa tạo, lọc thêm $.value.event bằng order.created, tối đa 20 giây.
+    expect:
+      - id: http-201
+        desc: API nhận lệnh với HTTP 201
+        check: { op: eq, value: 201 }
+      - id: kafka-event
+        desc: Kafka nhận sự kiện order.created
+        check: { op: eq, value: order.created }
+      - id: kafka-order-id
+        desc: Mã lệnh trong sự kiện Kafka trùng mã lệnh API trả về
+        check: { op: eq, expr: "orderId" }
+      - id: kafka-qty
+        desc: Khối lượng trong sự kiện bằng 100
+        check: { op: eq, value: 100 }
+
+  - id: EV-02
+    title: Đặt rồi huỷ lệnh phát đủ hai sự kiện lên RabbitMQ
+    timeout: 240
+    steps:
+      - Tạo tap trên order-service.order-exchange với routing key order.* TRƯỚC khi gọi API.
+      - Gọi order-service.createOrder (POST {{order-service.url}}/orders) với body {"symbol":"SSI","side":"SELL","qty":200,"price":30500}; lấy id lệnh.
+      - Gọi order-service.cancelOrder (POST {{order-service.url}}/orders/<id>/cancel) với id vừa nhận.
+      - Chờ 2 bản tin của tap thuộc lệnh vừa tạo, tối đa 20 giây.
+    expect:
+      - id: rabbit-first
+        desc: Bản tin đầu tiên có routing key order.created
+        check: { op: eq, value: order.created }
+      - id: rabbit-second
+        desc: Bản tin thứ hai có routing key order.cancelled
+        check: { op: eq, value: order.cancelled }
+      - id: rabbit-status
+        desc: Bản tin huỷ có status CANCELLED
+        check: { op: eq, value: CANCELLED }

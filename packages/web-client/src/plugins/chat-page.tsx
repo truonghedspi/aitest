@@ -156,11 +156,43 @@ function PermissionCard({ item, chatId }: { item: Extract<TimelineItem, { kind: 
   return (
     <div className={`permission ${item.decision === undefined ? 'open' : item.decision ? 'allowed' : 'denied'}`}>
       <div>Agent xin phép <b>{label}</b></div>
-      {item.args !== undefined && item.tool !== 'dry_run' && item.tool !== 'save_plan' && <Json value={item.args} />}
+      {item.preview?.kind === 'tool-proposal' ? <ToolProposal preview={item.preview} />
+        : item.preview !== undefined ? <Json value={item.preview} />
+        : item.args !== undefined && item.tool !== 'dry_run' && item.tool !== 'save_plan' && <Json value={item.args} />}
       {item.tool === 'save_plan' && <div className="muted">Đường dẫn: <code>{(item.args as any)?.path}</code></div>}
       {item.decision === undefined
         ? <div className="actions"><button className="primary" onClick={() => decide(true)}>Cho phép</button><button onClick={() => decide(false)}>Từ chối</button></div>
         : <div className="muted">{item.decision ? 'Đã cho phép' : 'Đã từ chối'}</div>}
+    </div>
+  )
+}
+
+/** Bản xem trước của `propose_tool`: đúng cấu hình sẽ ghi vào patch layer và các tool sẽ được bật. */
+function ToolProposal({ preview }: { preview: any }) {
+  return (
+    <div className="proposal">
+      {preview.reason && <div>Lý do: {preview.reason}</div>}
+      <div>
+        Quyền: {preview.access === 'write'
+          ? <b className="bad">đọc và ghi: agent gửi được dữ liệu vào hệ thống</b>
+          : <b>chỉ đọc</b>}
+      </div>
+      <div className="tags">
+        {preview.tools.read.map((t: string) => <span key={t} className="tag">{t}</span>)}
+        {preview.tools.write.map((t: string) => <span key={t} className="tag bad">{t}</span>)}
+      </div>
+      {preview.env?.length > 0 && (
+        <div className="muted">
+          Biến môi trường: {preview.env.map((e: { name: string; set: boolean }) => (
+            <code key={e.name} className={e.set ? '' : 'warn'}>{e.name}{e.set ? '' : ' (chưa đặt, dùng giá trị mặc định)'} </code>
+          ))}
+        </div>
+      )}
+      <div className="muted">
+        Row <code>{preview.rowId}</code> dùng plugin <code>{preview.plugin}</code>
+        {preview.patchFile ? <>, ghi vào <code>{preview.patchFile}</code></> : null}:
+      </div>
+      <Json value={preview.config} />
     </div>
   )
 }

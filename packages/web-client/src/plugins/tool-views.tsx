@@ -12,6 +12,9 @@ export const toolViews: ClientPlugin = (slots) => {
   slots.toolView.register('plan-list', PlanListView)
   slots.toolView.register('context-list', ContextListView)
   slots.toolView.register('calc', CalcView)
+  slots.toolView.register('tool-catalog', ToolCatalogView)
+  slots.toolView.register('tool-added', ToolAddedView)
+  slots.toolView.register('system-list', SystemListView)
 }
 
 function CalcView({ view, call }: ToolViewProps) {
@@ -62,7 +65,7 @@ function RunResultView({ view }: ToolViewProps) {
   return <RunCases value={view} />
 }
 
-const ICON: Record<string, string> = { pass: '✅', fail: '❌', error: '💥', inconclusive: '❔', skipped: '⏭️' }
+const ICON: Record<string, string> = { pass: '✅', fail: '❌', error: '💥', inconclusive: '❔', skipped: '⏭️', blocked: '🚧' }
 
 export function RunCases({ value }: { value: any }) {
   return (
@@ -125,6 +128,23 @@ function ActionListView({ view }: ToolViewProps) {
 function PlanListView({ view }: ToolViewProps) {
   const plans = view.plans as Array<{ path: string; id?: string; name?: string; error?: string }>
   return <ul>{plans.map((p) => <li key={p.path}><code>{p.path}</code> {p.id} — {p.name ?? p.error}</li>)}</ul>
+}
+
+function ToolCatalogView({ view }: ToolViewProps) {
+  const entries = view.entries as Array<{ id: string; title: string; installed: boolean }>
+  return <div className="tags">{entries.map((e) => <span key={e.id} className="tag">{e.title}{e.installed ? ' ✓' : ''}</span>)}</div>
+}
+
+function ToolAddedView({ view, call }: ToolViewProps) {
+  if (call.status !== 'ok') return <GenericView view={view} call={call} />
+  if (!view.added) return <div className="muted">Không thêm tool.</div>
+  const tools = view.tools as string[]
+  return <div>Row <code>{view.rowId as string}</code>: <span className="tags">{tools.map((t) => <span key={t} className="tag">{t}</span>)}</span></div>
+}
+
+function SystemListView({ view }: ToolViewProps) {
+  const systems = view.systems as Array<{ id: string; title: string }>
+  return <div className="tags">{systems.map((s) => <span key={s.id} className="tag" title={s.title}>{s.id}</span>)}</div>
 }
 
 function ContextListView({ view }: ToolViewProps) {

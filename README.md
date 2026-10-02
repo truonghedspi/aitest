@@ -110,6 +110,9 @@ plugins:
 |---|---|
 | Action mới | Plugin gọi `ctx.actions.register(...)` |
 | MCP server có sẵn (Postgres, Kafka...) | Row `@aitest/action-mcp-proxy`, không cần code |
+| Tool để agent tự đề xuất trong chat | File `tool-catalog/<id>.yml`: plugin, tham số, mẫu cấu hình chỉ đọc; người dùng duyệt trước khi nạp |
+| Mô tả service dưới kiểm thử để mọi plan dùng lại | `systems/<id>/service.yml` (trỏ tới OpenAPI) và `envs/<môi trường>.yml`; plan khai báo `systems: [<id>]` |
+| Kiểm tra sự kiện Kafka, RabbitMQ | Có sẵn `@aitest/action-kafka`, `@aitest/action-rabbitmq`; xem `aitest.events.yml` |
 | Chính sách an toàn | Plugin lắng nghe `action/before` |
 | Agent ACP khác | Row `@aitest/agent-acp` với `command` khác |
 | Định dạng plan khác | Plugin gọi `ctx.plans.registerFormat(...)` |

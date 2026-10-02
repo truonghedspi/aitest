@@ -1,0 +1,11 @@
+{
+  "name": "@aitest/inputs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@aitest/core": "workspace:*",
+    "@deepseek-ai/cordis": "~4.0.4"
+  }
+}

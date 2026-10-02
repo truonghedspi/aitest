@@ -30,8 +30,8 @@ export function App() {
       <aside className="sidebar">
         <div className="brand">aitest <span className={`online ${online ? 'on' : ''}`} title={online ? 'Đã kết nối' : 'Mất kết nối'} /></div>
         <nav className="pages">
-          {pages.map((p) => (
-            <button key={p.id} className={p.id === page.id ? 'active' : ''} onClick={() => navigate(p.id)}>{p.title}</button>
+          {pages.filter((p) => !p.parent).map((p) => (
+            <button key={p.id} className={p.id === (page.parent ?? page.id) ? 'active' : ''} onClick={() => navigate(p.id)}>{p.title}</button>
           ))}
         </nav>
         {Sidebar && <Sidebar param={route.param} navigate={navigate} />}

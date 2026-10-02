@@ -7,6 +7,7 @@ import {
   type ActionDefinition, type ActionScope, type Context, type Plugin, type PluginRow, type RunLog,
 } from '@aitest/core'
 import { describeConfig, type ConfigField } from './schema.ts'
+import { buildRow, describeServers, parseMcpConfig, type McpSelection } from './mcp-import.ts'
 
 /**
  * Quản lý plugin và tool từ giao diện, theo mẫu Plugin Manager và `ctx.tools.restrict()` của dsh.
@@ -194,6 +195,45 @@ export function apply(ctx: Context, config: Config) {
     }
     await log('mcp/added', row)
     return pluginInfo(id, toolOwners())
+  })
+
+  /** Rows `action-mcp-proxy` hiện có: mã row và namespace, để tránh trùng khi nhập cấu hình. */
+  const existingMcp = () => {
+    const ids = new Set(kernel.rows.keys())
+    const namespaces = new Set(ctx.actions.all().map((def) => def.namespace))
+    for (const state of kernel.rows.values()) {
+      const ns = (state.row.config as { namespace?: string } | undefined)?.namespace
+      if (ns) namespaces.add(ns)
+    }
+    return { ids, namespaces }
+  }
+
+  // Dán cấu hình MCP server từ công cụ khác: xem trước rồi thêm các server được chọn.
+  ctx.web.method('mcp.parse', (params: { text: string }) => describeServers(parseMcpConfig(params.text), existingMcp()))
+
+  ctx.web.method('mcp.import', async (params: { text: string; select: McpSelection[] }) => {
+    const raw = parseMcpConfig(params.text)
+    const candidates = describeServers(raw, existingMcp())
+    const results: Array<{ name: string; id?: string; ok: boolean; tools?: string[]; error?: string }> = []
+    for (const selection of params.select) {
+      const candidate = candidates.find((c) => c.name === selection.name)
+      if (!candidate) {
+        results.push({ name: selection.name, ok: false, error: 'server not found in the pasted config' })
+        continue
+      }
+      let row: { id: string; name: string; config: Record<string, unknown> } | undefined
+      try {
+        const built = buildRow(raw[selection.name], candidate, selection)
+        row = { id: built.id, name: '@aitest/action-mcp-proxy', config: built.config }
+        await kernel.add(row)
+        await log('mcp/imported', { id: row.id, source: selection.name, namespace: row.config.namespace })
+        results.push({ name: selection.name, id: row.id, ok: true, tools: pluginInfo(row.id, toolOwners()).tools })
+      } catch (error) {
+        await log('mcp/import-failed', { source: selection.name, id: row?.id, error: errorMessage(error) })
+        results.push({ name: selection.name, id: row?.id, ok: false, error: errorMessage(error) })
+      }
+    }
+    return results
   })
 
   ctx.web.method('tools.list', () => {

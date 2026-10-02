@@ -1,0 +1,48 @@
+# Mô hình của một service dưới kiểm thử: hợp đồng HTTP, sự kiện, consumer, dữ liệu.
+# Địa chỉ theo môi trường nằm ở envs/<tên>.yml, không nằm ở đây.
+id: order-service
+title: Order API
+description: Nhận, tra cứu và huỷ lệnh chứng khoán; khớp lệnh bất đồng bộ và gửi callback.
+owner: team-oms
+docs: [../../examples/order-api/SPEC.md]
+
+http:
+  openapi: ../../examples/order-api/openapi.yaml
+
+events:
+  - id: order-events
+    kind: kafka
+    broker: kafka-main
+    topic: order-events
+    key: Mã lệnh
+    correlation: $.value.orderId
+    description: Sự kiện vòng đời lệnh, JSON {event, orderId, symbol, side, qty, price, status, at}; header event-type.
+    messages:
+      - { name: order.created, description: Lệnh vừa được nhận, status NEW }
+      - { name: order.cancelled, description: Lệnh đã huỷ, status CANCELLED }
+      - { name: order.filled, description: Lệnh đã khớp, status FILLED }
+  - id: order-exchange
+    kind: rabbitmq
+    broker: rabbit-main
+    exchange: orders
+    correlation: $.value.orderId
+    description: Cùng sự kiện như order-events, phát ra topic exchange; routing key là tên sự kiện.
+    messages:
+      - { name: order.created, routingKey: order.created }
+      - { name: order.cancelled, routingKey: order.cancelled }
+      - { name: order.filled, routingKey: order.filled }
+
+consumers:
+  - group: order-executor
+    broker: internal
+    description: Khớp lệnh có callback_url sau khoảng 1,5 giây.
+    consumes: []
+    effects:
+      - orders.status chuyển NEW → FILLED, ghi filled_at
+      - Phát order.filled lên order-events và order-exchange
+      - Gửi POST tới callback_url với {event, orderId, filledQty}
+
+data:
+  - namespace: db
+    description: SQLite của Order API (chỉ đọc)
+    tables: [orders]

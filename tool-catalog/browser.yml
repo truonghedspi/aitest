@@ -1,0 +1,25 @@
+id: browser
+title: Trình duyệt (Playwright)
+description: Điều khiển trình duyệt để kiểm thử giao diện web qua Playwright MCP; đã bỏ các tool chạy mã tuỳ ý.
+plugin: '@aitest/action-mcp-proxy'
+namespace: browser
+tools:
+  read: [browser_navigate, browser_wait_for, browser_snapshot, browser_take_screenshot, browser_console_messages, browser_network_requests, browser_close]
+  write: [browser_click, browser_type, browser_select_option, browser_press_key]
+params:
+  - name: browser
+    description: Trình duyệt dùng để chạy (chrome, chromium, msedge, firefox).
+    default: chrome
+config:
+  namespace: '{{namespace}}'
+  prefix: ''
+  transport: stdio
+  command: node
+  args: ['node_modules/@playwright/mcp/cli.js', '--headless', '--isolated', '--browser', '{{browser}}', '--output-dir', '.aitest/playwright']
+  include: [browser_navigate, browser_wait_for, browser_snapshot, browser_take_screenshot, browser_console_messages, browser_network_requests, browser_close]
+  # Điều hướng chỉ gửi GET nên được xem là chỉ đọc; nhập liệu và bấm nút cần quyền ghi.
+  readOnly: [browser_navigate, browser_wait_for, browser_snapshot, browser_take_screenshot, browser_console_messages, browser_network_requests, browser_close]
+# Nhập liệu và bấm nút cần quyền ghi; vẫn bỏ các tool chạy mã tuỳ ý.
+write:
+  include: []
+  exclude: [browser_run_code_unsafe, browser_evaluate, browser_file_upload]

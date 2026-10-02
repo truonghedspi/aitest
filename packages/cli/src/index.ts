@@ -6,12 +6,12 @@ import type {} from '@aitest/runner'
 import type {} from '@aitest/authoring'
 import { createToolServer } from '@aitest/mcp-gateway'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { bootFromFile, deriveReport, PlanError, type Kernel } from '@aitest/core'
+import { bootFromFile, deriveReport, parseJson, PlanError, type Kernel } from '@aitest/core'
 
 const USAGE = `aitest — nền tảng AI tự đọc kịch bản và chạy test
 
 Cách dùng:
-  aitest run <plan> [--case TC-01,TC-02] [--agent kiro] [--model <id>]
+  aitest run <plan> [--case TC-01,TC-02] [--agent kiro] [--model <id>] [--input tên=giá-trị ...]
                                                           Chạy test plan, mã thoát khác 0 nếu có case không pass
   aitest validate <plan>                                  Kiểm tra cú pháp và schema của plan
   aitest actions                                          Liệt kê action đã đăng ký
@@ -32,6 +32,7 @@ export async function main(argv: string[]) {
       case: { type: 'string' },
       agent: { type: 'string' },
       model: { type: 'string' },
+      input: { type: 'string', multiple: true },
       help: { type: 'boolean', short: 'h' },
     },
   })
@@ -62,14 +63,31 @@ export async function main(argv: string[]) {
   }
 }
 
-async function run(kernel: Kernel, plan: string, values: { case?: string; agent?: string; model?: string }) {
+async function run(kernel: Kernel, plan: string, values: { case?: string; agent?: string; model?: string; input?: string[] }) {
   const report = await kernel.ctx.runner.run({
     plan,
     agent: values.agent,
     model: values.model,
+    inputs: parseInputs(values.input ?? []),
     cases: values.case?.split(',').map((s) => s.trim()).filter(Boolean),
   })
   return report.totals.pass === report.totals.total ? 0 : 1
+}
+
+/** `--input tên=giá-trị`: giá trị dạng số, `true`/`false`, JSON được giữ kiểu; còn lại là chuỗi. */
+export function parseInputs(pairs: string[]): Record<string, unknown> {
+  const inputs: Record<string, unknown> = {}
+  for (const pair of pairs) {
+    const index = pair.indexOf('=')
+    if (index <= 0) throw new Error(`invalid --input ${pair}; expected name=value`)
+    const raw = pair.slice(index + 1)
+    let value: unknown = raw
+    if (/^(-?\d+(\.\d+)?|true|false|null|[[{"].*)$/s.test(raw)) {
+      try { value = parseJson(raw) } catch { value = raw }
+    }
+    inputs[pair.slice(0, index)] = value
+  }
+  return inputs
 }
 
 async function validate(kernel: Kernel, file: string) {

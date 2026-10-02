@@ -142,7 +142,7 @@ function presentSafely(definition: ActionDefinition, args: Record<string, unknow
   }
 }
 
-const DEFAULT_SCOPES: ScopeKind[] = ['case', 'explore']
+const DEFAULT_SCOPES: ScopeKind[] = ['case', 'explore', 'prepare']
 
 export function isCaseScope(scope: ActionScope): scope is CaseScope {
   return scope.kind === 'case'

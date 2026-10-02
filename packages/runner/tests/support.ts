@@ -31,7 +31,9 @@ export function scriptedDriver(scripts: Record<string, Script>): AgentDriver {
           return {
             id: 'scripted-session',
             async prompt(text) {
-              const caseId = /## Test case (\S+):/.exec(text)![1]
+              // Prompt chuẩn bị dữ liệu của lượt chạy dùng kịch bản `$prepare`.
+              const caseId = /## Test case (\S+):/.exec(text)?.[1] ?? '$prepare'
+              if (!scripts[caseId]) throw new Error(`no script for ${caseId}`)
               const call: Call = async (name, args = {}) => {
                 const res = await client.callTool({ name, arguments: args }, undefined, { timeout: 120_000 })
                 return JSON.parse((res.content as Array<{ text: string }>)[0].text)

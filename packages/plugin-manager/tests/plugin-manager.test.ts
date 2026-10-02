@@ -128,4 +128,27 @@ describe('plugin manager', () => {
       await kernel.dispose()
     }
   })
+
+  it('imports MCP servers from a pasted config without writing secrets that exist in the environment', async () => {
+    process.env.AITEST_QUOTE_TOKEN = 'tok_0123456789abcdefghijkl'
+    const text = JSON.stringify({
+      mcpServers: {
+        'price-feed': { command: process.execPath, args: QUOTE_SERVER.args, env: { AITEST_QUOTE_TOKEN: 'tok_0123456789abcdefghijkl' } },
+        broken: { command: '/nonexistent/server' },
+      },
+    })
+    const preview = await ws.call('mcp.parse', { text })
+    expect(preview.map((c: any) => [c.name, c.namespace])).toEqual([['price-feed', 'pricefeed'], ['broken', 'broken']])
+    expect(JSON.stringify(preview)).not.toContain('tok_0123456789abcdefghijkl')
+
+    const results = await ws.call('mcp.import', { text, select: [{ name: 'price-feed' }, { name: 'broken' }] })
+    expect(results).toEqual([
+      { name: 'price-feed', id: 'mcp-pricefeed', ok: true, tools: ['pricefeed_get', 'pricefeed_list'] },
+      expect.objectContaining({ name: 'broken', id: 'mcp-broken', ok: false }),
+    ])
+    const row = (await patch()).find((r) => r.id === 'mcp-pricefeed')
+    expect(row.config.env).toEqual({ AITEST_QUOTE_TOKEN: '${env.AITEST_QUOTE_TOKEN}' })
+    expect(await readFile(patchFile, 'utf8')).not.toContain('tok_0123456789abcdefghijkl')
+    expect((await patch()).some((r) => r.id === 'mcp-broken')).toBe(false)
+  })
 })

@@ -26,14 +26,14 @@ export function renderJUnit(report: RunReport) {
     let body = ''
     if (c.verdict === 'fail') body = `<failure message="${message}">${esc(c.reasons.join('\n'))}</failure>`
     else if (c.verdict === 'error') body = `<error message="${message}">${esc(c.reasons.join('\n'))}</error>`
-    else if (c.verdict === 'inconclusive' || c.verdict === 'skipped') body = `<skipped message="${c.verdict}: ${message}"/>`
+    else if (c.verdict === 'inconclusive' || c.verdict === 'skipped' || c.verdict === 'blocked') body = `<skipped message="${c.verdict}: ${message}"/>`
     const out = c.agentSummary ? `<system-out>${esc(c.agentSummary)}</system-out>` : ''
     return `    <testcase classname="${esc(report.plan.id)}" name="${esc(`${c.id} ${c.title}`)}" time="${time}">${body}${out}</testcase>`
   })
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<testsuites name="aitest" tests="${t.total}" failures="${t.fail}" errors="${t.error}" time="${(report.durationMs / 1000).toFixed(3)}">`,
-    `  <testsuite name="${esc(report.plan.name)}" tests="${t.total}" failures="${t.fail}" errors="${t.error}" skipped="${t.inconclusive + t.skipped}" timestamp="${report.startedAt}">`,
+    `  <testsuite name="${esc(report.plan.name)}" tests="${t.total}" failures="${t.fail}" errors="${t.error}" skipped="${t.inconclusive + t.skipped + t.blocked}" timestamp="${report.startedAt}">`,
     ...cases,
     '  </testsuite>',
     '</testsuites>',

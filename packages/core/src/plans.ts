@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -62,3 +63,21 @@ export class PlanService extends Service {
     return format.parse(text, source)
   }
 }
+
+/**
+ * Biến dựng sẵn của một lượt chạy, cố định trong suốt lượt chạy và được ghi vào run log.
+ * `$run.short` dùng để gắn vào dữ liệu tạo ra, để mỗi lượt chạy có dữ liệu riêng và chỉ dọn dữ liệu của mình.
+ */
+export function runVars(runId: string, started = new Date(), timeZone = process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone): Record<string, string> {
+  const date = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(started)
+  return {
+    '$run.id': runId,
+    '$run.short': createHash('sha1').update(runId).digest('hex').slice(0, 6),
+    '$run.date': date,
+    '$run.time': started.toISOString(),
+    '$run.epoch': String(started.getTime()),
+  }
+}
+
+/** Tên biến dựng sẵn; `$case.id` do runner đặt cho từng case. */
+export const BUILTIN_VARS = ['$run.id', '$run.short', '$run.date', '$run.time', '$run.epoch', '$case.id']

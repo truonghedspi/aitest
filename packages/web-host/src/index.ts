@@ -49,6 +49,7 @@ export class WebHost extends Service {
   private readonly methods = new Map<string, MethodHandler>()
   private http?: Server
   private seq = 0
+  private listening?: Promise<string>
   url?: string
 
   constructor(ctx: Context, public config: Config) {
@@ -67,10 +68,9 @@ export class WebHost extends Service {
     }, `web.method(${name})`)
   }
 
-  /** Chờ server lắng nghe xong; trả về URL gốc. */
-  async ready(): Promise<string> {
-    while (!this.url) await new Promise((r) => setTimeout(r, 10))
-    return this.url
+  /** Chờ server lắng nghe xong; trả về URL gốc. Ném lỗi khi không mở được cổng (ví dụ cổng đã bị chiếm). */
+  ready(): Promise<string> {
+    return this.listening ?? Promise.reject(new Error('web host is not started'))
   }
 
   private start() {
@@ -94,11 +94,21 @@ export class WebHost extends Service {
     })
     const wss = new WebSocketServer({ server: http, path: '/ws' })
     wss.on('connection', (socket) => this.accept(socket))
-    http.listen(this.config.port, this.config.host, () => {
-      const { port } = http.address() as AddressInfo
-      this.url = `http://${this.config.host}:${port}`
-      this.ctx.logger('web').info('listening on %s', this.url)
+    // Lỗi mở cổng (EADDRINUSE...) được ghi log và trả qua `ready()`, không làm sập process.
+    wss.on('error', () => {})
+    this.listening = new Promise<string>((resolve, reject) => {
+      http.once('error', (error) => {
+        this.ctx.logger('web').error('cannot listen on %s:%s: %s', this.config.host, this.config.port, error.message)
+        reject(error)
+      })
+      http.listen(this.config.port, this.config.host, () => {
+        const { port } = http.address() as AddressInfo
+        this.url = `http://${this.config.host}:${port}`
+        this.ctx.logger('web').info('listening on %s', this.url)
+        resolve(this.url)
+      })
     })
+    this.listening.catch(() => {})
     this.http = http
   }
 

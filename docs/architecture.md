@@ -210,6 +210,27 @@ Xem ví dụ đầy đủ tại `examples/plans/order.plan.yaml` và schema tạ
 | `cases[].expect[].check.expr` | Công thức tính giá trị mong đợi từ dữ liệu lúc chạy, thay cho `value` |
 | `setup`, `teardown` | Bước fixture ở mức plan (áp dụng cho mọi case) và mức case; xem mục 6.2 |
 
+### 5.3. Catalog hệ thống và môi trường
+
+Plan chỉ nêu cần kiểm tra gì. Ba lớp còn lại tách khỏi plan để dùng lại:
+
+| Lớp | Nơi khai báo | Trả lời |
+|---|---|---|
+| Tool | Row plugin trong `aitest.yml`, `tool-catalog/` | Gọi bằng gì: `http_request`, `kafka_wait_for` |
+| Mô hình hệ thống | `systems/<id>/service.yml` | Có gì để gọi: operation, kênh sự kiện, consumer, dữ liệu |
+| Môi trường | `envs/<tên>.yml` | Gọi ở đâu: URL, broker nào ứng với namespace tool nào |
+
+**Mô hình.** Operation HTTP lấy từ OpenAPI 3 của service theo `operationId`; `$ref` nội bộ được thay bằng nội dung. Phần OpenAPI không có được khai báo trong `service.yml`. Kafka tách hai khái niệm: **kênh sự kiện** (topic hoặc exchange, cùng `correlation` để lọc bản tin) là đơn vị hợp đồng, và **consumer** (group, `effects`) là đơn vị xử lý. Kiểm thử quan sát trên kênh và kiểm tra hệ quả của consumer. Kênh chỉ ghi tên broker logic; môi trường ánh xạ broker sang namespace tool, nên catalog không chứa địa chỉ hay bí mật.
+
+**Plugin.** Service `@aitest/system-catalog` (`ctx.systems`) đọc lại catalog ở đầu mỗi case của plan có `systems`:
+
+- Listener `case/start` ghi biến `<system>.url` vào `scope.vars` trước fixture, rồi ghi event `systems/resolved` vào run log. Runner không đổi, vì fixture và bước được thay biến sau `case/start`.
+- Section prompt `systems/context` (thứ tự 15) mô tả operation, kênh, consumer, dữ liệu của các hệ thống được khai báo.
+
+Plugin `@aitest/system-catalog/authoring` cung cấp `list_systems`, `describe_system` cho agent soạn plan và quy tắc kiểm tra qua `authoring/lint`. Mỗi kênh sự kiện trong kết quả có trường `tool { namespace, available }`, tính từ ánh xạ broker của môi trường và registry action lúc gọi (tool bị tắt không được tính). Khi thiếu tool, trường `hint` hướng agent tra `list_tool_catalog` theo namespace; plugin không phụ thuộc `tool-catalog`. Kênh được dùng trong bước mà chưa có tool là lỗi kiểm tra plan. Quy tắc biến chung của `authoring` bỏ qua `{{<system>.*}}`; quy tắc của catalog kiểm tra khoá đó.
+
+**Hướng mở rộng.** Tool cấp nghiệp vụ `api_call {system, operation}` và `event_wait {system, channel}` phân giải từ catalog rồi giao cho `http_request`, `kafka_wait_for`. Nhập AsyncAPI cho kênh sự kiện. Thêm tool `kafka_consumer_lag` để chờ consumer xử lý xong.
+
 ## 6. Test integration và E2E
 
 Test integration và E2E khác test API đơn lẻ ở ba điểm. Hệ thống xử lý bất đồng bộ, dữ liệu đầu vào phải ổn định giữa các lượt chạy, và có thêm kênh giao diện người dùng. Nền tảng đáp ứng ba điểm này bằng plugin, không đổi runner hay verdict.
@@ -254,6 +275,21 @@ steps:
 
 Fixture được gọi mọi action đã đăng ký, không bị giới hạn bởi `requires`. Nhờ đó, kết nối ghi DB (`dbadmin`) chỉ dùng trong fixture, còn agent chỉ thấy kết nối chỉ đọc (`db`).
 
+#### Đầu vào và chuẩn bị dữ liệu của lượt chạy
+
+Fixture ở mức case phù hợp với môi trường riêng. Môi trường tích hợp dùng chung cần thêm ba thứ: giá trị thay đổi theo lượt chạy, cách lấy dữ liệu do người dùng định nghĩa (có thể bằng lời), và cơ chế dừng khi môi trường chưa đủ điều kiện.
+
+**Luồng.** Runner tạo `RunContext` rồi phát hai event trước mọi case:
+
+1. `run/start` (parallel): plugin ghi biến dùng chung vào `run.vars`, ví dụ catalog hệ thống ghi `<system>.url`. Runner đã đặt sẵn biến `$run.*`.
+2. `run/prepare` (parallel): plugin `@aitest/inputs` phân giải `plan.inputs` theo thứ tự khai báo. Nguồn ưu tiên là người chạy điền (`RunOptions.inputs`), rồi `fill` (runner chạy như fixture), `prepare` (agent), `default`. Các input `prepare` liên tiếp dùng chung một phiên agent.
+
+Lý do bị chặn ghi vào `run.blocked` thì mọi case nhận verdict `blocked` mà không gọi agent; runner ghi `run/blocked`. Bước dọn (`run.cleanup`) chạy sau mọi case theo thứ tự ngược, kể cả khi bị chặn. Run log ghi `run/vars`, `inputs/resolved`, `run/blocked`, `run/cleanup-failed`. `deriveReport` dựng `report.inputs` và `report.blocked` từ các event này.
+
+**Scope `prepare`.** Phiên agent chuẩn bị chạy trong scope loại `prepare`, namespace lấy từ `uses`. Action mặc định có scope này (`DEFAULT_SCOPES`); action chỉ dành cho case như `assert_expectation`, webhook thì không. `RunContext.promptAgent` mở endpoint MCP riêng cho scope, dùng cùng kết nối agent và chính sách duyệt của lượt chạy.
+
+**Giữ bất biến.** Agent chuẩn bị không quyết định giá trị: `provide_input` đọc giá trị từ evidence trong scope (`ctx.evidence`), giống `assert_expectation`, và kiểm tra `require` ngay khi nhận. Verdict của case vẫn chỉ tính từ assertion. Quyền ghi chỉ có trong phiên chuẩn bị, theo `uses`. Agent chạy test của case vẫn chỉ thấy namespace trong `requires`.
+
 ### 6.3. E2E qua trình duyệt
 
 File `aitest.e2e.yml` kế thừa `aitest.yml` qua khoá `extends`, rồi thêm row Playwright MCP:
@@ -275,7 +311,24 @@ Agent đọc trang bằng `browser_snapshot`, thao tác bằng `browser_fill_for
 
 Cấu hình loại bỏ các tool chạy mã tuỳ ý trong trang. Teardown `browser_close` giúp mỗi case bắt đầu với trình duyệt sạch.
 
-### 6.4. Kiểm thử chính các năng lực này
+### 6.4. Sự kiện qua message broker
+
+Hệ thống giao dịch thường phát sự kiện ra Kafka hoặc RabbitMQ. Hai plugin `@aitest/action-kafka` và `@aitest/action-rabbitmq` cho agent quan sát sự kiện mà không ảnh hưởng consumer thật.
+
+| Broker | Cách quan sát | Tool |
+|---|---|---|
+| Kafka | Đọc từ mốc thời gian `since` bằng consumer group tạm `aitest-tap-<uuid>`. Group không commit offset và bị xoá sau mỗi lần đọc | `kafka_list_topics`, `kafka_read`, `kafka_wait_for` |
+| RabbitMQ | Tap: queue tạm (exclusive, tự xoá) gắn vào exchange theo routing key. Đọc queue có sẵn sẽ lấy mất bản tin của consumer thật, nên không hỗ trợ | `rabbitmq_tap`, `rabbitmq_wait_for`, `rabbitmq_queue_info` |
+
+- **Thứ tự gọi.** Kafka giữ bản tin nên agent đọc lại được sau khi gọi API. RabbitMQ không giữ bản tin cho queue tạo sau, nên agent phải tạo tap trước khi gọi API.
+- **Lọc theo nội dung.** Tham số `match` nhận danh sách điều kiện `{path, op, value}`, dùng cùng toán tử với `check` (`core/src/match.ts`). Giá trị JSON được parse không mất chữ số (`parseJson` của core).
+- **Hết thời gian chờ** trả `satisfied: false` kèm bản tin đã khớp, không ném lỗi. Verdict quyết định kết quả.
+- **Chỉ đọc mặc định.** Tool gửi bản tin (`kafka_produce`, `rabbitmq_publish`) chỉ đăng ký khi bật `allowProduce`, `allowPublish`.
+- **Tài nguyên.** Kết nối mở lười và đóng khi plugin unload. Tap đóng ở `case/end`. Lỗi của broker (ví dụ queue không tồn tại) đóng channel; plugin bắt lỗi trên channel để process không dừng.
+
+Plan mẫu: `examples/plans/order-events.plan.yaml`, chạy với `aitest.events.yml`. Order API phát sự kiện khi có `KAFKA_BROKERS`, `RABBITMQ_URL`.
+
+### 6.5. Kiểm thử chính các năng lực này
 
 Bộ kiểm thử tự động dùng agent kịch bản đi qua MCP gateway thật, không cần LLM:
 
@@ -284,6 +337,7 @@ Bộ kiểm thử tự động dùng agent kịch bản đi qua MCP gateway th�
 | `packages/runner/tests/e2e.test.ts` | Luồng API, guard, replay báo cáo, nạp và gỡ plugin |
 | `packages/runner/tests/integration.test.ts` | Webhook, `wait_until` có poll lặp, fixture có `save`, setup lỗi |
 | `packages/runner/tests/browser.test.ts` | Điều khiển Chrome qua Playwright MCP; bỏ qua bằng `AITEST_SKIP_BROWSER=1` |
+| `packages/runner/tests/events.test.ts` | Sự kiện trên Kafka và RabbitMQ; chỉ chạy khi có `KAFKA_BROKERS` và `RABBITMQ_URL`. CI chạy trong job `brokers` với service container |
 
 ## 7. Soạn plan cùng agent
 
@@ -336,11 +390,12 @@ Mỗi cuộc chat có một log `.aitest/chats/<id>/events.jsonl`, đồng thờ
 | `action/start`, `action/call` | Lời gọi tool soạn plan, kèm tham số, kết quả, `view`, pha (`agent` hoặc `user`) |
 | `permission/request`, `permission/decision` | Yêu cầu dùng tool và quyết định (`policy` hoặc `user`) |
 | `draft/edit` | Người dùng sửa bản nháp trên giao diện |
+| `draft/open` | Người dùng mở plan có sẵn làm bản nháp: đường dẫn và nội dung |
 | `turn/start`, `turn/end` | Ranh giới một lượt; `turn/end` ghi `stopReason` hoặc lỗi |
 
 Quy tắc duyệt: tool soạn plan chỉ đọc được duyệt tự động. `dry_run`, `save_plan` và mọi tool riêng của agent (ghi file, chạy shell) cần người dùng bấm duyệt.
 
-Người dùng thao tác trực tiếp trên bảng "Plan đang soạn": sửa YAML, bấm Kiểm tra, Chạy thử, Lưu. Các thao tác này gọi cùng tool soạn plan với pha `user`, được ghi log, và được báo cho agent ở lượt kế tiếp. Nhờ vậy, agent không làm việc trên bản nháp cũ.
+Người dùng thao tác trực tiếp trên bảng "Plan đang soạn": mở plan có sẵn, sửa YAML, bấm Kiểm tra, Chạy thử (chọn case), Lưu. `chats.listPlans` và `chats.openPlan` gọi `list_plans`, `read_plan` với scope không ghi log, vì đây là thao tác duyệt; `draft/open` mang nội dung plan nên bản nháp vẫn dựng lại được từ log. Sau khi mở, Host gọi `validate_plan` (pha `user`) để bảng plan có danh sách case. Các thao tác này gọi cùng tool soạn plan với pha `user`, được ghi log, và được báo cho agent ở lượt kế tiếp. Nhờ vậy, agent không làm việc trên bản nháp cũ.
 
 Khi Host khởi động lại, cuộc chat được dựng lại từ log. Lượt kế tiếp mở session agent mới và gửi kèm lịch sử hội thoại.
 
@@ -358,7 +413,7 @@ Plugin `@aitest/plugin-manager` cung cấp hai trang **Plugin** và **Tool** tr�
 | Bật, tắt plugin | `kernel.setEnabled` gỡ hoặc nạp lại fiber; plugin phụ thuộc tự chờ hoặc nạp lại theo `inject` |
 | Sửa cấu hình | Form dựng từ `Config.toJSON()` của plugin; `kernel.configure` nạp lại, cấu hình lỗi thì quay về cấu hình cũ |
 | Thêm plugin | Danh mục gồm subpath export của package `@aitest/*` và file trong `catalogDirs`; `kernel.add` chỉ ghi khi nạp thành công |
-| Thêm MCP server | Form tạo row `@aitest/action-mcp-proxy`; tool của server xuất hiện ngay cho agent chạy test và cho `explore` |
+| Thêm MCP server | Form, hoặc dán cấu hình của công cụ khác (`mcp.parse` xem trước, `mcp.import` thêm), tạo row `@aitest/action-mcp-proxy`; tool của server xuất hiện ngay cho agent chạy test và cho `explore`. Bí mật trong `env`, `headers` được che khi xem trước và thay bằng `${env.TÊN}` khi người dùng chọn |
 | Bật, tắt từng tool | `ctx.actions.restrict(name)`: tool bị ẩn khỏi mọi scope và không gọi được |
 | Chạy thử tool | Chỉ lời gọi chỉ đọc, qua scope `explore` hoặc `authoring`, đi qua guard |
 
@@ -369,6 +424,14 @@ Plugin `@aitest/plugin-manager` cung cấp hai trang **Plugin** và **Tool** tr�
 **Khởi động không nghiêm ngặt.** `aitest serve` khởi động với `strict: false`: plugin lỗi được hiển thị trạng thái "Lỗi" trên trang Plugin thay vì làm Host dừng. Các lệnh `run`, `validate` vẫn dừng ngay khi có plugin lỗi.
 
 Mọi thao tác quản trị được ghi vào log kiểm toán `.aitest/manager/audit/events.jsonl`.
+
+**Danh mục tool trong chat.** Agent soạn plan đề xuất thêm tool khi plan cần một namespace chưa có. Plugin `@aitest/tool-catalog` thực hiện luồng này với ba ràng buộc:
+
+1. **Chỉ chọn từ danh mục đã kiểm duyệt.** Mỗi mục `tool-catalog/<id>.yml` khai báo plugin, tham số và mẫu cấu hình. Agent chỉ điền tham số (`{{tên}}`), không viết cấu hình tự do hay lệnh tuỳ ý.
+2. **Tool mới mặc định chỉ đọc.** Phần cấu hình `write` (ví dụ `allowProduce: true`) chỉ được gộp khi đề xuất có `write: true`. Thẻ duyệt hiện quyền ghi nổi bật.
+3. **Bí mật không đi qua chat.** Tham số `secret` chỉ nhận dạng `${env.TÊN}`. Bản xem trước chỉ ghi tên biến và trạng thái đã đặt, không ghi giá trị.
+
+`propose_tool` kiểm tra tham số, biến môi trường và schema `Config` của plugin trước khi hỏi người dùng. Sau đó tool gọi `scope.confirm` kèm bản xem trước: cấu hình nguyên văn, tool sẽ bật, file patch sẽ ghi. Việc duyệt nằm ở phía server, không phụ thuộc agent ACP có xin quyền hay không. Scope không có `confirm` (lượt chạy test, CLI) thì tool từ chối chạy. Action khai báo `selfConfirm`, nên chat duyệt lời xin quyền ở tầng agent theo chính sách; người dùng chỉ thấy một thẻ duyệt. Khi được duyệt, `kernel.add` ghi row vào patch layer. Mọi đề xuất được ghi vào `.aitest/tool-catalog/audit/events.jsonl`. Scope `explore` tính lại danh sách namespace mỗi lần gọi, nên agent khảo sát được tool mới ngay trong phiên.
 
 ### 7.6. Tri thức của nhóm
 
@@ -406,13 +469,18 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | File | Nội dung |
 |---|---|
 | `packages/authoring/tests/authoring.test.ts` | Giới hạn tool theo scope, hướng dẫn, nguồn context, explore chỉ đọc, quy tắc kiểm tra, chạy thử, lưu |
-| `packages/chat/tests/chat.test.ts` | Giao thức WebSocket thật với agent giả lập: stream, tool call kèm `view`, duyệt quyền, thao tác của người dùng, follow theo `seq`, khôi phục từ log |
+| `packages/chat/tests/chat.test.ts` | Giao thức WebSocket thật với agent giả lập: stream, tool call kèm `view`, duyệt quyền, thao tác của người dùng, mở plan có sẵn, follow theo `seq`, khôi phục từ log |
+| `packages/web-client/tests/derive.test.ts` | Trạng thái bản nháp khi mở plan trong và ngoài thư mục lưu, sửa sau khi mở |
 | `packages/core/tests/calc.test.ts` | BigDecimal: chính xác với số lớn, giữ phần thập phân, chia không hết phải chọn cách làm tròn, đủ 8 cách làm tròn, so sánh không qua số thực, từ chối biểu thức không hợp lệ |
 | `packages/action-math/tests/json.test.ts` | Parse JSON không mất chữ số |
 | `packages/action-math/tests/math.test.ts` | `calc` với biến từ evidence; expectation dạng công thức bắt lỗi làm tròn số thực; kiểm tra công thức trong plan |
 | `packages/knowledge/tests/knowledge.test.ts` | Tra và đề xuất ghi chú, quy ước trong hướng dẫn, đánh dấu lỗi đã biết, có thể đã sửa, lỗi mới; method cho trang Knowledge |
 | `packages/run-viewer/tests/run-viewer.test.ts` | Danh sách, snapshot, các lần thử và evidence trong log, theo dõi file đang ghi dở ở process khác, chặn mã lượt chạy không hợp lệ |
+| `packages/plugin-manager/tests/mcp-import.test.ts` | Đọc các định dạng cấu hình MCP, namespace, che bí mật, đổi tham chiếu biến môi trường |
 | `packages/plugin-manager/tests/plugin-manager.test.ts` | Tool theo plugin sở hữu, bật/tắt, cấu hình lỗi được quay lui, thêm/gỡ từ danh mục, thêm MCP server, tắt tool, khôi phục từ patch layer |
+| `packages/inputs/tests/inputs.test.ts` | Đủ bốn nguồn đầu vào, một phiên agent chuẩn bị, giá trị chỉ từ evidence, dọn sau mọi case, `blocked` khi không thoả `require` hoặc thiếu giá trị, kiểm tra khi soạn, `--input` |
+| `packages/system-catalog/tests/system-catalog.test.ts` | Nạp OpenAPI và `$ref`, file lỗi không làm hỏng catalog, môi trường, quy tắc kiểm tra plan, biến cho fixture và bước, section prompt, tool soạn plan |
+| `packages/tool-catalog/tests/tool-catalog.test.ts` | Mẫu cấu hình, từ chối giá trị bí mật, từ chối khi không có người duyệt, từ chối và duyệt, quyền ghi tường minh, explore tool mới, khôi phục từ patch layer, log kiểm toán |
 
 ## 8. Hướng dẫn mở rộng
 
@@ -456,6 +524,31 @@ Không cần viết code. Thêm một row dùng `@aitest/action-mcp-proxy`:
 
 Tool `query` của server được đăng ký thành action `pg_query`. Lời gọi vẫn đi qua guard, evidence và run log.
 
+#### Đưa vào danh mục tool
+
+Để agent đề xuất được một tool trong chat, thêm file `tool-catalog/<id>.yml`:
+
+```yaml
+id: redis
+title: Redis
+description: Đọc khoá Redis (chỉ đọc).
+plugin: '@aitest/action-mcp-proxy'      # hoặc một plugin action riêng
+namespace: redis
+tools: { read: [redis_get], write: [redis_set] }
+params:
+  - { name: url, secret: true, required: true, description: 'URL Redis, dạng ${env.TÊN}.' }
+config:                                  # chế độ chỉ đọc; {{tên}} được thay bằng tham số
+  namespace: '{{namespace}}'
+  command: npx
+  args: ['-y', '<mcp server>', '{{url}}']
+  include: [get]
+  readOnly: [get]
+write:                                   # gộp thêm khi đề xuất có write: true
+  include: []
+```
+
+Mục danh mục là nơi nhóm kiểm duyệt: lệnh chạy, phiên bản server và danh sách tool chỉ đọc do người viết mục quyết định, không do agent quyết định.
+
 ### 8.3. Thêm guard
 
 Lắng nghe `action/before`, trả `{ type: 'deny', reason }` để chặn, hoặc `next()` để chuyển tiếp. Xem `packages/guard-basic`.
@@ -487,7 +580,7 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 
 | Kịch bản | Kết quả |
 |---|---|
-| Bộ kiểm thử tự động với agent kịch bản (`pnpm test`) | 62/62 đạt trên macOS và Linux, khoảng 10 s |
+| Bộ kiểm thử tự động với agent kịch bản (`pnpm test`) | 62/62 đạt trên macOS và Linux, khoảng 10 s; ngày 02/10/2026: 77/77 đạt gồm bài test broker |
 | Kiro chạy `order.plan.yaml` (API) | TC-01 pass, TC-02 pass, TC-03 fail đúng do lỗi cố ý; tổng 80,6 s |
 | Kiro chạy `order-integration.plan.yaml` | IT-01 (webhook và `wait_until`) pass, IT-02 (fixture có `save`) pass; tổng 91,0 s |
 | Kiro chạy `order-ui.plan.yaml` qua Chrome | E2E-01 pass, E2E-02 pass; tổng 89,8 s |
@@ -504,6 +597,12 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Kiro chạy TC-03 với ghi chú lỗi `order-odd-lot-accepted` | Console và báo cáo ghi "lỗi đã biết" |
 | Kiro soạn plan huỷ lệnh đã khớp trong cuộc chat | Tự gọi `kb_list`, áp dụng bài học về độ trễ callback, theo quy ước mã plan và `dbadmin`; chạy thử 2/2 pass; đề xuất một bài học mới, ghi sau khi được duyệt |
 | Khởi động lại Host rồi nhờ Kiro dùng tool vừa thêm | MCP server nạp lại từ patch layer, `quote_list` vẫn tắt; Kiro gọi `quote_get` qua `explore` và trả đúng giá trần |
+| Kiro chạy `order-events.plan.yaml` (02/10/2026, Kafka 4.1.0, RabbitMQ 4.3) | EV-01 (Kafka, có expectation dạng công thức) pass, EV-02 (tap RabbitMQ tạo trước khi gọi API) pass; tổng 64,8 s |
+| Kiro chạy `order-inputs.plan.yaml` với `--input side=SELL` | Đầu vào: `symbol` mặc định, `side` người chạy điền, `new_order` từ fill, `cancelled_order` agent chuẩn bị (tra `orders` không có, tự đặt rồi huỷ lệnh, trả giá trị qua evidence). INP-01, INP-02 pass; bước dọn chạy sau cùng; tổng 54,9 s |
+| Cuộc chat với Kiro: mở `order.plan.yaml` rồi nhờ thêm case huỷ lệnh đã huỷ | Kiro giữ TC-01 tới TC-03, thêm TC-04 theo đặc tả, kiểm tra plan, chạy thử riêng `[TC-04]`: pass |
+| Kiro chạy `order-events.plan.yaml` sau khi chuyển sang catalog hệ thống | EV-01, EV-02 pass; tổng 94,2 s. Kiro dùng URL, topic, exchange và path lọc từ mục "Hệ thống liên quan". Ở EV-01, Kiro gọi lại `kafka_wait_for` với `since: -30s`, vì DB mới cấp lại mã lệnh 1 trong khi topic còn bản tin cũ cùng mã. Bài học: `correlation` phải là mã duy nhất giữa các lượt chạy, hoặc bước chờ phải giới hạn `since` |
+| Cuộc chat với Kiro: "thêm tool Kafka nếu chưa có" | Kiro gọi `list_actions`, `list_tool_catalog`, rồi `propose_tool` chỉ đọc; một thẻ duyệt kèm cấu hình; sau khi duyệt, Kiro gọi `kafka_list_topics` qua `explore` và báo đúng 3 partition của `order-events` |
+| Cuộc chat với Kiro: người dùng gửi URL RabbitMQ có mật khẩu | Kiro truyền `${env.RABBITMQ_URL}`, không ghi mật khẩu vào cấu hình; biến chưa đặt nên tool báo lỗi và Kiro hướng dẫn đặt biến. Kiro chép URL vào `reason`; khắc phục: che thông tin đăng nhập trong URL ở bản xem trước và log kiểm toán, thêm quy tắc vào hướng dẫn |
 
 Phát hiện trong lần chạy đầu với Kiro: agent viết path `$.result.status` vì kết quả tool bọc giá trị trong trường `result`. Ba assertion đầu tiên không đạt, sau đó agent tự sửa path. Cách khắc phục đã áp dụng:
 
@@ -541,7 +640,7 @@ Phát hiện khi soạn plan cùng agent:
 ## 11. Lộ trình
 
 1. **Ổn định lõi:** chạy song song nhiều case, tham số hoá case theo bảng dữ liệu, chia sẻ biến giữa các case.
-2. **Action phổ biến:** Postgres, Kafka, Redis, gRPC; quản lý môi trường bằng Docker Compose hoặc Testcontainers ở fixture.
+2. **Action phổ biến:** Redis, gRPC, NATS; quản lý môi trường bằng Docker Compose hoặc Testcontainers ở fixture. Kafka, RabbitMQ, Postgres đã có trong danh mục tool.
 3. **Soạn plan:** nguồn context OpenAPI và Confluence, tool `ask_user` có cấu trúc như dsh, sinh plan hàng loạt từ đặc tả.
 4. **Giao diện web:** đăng nhập, danh sách plan và lịch sử lượt chạy, xem chuỗi tool call của từng case, so sánh giữa các lượt chạy.
 5. **Hot reload:** chuyển kernel sang `@deepseek-ai/cordis-plugin-loader` để thay plugin mà không khởi động lại.
@@ -562,3 +661,8 @@ Phát hiện khi soạn plan cùng agent:
 | lượt chạy | B | Dịch của "run" |
 | fixture | A | Bước chuẩn bị hoặc dọn dẹp dữ liệu do runner chạy |
 | webhook, callback, snapshot | A | Giữ nguyên |
+| message broker, topic, exchange, routing key, consumer group | A | Khái niệm của Kafka và RabbitMQ |
+| tap | A | Queue tạm gắn vào exchange để quan sát bản tin, không lấy mất bản tin của consumer thật |
+| danh mục tool | B | Tập mục `tool-catalog/*.yml` đã kiểm duyệt |
+| catalog hệ thống | B | Mô hình các service dưới kiểm thử trong `systems/` |
+| operation, consumer | A | Operation HTTP theo `operationId`; consumer đọc và xử lý bản tin |

@@ -7,7 +7,7 @@ export type TimelineItem =
   | { kind: 'thought'; seq: number; text: string }
   | { kind: 'tool'; seq: number; call: ActionCallData; pending: boolean }
   | { kind: 'agent-tool'; seq: number; title: string; status: string }
-  | { kind: 'permission'; seq: number; requestId: string; title: string; tool?: string; args?: unknown; decision?: boolean }
+  | { kind: 'permission'; seq: number; requestId: string; title: string; tool?: string; args?: unknown; preview?: any; decision?: boolean }
   | { kind: 'note'; seq: number; text: string }
   | { kind: 'error'; seq: number; text: string }
 
@@ -52,7 +52,7 @@ export function timeline(events: RunEvent[]): TimelineItem[] {
         }
         break
       case 'permission/request': {
-        const item = { kind: 'permission' as const, seq: e.seq, requestId: d.requestId, title: d.title, tool: d.tool, args: d.args }
+        const item = { kind: 'permission' as const, seq: e.seq, requestId: d.requestId, title: d.title, tool: d.tool, args: d.args, preview: d.preview }
         permissions.set(d.requestId, item)
         items.push(item)
         break
@@ -63,6 +63,7 @@ export function timeline(events: RunEvent[]): TimelineItem[] {
         break
       }
       case 'draft/edit': items.push({ kind: 'note', seq: e.seq, text: 'Bạn đã sửa bản nháp plan.' }); break
+      case 'draft/open': items.push({ kind: 'note', seq: e.seq, text: `Bạn đã mở plan ${d.path}.` }); break
       case 'chat/model': items.push({ kind: 'note', seq: e.seq, text: `Đã đổi model sang ${d.modelId}.` }); break
       case 'turn/end':
         if (d.error) items.push({ kind: 'error', seq: e.seq, text: d.error })
@@ -80,10 +81,20 @@ export interface DraftState {
   validation?: { valid: boolean; errors: Issue[]; warnings: Issue[]; summary?: PlanSummary; stale: boolean }
   run?: { pending: boolean; value?: any; runId?: string }
   saved?: { path: string; stale: boolean }
+  /** Plan có sẵn được mở gần nhất; `seq` đổi mỗi lần mở để bảng plan đặt lại đường dẫn lưu. */
+  opened?: { path: string; seq: number }
 }
 
+/** Thư mục lưu mặc định của `save_plan`; plan mở từ thư mục này được ghi đè tại chỗ. */
+export const SAVE_DIR = 'plans/'
+
 export interface Issue { level: string; message: string; path?: string }
-export interface PlanSummary { id: string; name: string; cases: Array<{ id: string; title: string }> }
+export interface PlanSummary {
+  id: string
+  name: string
+  cases: Array<{ id: string; title: string }>
+  inputs?: Array<{ name: string; desc?: string; default?: unknown; required: boolean; mode: 'fill' | 'prepare' | 'user' }>
+}
 
 const DRAFT_TOOLS = new Set(['validate_plan', 'dry_run', 'save_plan'])
 
@@ -96,6 +107,18 @@ export function draftState(events: RunEvent[]): DraftState {
     if (e.type === 'action/start' && DRAFT_TOOLS.has(d.name) && typeof d.args?.content === 'string') {
       state.content = d.args.content
       state.source = d.phase === 'user' ? 'Bạn' : 'Agent'
+    }
+    if (e.type === 'draft/open') {
+      state.content = d.content
+      state.source = `Bạn mở ${d.path}`
+      state.opened = { path: d.path, seq: e.seq }
+      state.run = undefined
+      if (d.path.startsWith(SAVE_DIR)) {
+        state.saved = { path: d.path, stale: false }
+        savedContent = d.content
+      } else {
+        state.saved = undefined
+      }
     }
     if (e.type === 'draft/edit') {
       state.content = d.content

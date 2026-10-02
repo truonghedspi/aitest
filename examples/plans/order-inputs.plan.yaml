@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=../../docs/plan.schema.json
+# Mẫu chuẩn bị dữ liệu trên môi trường dùng chung: đầu vào do người chạy điền, bước fill, agent chuẩn bị, mặc định.
+# Chạy: pnpm aitest run examples/plans/order-inputs.plan.yaml --input side=BUY
+id: TP-ORDER-INPUTS-001
+name: Huỷ lệnh với dữ liệu chuẩn bị theo lượt chạy
+description: Minh hoạ inputs; dữ liệu tạo ra gắn mã lượt chạy và được dọn sau mọi case.
+requires: [http, db]
+systems: [order-service]
+inputs:
+  symbol:
+    desc: Mã chứng khoán dùng cho lượt chạy
+    default: FPT
+    require: { op: matches, value: '^[A-Z]{3}$' }
+  side:
+    desc: Chiều của lệnh tạo sẵn (BUY hoặc SELL)
+    default: BUY
+  new_order:
+    desc: Lệnh NEW tạo riêng cho lượt chạy
+    fill:
+      - desc: Đặt lệnh mới qua API
+        action: http_request
+        args:
+          method: POST
+          url: '{{order-service.url}}/orders'
+          body: { symbol: '{{symbol}}', side: '{{side}}', qty: 100, price: 25000 }
+        save: { new_order: $.body.id }
+    require: { op: exists }
+    cleanup:
+      - desc: Huỷ lệnh đã tạo nếu case chưa huỷ
+        action: http_request
+        args: { method: POST, url: '{{order-service.url}}/orders/{{new_order}}/cancel' }
+  cancelled_order:
+    desc: Một lệnh đã ở trạng thái CANCELLED
+    prepare: |
+      Tìm trong bảng orders một lệnh có status CANCELLED của mã {{symbol}}.
+      Không có thì đặt lệnh mới của mã {{symbol}} qua order-service.createOrder (POST {{order-service.url}}/orders,
+      qty 100, price 25000) rồi huỷ qua order-service.cancelOrder; lệnh đã huỷ không cần dọn.
+    uses: [db, http]
+    require: { op: gt, value: 0 }
+
+cases:
+  - id: INP-01
+    title: Huỷ lệnh NEW thành công
+    steps:
+      - Gọi order-service.cancelOrder (POST {{order-service.url}}/orders/{{new_order}}/cancel).
+      - Truy vấn bảng orders theo id {{new_order}}.
+    expect:
+      - { id: cancel-200, desc: API trả 200, check: { op: eq, value: 200 } }
+      - { id: db-cancelled, desc: Bản ghi có status CANCELLED, check: { op: eq, value: CANCELLED } }
+  - id: INP-02
+    title: Huỷ lệnh đã huỷ bị từ chối
+    steps:
+      - Gọi order-service.cancelOrder (POST {{order-service.url}}/orders/{{cancelled_order}}/cancel).
+    expect:
+      - { id: cancel-409, desc: API trả 409, check: { op: eq, value: 409 } }

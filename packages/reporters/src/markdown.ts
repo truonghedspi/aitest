@@ -17,7 +17,9 @@ export function apply(ctx: Context, config: { file?: string }) {
   })
 }
 
-const ICON = { pass: '✅', fail: '❌', error: '💥', inconclusive: '❔', skipped: '⏭️' } as const
+const ICON = { pass: '✅', fail: '❌', error: '💥', inconclusive: '❔', skipped: '⏭️', blocked: '🚧' } as const
+
+const SOURCE = { user: 'người chạy điền', fill: 'bước fill', agent: 'agent chuẩn bị', default: 'mặc định', missing: 'thiếu' } as const
 
 export function renderMarkdown(report: RunReport) {
   const t = report.totals
@@ -31,8 +33,9 @@ export function renderMarkdown(report: RunReport) {
     `| Agent | ${report.agent} |`,
     `| Bắt đầu | ${report.startedAt} |`,
     `| Thời lượng | ${(report.durationMs / 1000).toFixed(1)} s |`,
-    `| Kết quả | ${t.total} case: ${t.pass} pass, ${t.fail} fail, ${t.error} error, ${t.inconclusive} inconclusive |`,
+    `| Kết quả | ${t.total} case: ${t.pass} pass, ${t.fail} fail, ${t.error} error, ${t.inconclusive} inconclusive${t.blocked ? `, ${t.blocked} blocked` : ''} |`,
     '',
+    ...renderInputs(report),
     '## Tổng hợp',
     '',
     '| Case | Tiêu đề | Kết quả | Thời lượng | Ghi chú |',
@@ -42,6 +45,23 @@ export function renderMarkdown(report: RunReport) {
     ...report.cases.flatMap(renderCase),
   ]
   return lines.join('\n') + '\n'
+}
+
+/** Đầu vào của lượt chạy và nguồn giá trị; lý do bị chặn nếu có. */
+function renderInputs(report: RunReport) {
+  const lines: string[] = []
+  if (report.blocked.length) {
+    lines.push('## 🚧 Lượt chạy bị chặn', '', 'Môi trường hoặc dữ liệu chưa đủ điều kiện; các case không được chạy.', '', ...report.blocked.map((r) => `- ${r}`), '')
+  }
+  if (report.inputs.length) {
+    lines.push('## Đầu vào', '', '| Tên | Giá trị | Nguồn | Ghi chú |', '|---|---|---|---|')
+    for (const i of report.inputs) {
+      const note = i.error ?? (i.evidence ? `từ ${i.evidence.action ?? ''} ${i.evidence.evidenceId} \`${i.evidence.path}\`` : '')
+      lines.push(`| ${i.name} | ${i.value === undefined ? '—' : fmt(i.value)} | ${SOURCE[i.source]} | ${note} |`)
+    }
+    lines.push('')
+  }
+  return lines
 }
 
 type Issue = { id: string; title: string }

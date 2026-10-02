@@ -1,0 +1,20 @@
+id: rabbitmq
+title: RabbitMQ
+description: Nghe bản tin tới exchange RabbitMQ bằng queue tạm riêng (tap); xem trạng thái queue mà không lấy bản tin.
+plugin: '@aitest/action-rabbitmq'
+namespace: rabbitmq
+tools:
+  read: [rabbitmq_tap, rabbitmq_wait_for, rabbitmq_queue_info]
+  write: [rabbitmq_publish]
+params:
+  - name: url
+    secret: true
+    required: true
+    description: URL AMQP có mật khẩu, dạng ${env.TÊN}, ví dụ ${env.RABBITMQ_URL}.
+config:
+  namespace: '{{namespace}}'
+  url: '{{url}}'
+write:
+  allowPublish: true
+usage: |
+  Gọi rabbitmq_tap TRƯỚC thao tác phát sự kiện, rồi rabbitmq_wait_for với tapId nhận được.

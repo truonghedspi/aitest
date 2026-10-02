@@ -79,6 +79,33 @@ Khi giá trị mong đợi phụ thuộc dữ liệu lúc chạy (phí, tổng t
 - Fixture gọi được mọi action, kể cả kết nối ghi DB (`dbadmin_query`) mà agent chạy test không thấy.
 - Mỗi case phải tự chuẩn bị dữ liệu, không dựa vào case trước. Dọn dữ liệu đã tạo trong `teardown`.
 
+### Đầu vào (`inputs`) và dữ liệu trên môi trường dùng chung
+
+Môi trường tích hợp dùng chung với người khác và thay đổi theo thời điểm, nên plan không ghi cứng mã tài khoản, mã lệnh, ngày.
+
+- Giá trị thay đổi theo lượt chạy khai báo trong `inputs`; dùng như biến `{{tên}}`. Nguồn theo thứ tự: người chạy điền → `fill` → `prepare` → `default`.
+- `fill`: bước xác định (gọi API, INSERT bằng `dbadmin_query`, truy vấn dữ liệu có sẵn); một bước phải `save` vào tên input. `cleanup` dọn dữ liệu do `fill` tạo.
+- `prepare`: mô tả bằng lời khi cách lấy cần suy luận, ví dụ "tìm tài khoản đủ số dư, không có thì tạo mới". Agent chuẩn bị thực hiện và tự đăng ký bước dọn. Khai báo `uses` là namespace agent được dùng.
+- `require`: điều kiện giá trị phải thoả (`op`, `value` như `check`). Không thoả thì lượt chạy bị chặn (`blocked`), case không chạy và không bị tính là lỗi hệ thống.
+- Biến dựng sẵn: `{{$run.short}}` (6 ký tự, riêng cho mỗi lượt chạy), `{{$run.id}}`, `{{$run.date}}`, `{{$run.time}}`, `{{$case.id}}`. Gắn `$run.short` vào dữ liệu tạo ra (mã tham chiếu, ghi chú) để lọc và dọn đúng dữ liệu của lượt chạy.
+- Không dọn theo điều kiện rộng như `DELETE ... WHERE symbol = 'VNM'`: câu này xoá cả dữ liệu của người khác. Dọn theo mã vừa tạo hoặc theo `$run.short`.
+
+```yaml
+inputs:
+  account:
+    desc: Tài khoản có số dư từ 100 triệu
+    prepare: Tìm tài khoản đang hoạt động có balance >= 100000000 trong bảng accounts; không có thì tạo mới qua POST /accounts.
+    uses: [db, http]
+    require: { op: exists }
+  order_id:
+    fill:
+      - action: http_request
+        args: { method: POST, url: '{{base_url}}/orders', body: { symbol: FPT, side: BUY, qty: 100, price: 1000, note: 'ait-{{$run.short}}' } }
+        save: { order_id: $.body.id }
+    cleanup:
+      - { action: http_request, args: { method: POST, url: '{{base_url}}/orders/{{order_id}}/cancel' } }
+```
+
 ### Xử lý bất đồng bộ và callback
 
 - Trạng thái thay đổi sau một khoảng trễ: viết bước "Dùng wait_until gọi lặp db_query cho tới khi ..., tối đa N giây".

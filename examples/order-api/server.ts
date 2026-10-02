@@ -4,6 +4,7 @@
  * - Lệnh kèm `callback_url` được "khớp" bất đồng bộ sau `EXEC_DELAY_MS`:
  *   status chuyển sang FILLED, rồi API gọi POST tới callback_url. Dùng cho test integration.
  * - `GET /` là giao diện web đặt lệnh. Dùng cho test E2E qua trình duyệt.
+ * - Khi có `KAFKA_BROKERS` hoặc `RABBITMQ_URL`, phát sự kiện lệnh ra Kafka/RabbitMQ (xem `events.ts`).
  *
  * Ứng dụng có hai lỗi cố ý:
  * - không kiểm tra lô chẵn 100 cổ phiếu (TC-03 trong `examples/plans/order.plan.yaml` phát hiện);
@@ -14,6 +15,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { initEvents, publish } from './events.ts'
 
 const dir = dirname(fileURLToPath(import.meta.url))
 const port = Number(process.env.ORDER_API_PORT ?? 4100)
@@ -72,6 +74,7 @@ function scheduleExecution(id: number) {
     if (!order || order.status !== 'NEW') return
     db.prepare("UPDATE orders SET status = 'FILLED', filled_qty = qty, filled_at = datetime('now') WHERE id = ?").run(id)
     const filled = findOrder(id)!
+    void publish({ event: 'order.filled', orderId: id, status: 'FILLED', filledQty: (filled as any).filled_qty })
     try {
       await fetch(order.callback_url!, {
         method: 'POST',
@@ -110,7 +113,9 @@ createServer(async (req, res) => {
       .run(symbol, side, qty, price, 'NEW', callback_url ?? null)
     const id = Number(info.lastInsertRowid)
     if (callback_url) scheduleExecution(id)
-    return send(res, 201, findOrder(id))
+    const created = findOrder(id) as unknown as Record<string, unknown>
+    await publish({ event: 'order.created', orderId: id, symbol, side, qty, price, status: 'NEW' })
+    return send(res, 201, created)
   }
 
   if (parts[0] === 'orders' && parts[1]) {
@@ -121,12 +126,14 @@ createServer(async (req, res) => {
     if (req.method === 'POST' && parts[2] === 'cancel') {
       if (order.status !== 'NEW') return send(res, 409, { error: `cannot cancel order in status ${order.status}` })
       db.prepare("UPDATE orders SET status = 'CANCELLED', cancelled_at = datetime('now') WHERE id = ?").run(id)
+      await publish({ event: 'order.cancelled', orderId: id, status: 'CANCELLED' })
       return send(res, 200, findOrder(id))
     }
   }
 
   send(res, 404, { error: 'not found' })
-}).listen(port, '127.0.0.1', () => {
+}).listen(port, '127.0.0.1', async () => {
+  await initEvents()
   console.log(`order-api listening on http://127.0.0.1:${port}`)
 })
 

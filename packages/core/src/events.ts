@@ -1,5 +1,5 @@
 import type {
-  ActionCall, ActionDecision, ActionOutcome, AgentUpdate, CaseScope, RunEvent, RunReport, VerdictDecision,
+  ActionCall, ActionDecision, ActionOutcome, AgentUpdate, CaseScope, RunContext, RunEvent, RunReport, VerdictDecision,
 } from './types.ts'
 
 /**
@@ -21,6 +21,10 @@ declare module '@deepseek-ai/cordis' {
 
     /** Mỗi bản ghi mới trong run log. @mode emit */
     'run/event'(event: RunEvent): void
+    /** Bắt đầu lượt chạy, trước bước chuẩn bị: plugin cung cấp biến dùng chung vào `run.vars` (ví dụ catalog hệ thống). @mode parallel */
+    'run/start'(run: RunContext): Promise<void>
+    /** Chuẩn bị lượt chạy trước mọi case, sau `run/start`: phân giải đầu vào, chuẩn bị dữ liệu dùng chung. @mode parallel */
+    'run/prepare'(run: RunContext): Promise<void>
     /** Bắt đầu một case, trước khi mở session agent. @mode parallel */
     'case/start'(scope: CaseScope): Promise<void>
     /** Cập nhật thô từ agent (tin nhắn, tool call). @mode emit */

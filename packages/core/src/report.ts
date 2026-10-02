@@ -1,5 +1,5 @@
 import type {
-  ActionRecord, AgentUpdate, AssertionRecord, CaseReport, Expectation, RunEvent, RunReport, StepNote, Verdict,
+  ActionRecord, AgentUpdate, AssertionRecord, CaseReport, Expectation, ResolvedInput, RunEvent, RunReport, StepNote, Verdict,
 } from './types.ts'
 
 export interface RunStartData {
@@ -21,7 +21,7 @@ export interface CaseEndData {
   stopReason?: string
 }
 
-const VERDICTS: Verdict[] = ['pass', 'fail', 'error', 'inconclusive', 'skipped']
+export const VERDICTS: Verdict[] = ['pass', 'fail', 'error', 'inconclusive', 'skipped', 'blocked']
 
 /**
  * Dựng `RunReport` thuần tuý từ danh sách event của run log.
@@ -34,8 +34,12 @@ export function deriveReport(events: RunEvent[]): RunReport {
   if (!start) throw new Error('run log has no run/start event')
   const end = events.find((e) => e.type === 'run/end')
   const cases = new Map<string, CaseReport>()
+  let inputs: ResolvedInput[] = []
+  let blocked: string[] = []
 
   for (const event of events) {
+    if (event.type === 'inputs/resolved') inputs = (event.data as { inputs: ResolvedInput[] }).inputs
+    if (event.type === 'run/blocked') blocked = (event.data as { reasons: string[] }).reasons
     const id = event.caseId
     if (event.type === 'case/start') {
       const data = event.data as CaseStartData
@@ -98,6 +102,8 @@ export function deriveReport(events: RunEvent[]): RunReport {
     finishedAt: end?.ts,
     durationMs: end ? Date.parse(end.ts) - Date.parse(start.ts) : 0,
     totals,
+    inputs,
+    blocked,
     cases: list,
   }
 }

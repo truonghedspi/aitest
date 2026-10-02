@@ -27,6 +27,67 @@
       },
       "description": "Namespace action mà plan được dùng, ví dụ http, db."
     },
+    "systems": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Hệ thống trong catalog (systems/<id>/service.yml) mà plan dùng tới, ví dụ order-service. Cung cấp biến {{<id>.url}} theo môi trường."
+    },
+    "inputs": {
+      "type": "object",
+      "description": "Đầu vào của lượt chạy, phân giải một lần trước mọi case và dùng như biến {{tên}}. Nguồn theo thứ tự: người chạy điền, fill, prepare, default.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "desc": {
+            "type": "string"
+          },
+          "default": {
+            "description": "Giá trị mặc định; hỗ trợ ${env.TÊN}."
+          },
+          "required": {
+            "type": "boolean",
+            "default": true
+          },
+          "fill": {
+            "type": "array",
+            "items": null,
+            "description": "Bước lấy giá trị xác định; một bước phải save vào tên input."
+          },
+          "prepare": {
+            "type": "string",
+            "description": "Mô tả bằng lời cách chuẩn bị; agent thực hiện và trả giá trị từ evidence."
+          },
+          "uses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Namespace agent được dùng khi prepare; mặc định là requires."
+          },
+          "require": {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string"
+              },
+              "value": {}
+            },
+            "required": [
+              "op"
+            ],
+            "description": "Điều kiện giá trị phải thoả; không thoả thì lượt chạy bị chặn."
+          },
+          "cleanup": {
+            "type": "array",
+            "items": null,
+            "description": "Bước dọn sau mọi case, chạy khi giá trị lấy bằng fill."
+          }
+        }
+      }
+    },
     "vars": {
       "type": "object",
       "description": "Biến dùng trong steps qua cú pháp {{tên}}. Hỗ trợ ${env.NAME:-mặc định}."

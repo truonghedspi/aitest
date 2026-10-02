@@ -1,0 +1,19 @@
+id: postgres
+title: PostgreSQL
+description: Chạy câu SQL chỉ đọc trên PostgreSQL qua MCP server chính thức (giao dịch read-only).
+plugin: '@aitest/action-mcp-proxy'
+namespace: pg
+tools:
+  read: [pg_query]
+  write: []
+params:
+  - name: url
+    secret: true
+    required: true
+    description: Chuỗi kết nối postgres://..., dạng ${env.TÊN}, ví dụ ${env.PG_URL}.
+config:
+  namespace: '{{namespace}}'
+  transport: stdio
+  command: npx
+  args: ['-y', '@modelcontextprotocol/server-postgres', '{{url}}']
+  readOnly: [query]

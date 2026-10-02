@@ -1,10 +1,12 @@
 import type {} from '@aitest/mcp-gateway'
 import {
-  deriveReport, errorMessage, readPath, Service, z, type FixtureStep,
-  type AgentConnection, type AgentSession, type AgentUpdate, type CaseScope, type Context, type RunLog, type RunReport,
-  type TestCase, type TestPlan, type VerdictDecision,
+  deriveReport, errorMessage, fillTemplate, readPath, runVars, Service, z, type ActionScope, type FixtureStep,
+  type AgentConnection, type AgentSession, type AgentUpdate, type CaseScope, type Context, type PrepareScope, type RunContext,
+  type RunLog, type RunReport, type TestCase, type TestPlan, type VerdictDecision,
 } from '@aitest/core'
 import { registerDefaultSections } from './prompt.ts'
+
+export { fillTemplate }
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -22,6 +24,8 @@ export interface RunOptions {
   runId?: string
   /** Model của agent cho lượt chạy; mặc định lấy từ cấu hình runner, rồi tới cấu hình driver. */
   model?: string
+  /** Giá trị đầu vào do người chạy điền, theo tên input của plan. */
+  inputs?: Record<string, unknown>
 }
 
 export interface RunnerConfig {
@@ -75,8 +79,29 @@ export class Runner extends Service {
     }
 
     const model = options.model ?? this.config.model
+    const run = this.createRunContext(log, plan, options.inputs ?? {}, connection, connectError, cwd, model)
+    try {
+      await this.ctx.parallel('run/start', run)
+      await this.ctx.parallel('run/prepare', run)
+    } catch (error) {
+      run.blocked.push(`prepare failed: ${errorMessage(error)}`)
+    }
+    if (run.blocked.length) log.append('run/blocked', { reasons: run.blocked })
+
     for (const testCase of cases) {
-      await this.runCase(log, plan, testCase, connection, connectError, cwd, model)
+      if (run.blocked.length) this.blockCase(log, testCase, run.blocked)
+      else await this.runCase(log, plan, testCase, connection, connectError, cwd, model, run.vars)
+    }
+
+    // Dọn dữ liệu của lượt chạy theo thứ tự ngược; lỗi được ghi lại, không đổi verdict của case.
+    for (const { scope, step } of [...run.cleanup].reverse()) {
+      scope.phase = 'teardown'
+      scope.signal = AbortSignal.timeout(this.config.caseTimeout * 1000)
+      try {
+        await this.runFixtures(scope, [step])
+      } catch (error) {
+        log.append('run/cleanup-failed', { step: step.desc ?? step.action, error: errorMessage(error) })
+      }
     }
 
     await connection?.close().catch(() => {})
@@ -87,9 +112,82 @@ export class Runner extends Service {
     return report
   }
 
+  /** Ngữ cảnh chuẩn bị của lượt chạy cho `run/prepare`: biến dựng sẵn, fixture và phiên agent trong scope `prepare`. */
+  private createRunContext(
+    log: RunLog, plan: TestPlan, given: Record<string, unknown>,
+    connection: AgentConnection | undefined, connectError: string | undefined, cwd: string, model?: string,
+  ): RunContext {
+    const controller = new AbortController()
+    const vars: Record<string, unknown> = runVars(log.runId)
+    log.append('run/vars', { vars })
+    return {
+      runId: log.runId,
+      plan,
+      given,
+      vars,
+      blocked: [],
+      cleanup: [],
+      log: (type, data) => { log.append(type, data) },
+      signal: controller.signal,
+      createScope: (namespaces) => ({
+        kind: 'prepare', id: 'prepare', runId: log.runId, plan, vars: { ...vars, ...fillTemplate(plan.vars, vars) },
+        phase: 'setup', namespaces: new Set(namespaces), signal: controller.signal,
+        log: (type, data) => { log.append(type, data) },
+      }),
+      runFixtures: (scope, steps) => this.runFixtures(scope, steps),
+      promptAgent: async (scope, prompt, timeoutMs) => {
+        if (!connection) throw new Error(`agent connection failed: ${connectError}`)
+        return this.promptAgent(scope, connection, cwd, model, prompt, timeoutMs)
+      },
+    }
+  }
+
+  /** Một lượt prompt agent trong scope cho trước: mở endpoint MCP riêng, ghi transcript, giới hạn thời gian. */
+  private async promptAgent(
+    scope: PrepareScope, connection: AgentConnection, cwd: string, model: string | undefined, prompt: string, timeoutMs: number,
+  ) {
+    const controller = new AbortController()
+    const signal = scope.signal
+    scope.signal = controller.signal
+    const transcript = createTranscript(scope)
+    const exposure = await this.ctx.gateway.expose(scope)
+    const timer = setTimeout(() => controller.abort(new Error(`${scope.kind} timeout after ${timeoutMs} ms`)), timeoutMs)
+    let session: AgentSession | undefined
+    try {
+      scope.phase = 'agent'
+      session = await connection.newSession({
+        cwd,
+        mcpServers: [exposure.endpoint],
+        onUpdate: (update) => transcript.push(update),
+        onPermission: (request) => this.decidePermission(scope, exposure.endpoint.name, request),
+        model,
+      })
+      scope.log('agent/session', { sessionId: session.id, model: session.models?.current ?? model, scope: scope.kind })
+      scope.log('agent/prompt', { sessionId: session.id, text: prompt, scope: scope.kind })
+      const result = await withGrace(session.prompt(prompt, controller.signal), controller.signal, this.config.cancelGrace * 1000)
+      if (controller.signal.aborted) throw controller.signal.reason
+      return { stopReason: result.stopReason }
+    } finally {
+      clearTimeout(timer)
+      transcript.flush()
+      controller.abort()
+      scope.signal = signal
+      scope.phase = 'setup'
+      await session?.close().catch(() => {})
+      await exposure.close()
+    }
+  }
+
+  /** Case không được chạy vì lượt chạy bị chặn; ghi đủ `case/start`, `case/end` để báo cáo liệt kê case. */
+  private blockCase(log: RunLog, testCase: TestCase, reasons: string[]) {
+    log.append('case/start', { id: testCase.id, title: testCase.title, steps: testCase.steps, expect: testCase.expect }, testCase.id)
+    log.append('case/end', { verdict: 'blocked', reasons, durationMs: 0 }, testCase.id)
+  }
+
   private async runCase(
     log: RunLog, plan: TestPlan, testCase: TestCase,
-    connection: AgentConnection | undefined, connectError: string | undefined, cwd: string, model?: string,
+    connection: AgentConnection | undefined, connectError: string | undefined, cwd: string, model: string | undefined,
+    runVariables: Record<string, unknown>,
   ) {
     const started = performance.now()
     const controller = new AbortController()
@@ -99,7 +197,8 @@ export class Runner extends Service {
       runId: log.runId,
       plan,
       case: testCase,
-      vars: { ...plan.vars },
+      // Biến dựng sẵn và đầu vào của lượt chạy; biến của plan được thay đầu vào trước.
+      vars: { ...runVariables, ...fillTemplate(plan.vars, runVariables), '$case.id': testCase.id },
       phase: 'setup',
       namespaces: new Set(plan.requires),
       signal: controller.signal,
@@ -173,7 +272,7 @@ export class Runner extends Service {
    * Chạy các bước fixture theo thứ tự. Bước đầu tiên lỗi sẽ dừng chuỗi và ném lỗi.
    * Tham số được thay biến trước khi gọi; `save` lưu giá trị kết quả vào `scope.vars`.
    */
-  private async runFixtures(scope: CaseScope, steps: FixtureStep[]) {
+  private async runFixtures(scope: CaseScope | PrepareScope, steps: FixtureStep[]) {
     for (const [index, step] of steps.entries()) {
       const args = fillTemplate(step.args, scope.vars)
       // Lý do của fixture là `desc` do người soạn plan viết.
@@ -193,7 +292,7 @@ export class Runner extends Service {
   }
 
   /** Mặc định chỉ duyệt tool thuộc MCP gateway của case; từ chối tool khác của agent như shell, ghi file. */
-  private decidePermission(scope: CaseScope, serverName: string, request: { title: string; raw: unknown }) {
+  private decidePermission(scope: ActionScope, serverName: string, request: { title: string; raw: unknown }) {
     const policy = this.config.permission
     const names = this.ctx.actions.list(scope).map((def) => def.name)
     const text = `${request.title} ${JSON.stringify(request.raw)}`
@@ -210,7 +309,7 @@ export default Runner
  * Gộp các chunk tin nhắn liên tiếp của agent thành một event duy nhất,
  * tránh ghi hàng nghìn event nhỏ vào run log.
  */
-function createTranscript(scope: CaseScope) {
+function createTranscript(scope: ActionScope) {
   let buffer: AgentUpdate | undefined
   const flush = () => {
     if (buffer) scope.log('agent/update', { kind: buffer.kind, text: buffer.text })
@@ -243,27 +342,6 @@ function clip(value: unknown, max = 4000): unknown {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
   if (text.length <= max) return value
   return `${text.slice(0, max)}… [đã cắt ${text.length - max} ký tự]`
-}
-
-/**
- * Thay `{{tên}}` trong mọi chuỗi của một giá trị.
- * Chuỗi chỉ gồm đúng một placeholder thì giữ nguyên kiểu của biến (số, object...).
- */
-export function fillTemplate<T>(value: T, vars: Record<string, unknown>): T {
-  if (typeof value === 'string') {
-    const whole = /^\{\{\s*([\w.-]+)\s*\}\}$/.exec(value)
-    if (whole && whole[1] in vars) return vars[whole[1]] as T
-    return value.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (m, key) => {
-      if (!(key in vars)) return m
-      const v = vars[key]
-      return typeof v === 'string' ? v : JSON.stringify(v)
-    }) as T
-  }
-  if (Array.isArray(value)) return value.map((v) => fillTemplate(v, vars)) as T
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillTemplate(v, vars)])) as T
-  }
-  return value
 }
 
 /** Chờ promise; nếu đã huỷ mà agent không dừng sau `graceMs` thì bỏ qua. */

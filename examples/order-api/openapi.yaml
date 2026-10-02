@@ -1,0 +1,94 @@
+# Hợp đồng HTTP của Order API mẫu. Catalog hệ thống (systems/order-service) đọc file này, không chép lại.
+openapi: 3.0.3
+info:
+  title: Order API
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      operationId: listOrders
+      summary: Liệt kê 50 lệnh mới nhất
+      responses:
+        '200':
+          description: Danh sách lệnh, mới nhất trước
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Order' } }
+    post:
+      operationId: createOrder
+      summary: Đặt lệnh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewOrder' }
+      responses:
+        '201':
+          description: Lệnh đã nhận, status NEW
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400':
+          description: Vi phạm ràng buộc; không lưu bản ghi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /orders/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer }, description: Mã lệnh }
+    get:
+      operationId: getOrder
+      summary: Tra cứu một lệnh
+      responses:
+        '200':
+          description: Bản ghi lệnh
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404':
+          description: Lệnh không tồn tại
+  /orders/{id}/cancel:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer }, description: Mã lệnh }
+    post:
+      operationId: cancelOrder
+      summary: Huỷ lệnh ở trạng thái NEW
+      responses:
+        '200':
+          description: Đã huỷ, status CANCELLED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404':
+          description: Lệnh không tồn tại
+        '409':
+          description: Lệnh không ở trạng thái NEW; trạng thái giữ nguyên
+components:
+  schemas:
+    NewOrder:
+      type: object
+      required: [symbol, side, qty, price]
+      properties:
+        symbol: { type: string, pattern: '^[A-Z]{3}$', description: 'Mã chứng khoán, 3 chữ cái in hoa' }
+        side: { type: string, enum: [BUY, SELL] }
+        qty: { type: integer, minimum: 100, multipleOf: 100, description: Khối lượng, lô chẵn }
+        price: { type: integer, minimum: 1, description: 'Giá, đơn vị đồng' }
+        callback_url: { type: string, description: 'URL http(s) nhận thông báo khi lệnh khớp' }
+    Order:
+      type: object
+      properties:
+        id: { type: integer }
+        symbol: { type: string }
+        side: { type: string, enum: [BUY, SELL] }
+        qty: { type: integer }
+        price: { type: integer }
+        status: { type: string, enum: [NEW, FILLED, CANCELLED] }
+        fee: { type: number, description: 'Phí, nghìn đồng: 0,15% × qty × price / 1000, làm tròn nửa lên 2 chữ số' }
+        callback_url: { type: string, nullable: true }
+        created_at: { type: string }
+        filled_at: { type: string, nullable: true }
+        cancelled_at: { type: string, nullable: true }
+    Error:
+      type: object
+      properties:
+        error: { type: string }

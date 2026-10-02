@@ -4,7 +4,7 @@ import type { Context, Verdict } from '@aitest/core'
 export const name = 'reporter-console'
 
 const COLOR: Record<Verdict, string> = {
-  pass: '\x1b[32m', fail: '\x1b[31m', error: '\x1b[35m', inconclusive: '\x1b[33m', skipped: '\x1b[90m',
+  pass: '\x1b[32m', fail: '\x1b[31m', error: '\x1b[35m', inconclusive: '\x1b[33m', skipped: '\x1b[90m', blocked: '\x1b[36m',
 }
 const RESET = '\x1b[0m'
 const DIM = '\x1b[2m'
@@ -31,6 +31,17 @@ export function apply(ctx: Context, config: { verbose?: boolean } = {}) {
 
   // Đánh dấu của plugin khác (ví dụ lỗi đã biết) tới qua run log, sau `case/end`.
   ctx.on('run/event', (event) => {
+    if (event.type === 'inputs/resolved') {
+      const inputs = (event.data as { inputs: Array<{ name: string; source: string; value?: unknown; error?: string }> }).inputs
+      out(`${DIM}▶ Đầu vào${RESET}`)
+      for (const i of inputs) out(`    ${i.name} = ${i.value === undefined ? '—' : JSON.stringify(i.value)} ${DIM}(${i.source}${i.error ? `: ${i.error}` : ''})${RESET}`)
+      return
+    }
+    if (event.type === 'run/blocked') {
+      out(`  ${paint('blocked')} lượt chạy không đủ điều kiện`)
+      for (const reason of (event.data as { reasons: string[] }).reasons) out(`    - ${reason}`)
+      return
+    }
     if (event.type !== 'case/annotation') return
     const data = event.data as { key: string; value: Array<{ id: string }> }
     const label = data.key === 'knownIssues' ? 'lỗi đã biết' : data.key === 'possiblyFixed' ? 'có thể đã sửa' : data.key

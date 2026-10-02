@@ -21,6 +21,9 @@ plugins:
   # Quản lý plugin và tool từ giao diện; thay đổi ghi vào aitest.web.patch.yml.
   - id: plugin-manager
     name: '@aitest/plugin-manager'
+  # Quản lý plan: danh sách, chi tiết, chạy plan từ giao diện
+  - id: plan-manager
+    name: '@aitest/plan-manager'
   # Xem log của các lượt chạy: tại sao agent ra kết quả như vậy
   - id: run-viewer
     name: '@aitest/run-viewer'

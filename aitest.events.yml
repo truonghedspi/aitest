@@ -1,0 +1,14 @@
+# Cấu hình có thêm Kafka và RabbitMQ: kế thừa aitest.yml, không khởi động web host.
+# Chạy plan: pnpm aitest -c aitest.events.yml run examples/plans/order-events.plan.yaml
+# Trên giao diện web: thêm hai tool này từ danh mục tool (chat hoặc trang Plugin).
+extends: ./aitest.yml
+
+plugins:
+  - id: action-kafka
+    name: '@aitest/action-kafka'
+    config:
+      brokers: ['${env.KAFKA_BROKERS:-127.0.0.1:9092}']
+  - id: action-rabbitmq
+    name: '@aitest/action-rabbitmq'
+    config:
+      url: ${env.RABBITMQ_URL:-amqp://guest:guest@127.0.0.1:5672}

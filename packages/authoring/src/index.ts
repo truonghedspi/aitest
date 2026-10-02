@@ -125,8 +125,9 @@ export class AuthoringService extends Service {
   /**
    * Mở một phiên soạn plan. Mọi lời gọi tool trong phiên được ghi vào log của phiên.
    * Truyền `log` để ghi chung vào log có sẵn, ví dụ log của một cuộc chat; khi đó `close()` không đóng log.
+   * Truyền `confirm` khi phiên có người dùng trực tiếp để duyệt thao tác có tác động lâu dài.
    */
-  async createSession(options: { id?: string; log?: RunLog } = {}): Promise<AuthoringSession> {
+  async createSession(options: { id?: string; log?: RunLog; confirm?: ActionScope['confirm'] } = {}): Promise<AuthoringSession> {
     const id = options.id ?? options.log?.runId ?? `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`
     const ownsLog = !options.log
     const log = options.log ?? await this.ctx.runlog.create(id, this.config.dir)
@@ -138,6 +139,7 @@ export class AuthoringService extends Service {
       phase: 'agent',
       signal: controller.signal,
       log: (type, data) => { log.append(type, data) },
+      confirm: options.confirm,
     }
     return {
       id,
