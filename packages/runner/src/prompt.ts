@@ -1,5 +1,5 @@
 import type {} from '@aitest/mcp-gateway'
-import { variablesOf, type Context, type Expectation } from '@aitest/core'
+import { fillTemplate, variablesOf, type Context, type Expectation } from '@aitest/core'
 
 /**
  * Các section prompt mặc định của runner.
@@ -26,7 +26,7 @@ export function registerDefaultSections(ctx: Context) {
     render: ({ plan, vars }) => {
       const lines = [`## Test plan: ${plan.name} (${plan.id})`]
       if (plan.description) lines.push(plan.description)
-      if (plan.context) lines.push('', '### Bối cảnh', plan.context)
+      if (plan.context) lines.push('', '### Bối cảnh', fillTemplate(plan.context, vars))
       // Gồm biến của plan và biến lưu từ bước chuẩn bị dữ liệu (fixture).
       if (Object.keys(vars).length) lines.push('', '### Biến', '```json', JSON.stringify(vars, null, 2), '```')
       return lines.join('\n')

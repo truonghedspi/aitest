@@ -1,5 +1,5 @@
 import { Context, Service, z, type CaseScope } from '@aitest/core'
-import { loadEnv, loadSystems, systemVars, type Catalog, type EventChannel, type SystemSpec } from './model.ts'
+import { channelIn, loadEnv, loadSystems, systemVars, type Catalog, type EventChannel, type SystemSpec } from './model.ts'
 
 export * from './model.ts'
 
@@ -28,7 +28,7 @@ export class SystemCatalogService extends Service {
   static Config = z.object({
     dirs: z.array(z.string()).default(['systems']).description('Thư mục chứa `<id>/service.yml`, tương đối với thư mục làm việc.'),
     envDir: z.string().default('envs').description('Thư mục chứa `<tên môi trường>.yml`.'),
-    env: z.string().default('local').description('Môi trường đang dùng; thường đặt `${env.AITEST_ENV:-local}`.'),
+    env: z.string().default('local').description('Môi trường mặc định khi lượt chạy không chọn môi trường; service `envs` có thì dùng mặc định của service đó.'),
   })
 
   /** Catalog đã nạp cho từng case, để section prompt (hàm đồng bộ) đọc được. */
@@ -41,14 +41,14 @@ export class SystemCatalogService extends Service {
     ctx.on('run/start', async (run) => {
       const ids = run.plan.systems ?? []
       if (!ids.length) return
-      const vars = systemVars(await this.load(), ids)
+      const vars = systemVars(await this.load(run.env), ids)
       for (const [key, value] of Object.entries(vars)) if (!(key in run.vars) && !(key in run.plan.vars)) run.vars[key] = value
     })
 
     ctx.on('case/start', async (scope) => {
       const ids = scope.plan.systems ?? []
       if (!ids.length) return
-      const catalog = await this.load()
+      const catalog = await this.load(scope.env)
       this.resolved.set(scope, catalog)
       const missing = ids.filter((id) => !catalog.systems.some((s) => s.id === id))
       const vars = systemVars(catalog, ids)
@@ -74,8 +74,14 @@ export class SystemCatalogService extends Service {
     })
   }
 
-  /** Nạp catalog và môi trường đang chọn; đọc lại file mỗi lần gọi. */
-  async load(env = this.config.env): Promise<Catalog> {
+  /** Môi trường mặc định: của service `envs` nếu có, nếu không thì theo cấu hình của catalog. */
+  get defaultEnv(): string {
+    return (this.ctx.get('envs') as { config?: { default?: string } } | undefined)?.config?.default ?? this.config.env
+  }
+
+  /** Nạp catalog và một môi trường (mặc định: môi trường mặc định); đọc lại file mỗi lần gọi. */
+  async load(env?: string): Promise<Catalog> {
+    env ||= this.defaultEnv
     const [{ systems, issues }, loaded] = await Promise.all([loadSystems(this.config.dirs), loadEnv(this.config.envDir, env)])
     return { systems, env: loaded.env, issues: [...issues, ...loaded.issues] }
   }
@@ -93,7 +99,7 @@ function renderSystem(system: SystemSpec, catalog: Catalog) {
   }
   if (system.events.length) {
     lines.push('', 'Kênh sự kiện:')
-    for (const channel of system.events) lines.push(`- ${renderChannel(channel, catalog)}`)
+    for (const channel of system.events) lines.push(`- ${renderChannel(channelIn(channel, system.id, catalog.env), catalog)}`)
   }
   if (system.consumers.length) {
     lines.push('', 'Consumer:')

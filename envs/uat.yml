@@ -1,0 +1,16 @@
+# Môi trường chỉ đọc mẫu: mọi lời gọi có thể ghi dữ liệu bị chặn (POST, INSERT, gửi bản tin...).
+# Dùng cho môi trường giống production: chỉ chạy plan kiểm tra, không tạo dữ liệu.
+name: uat
+label: UAT
+systems:
+  order-service:
+    url: ${env.UAT_ORDER_API_URL:-http://127.0.0.1:4100}
+brokers:
+  kafka-main: { namespace: kafka }
+tools:
+  # Môi trường chỉ đọc không cần kết nối ghi DB.
+  action-dbadmin: { enabled: false }
+vars:
+  base_url: ${env.UAT_ORDER_API_URL:-http://127.0.0.1:4100}
+policy:
+  readOnly: true

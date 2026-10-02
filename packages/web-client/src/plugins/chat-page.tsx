@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { connection } from '../connection.ts'
+import { defaultEnv, EnvSelect, useEnvs, useSelectedEnv } from '../env.tsx'
 import { timeline, type TimelineItem } from '../derive.ts'
 import { Markdown } from '../markdown.tsx'
 import { slots, type ClientPlugin, type PageProps } from '../slots.ts'
@@ -20,16 +21,17 @@ function chatTitle(events: Array<{ type: string; data: any }>): string | undefin
   return events.findLast((e) => e.type === 'chat/renamed' || e.type === 'chat/created')?.data?.title
 }
 
-async function createChat(navigate: (path: string) => void) {
-  const chat = await connection.call<ChatSummary>('chats.create', {})
+async function createChat(navigate: (path: string) => void, env?: string) {
+  const chat = await connection.call<ChatSummary>('chats.create', { env })
   navigate(`chat/${chat.id}`)
 }
 
 function ChatSidebar({ param, navigate }: PageProps) {
   const list = useChatList()
+  const [env] = useSelectedEnv()
   return (
     <>
-      <button className="primary wide" onClick={() => createChat(navigate)}>+ Cuộc chat mới</button>
+      <button className="primary wide" onClick={() => createChat(navigate, env)}>+ Cuộc chat mới</button>
       <nav className="chat-list">
         {list.map((c) => (
           <button key={c.id} className={`chat-item ${c.id === param ? 'active' : ''}`} onClick={() => navigate(`chat/${c.id}`)}>
@@ -43,12 +45,13 @@ function ChatSidebar({ param, navigate }: PageProps) {
 }
 
 function ChatPage({ param, navigate }: PageProps) {
+  const [env] = useSelectedEnv()
   if (!param) {
     return (
       <main className="welcome">
         <h1>Soạn test plan cùng AI</h1>
         <p>Mô tả tính năng cần kiểm thử. Agent đọc tài liệu, khảo sát hệ thống, soạn plan, kiểm tra và chạy thử trước khi lưu.</p>
-        <button className="primary" onClick={() => createChat(navigate)}>Bắt đầu cuộc chat mới</button>
+        <button className="primary" onClick={() => createChat(navigate, env)}>Bắt đầu cuộc chat mới</button>
       </main>
     )
   }
@@ -69,6 +72,7 @@ function ChatView({ chatId }: { chatId: string }) {
       <main className="conversation">
         <header>
           <h2>{chatTitle(chat.events) ?? chat.summary?.title ?? '…'}</h2>
+          <ChatEnvPicker chatId={chatId} events={chat.events} busy={chat.status !== 'idle'} />
           <ModelPicker chatId={chatId} busy={chat.status !== 'idle'} />
           <span className={`status ${chat.status}`}>{STATUS_LABEL[chat.status]}</span>
         </header>
@@ -146,6 +150,28 @@ function ModelPicker({ chatId, busy }: { chatId: string; busy: boolean }) {
       </select>
       {error && <span className="bad small" title={error}>!</span>}
     </label>
+  )
+}
+
+/** Môi trường của cuộc chat: khảo sát và chạy thử của agent dùng môi trường này. */
+function ChatEnvPicker({ chatId, events, busy }: { chatId: string; events: Array<{ type: string; data: any }>; busy: boolean }) {
+  const envs = useEnvs()
+  const [error, setError] = useState<string>()
+  if (!envs?.length) return null
+  const current = events.findLast((e) => e.type === 'chat/env')?.data.env ?? defaultEnv(envs)
+  const change = async (env: string) => {
+    setError(undefined)
+    try {
+      await connection.call('chats.setEnv', { chatId, env })
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  return (
+    <span className={busy ? 'disabled' : ''} title={busy ? 'Chờ agent xong lượt hiện tại để đổi môi trường' : undefined}>
+      <EnvSelect value={current} onChange={(env) => { if (!busy) void change(env) }} compact />
+      {error && <span className="bad small" title={error}> !</span>}
+    </span>
   )
 }
 

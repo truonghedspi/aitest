@@ -1,6 +1,7 @@
-# Môi trường chạy cục bộ. Chọn môi trường bằng biến AITEST_ENV (mặc định local).
-# Chỉ ghi địa chỉ và ánh xạ; bí mật nằm trong cấu hình của tool qua ${env.TÊN}.
+# Môi trường chạy cục bộ, môi trường mặc định (AITEST_ENV, mặc định local).
+# Dùng cấu hình tool trong aitest.yml, không ghi đè. Bí mật nằm trong cấu hình của tool qua ${env.TÊN}.
 name: local
+label: Máy cục bộ
 systems:
   order-service:
     url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}

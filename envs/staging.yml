@@ -1,0 +1,26 @@
+# Môi trường mẫu thứ hai: Order API và DB riêng. Chạy thử trên máy:
+#   ORDER_API_PORT=4101 ORDER_DB=examples/order-api/orders-staging.db pnpm demo:api
+#   pnpm aitest run examples/plans/order.plan.yaml --env staging
+name: staging
+label: Staging (tích hợp)
+description: Môi trường tích hợp dùng chung; dữ liệu do nhiều nhóm cùng tạo.
+systems:
+  order-service:
+    url: ${env.STAGING_ORDER_API_URL:-http://127.0.0.1:4101}
+    # Tên topic, exchange khác môi trường cục bộ thì ghi đè tại đây, ví dụ:
+    # events:
+    #   order-events: { topic: stg.order-events }
+brokers:
+  kafka-main: { namespace: kafka }
+  rabbit-main: { namespace: rabbitmq }
+# Ghi đè cấu hình row trong aitest.yml theo mã row. Giữ nguyên ${env.TÊN} cho bí mật.
+tools:
+  action-db:
+    config: { file: '${env.STAGING_ORDER_DB:-examples/order-api/orders-staging.db}' }
+  action-dbadmin:
+    config: { file: '${env.STAGING_ORDER_DB:-examples/order-api/orders-staging.db}' }
+# Biến dùng chung cho mọi plan ở môi trường này; plan dùng như {{base_url}}.
+vars:
+  base_url: ${env.STAGING_ORDER_API_URL:-http://127.0.0.1:4101}
+policy:
+  readOnly: false

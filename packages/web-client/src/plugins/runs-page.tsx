@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ToolCallCard } from '../components.tsx'
 import { connection } from '../connection.ts'
+import { EnvTag } from '../env.tsx'
 import { Markdown } from '../markdown.tsx'
 import type { ClientPlugin, PageProps } from '../slots.ts'
 import type { ActionCallData, RunEvent } from '../types.ts'
@@ -19,6 +20,7 @@ export interface RunSummary {
   runId: string
   plan?: { id: string; name: string; source?: string }
   agent?: string
+  env?: string
   startedAt?: string
   finished: boolean
   dryRun: boolean
@@ -176,7 +178,7 @@ export function useRuns(planId?: string, limit?: number) {
 export function RunTable({ runs, navigate, showPlan }: { runs: RunSummary[]; navigate(path: string): void; showPlan?: boolean }) {
   return (
     <table className="run-table">
-      <thead><tr><th>Bắt đầu</th>{showPlan && <th>Plan</th>}<th>Kết quả</th><th>Case</th><th>Thời lượng</th></tr></thead>
+      <thead><tr><th>Bắt đầu</th>{showPlan && <th>Plan</th>}<th>Môi trường</th><th>Kết quả</th><th>Case</th><th>Thời lượng</th></tr></thead>
       <tbody>
         {runs.map((r) => (
           <tr key={r.runId} onClick={() => navigate(`runs/${r.runId}`)}>
@@ -185,6 +187,7 @@ export function RunTable({ runs, navigate, showPlan }: { runs: RunSummary[]; nav
               {r.dryRun && <span className="tag">chạy thử</span>}
             </td>
             {showPlan && <td><b>{r.plan?.name ?? r.runId}</b><div className="muted small">{r.plan?.id} · {r.agent}</div></td>}
+            <td>{r.env ? <EnvTag env={r.env} /> : <span className="muted small">—</span>}</td>
             <td>{!r.finished ? <span className="badge pending">Đang chạy</span> : r.blocked ? <b className="warn">🚧 Chưa đủ điều kiện</b> : <Totals totals={r.totals} />}</td>
             <td>{r.cases.map((c) => <span key={c.id} title={`${c.id}: ${VERDICT[c.verdict] ?? c.verdict}`}>{ICON[c.verdict] ?? '·'}</span>)}</td>
             <td>{(r.durationMs / 1000).toFixed(1)} s</td>
@@ -238,6 +241,7 @@ function RunDetail({ runId, caseId, navigate }: { runId: string; caseId?: string
           ← {summary?.plan?.source ? 'Về plan' : 'Lượt chạy'}
         </button>
         <h2>{summary?.plan?.name ?? runId}</h2>
+        <EnvTag env={summary?.env} />
         {!finished && <span className="badge pending">Đang chạy…</span>}
         <Totals totals={totals} />
       </header>

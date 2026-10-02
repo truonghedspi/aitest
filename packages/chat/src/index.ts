@@ -32,6 +32,8 @@ export interface ChatSummary {
   createdAt: string
   updatedAt: string
   status: ChatStatus
+  /** Môi trường của cuộc chat; khảo sát và chạy thử dùng môi trường này. Không có thì dùng môi trường mặc định. */
+  env?: string
 }
 
 export interface Config {
@@ -186,6 +188,7 @@ export class Chat {
       createdAt: created.ts,
       updatedAt: this.log.events.at(-1)!.ts,
       status: this.status,
+      env: this.env(),
     }
   }
 
@@ -298,11 +301,40 @@ export class Chat {
   }
 
   private async ensureAuthoring() {
-    this.authoring ??= await this.ctx.authoring.createSession({
-      log: this.log,
-      confirm: (request) => this.ask({ requestId: randomUUID(), tool: request.tool, title: request.title, preview: request.preview }),
-    })
+    if (!this.authoring) {
+      this.authoring = await this.ctx.authoring.createSession({
+        log: this.log,
+        confirm: (request) => this.ask({ requestId: randomUUID(), tool: request.tool, title: request.title, preview: request.preview }),
+      })
+      const env = this.env()
+      if (env) {
+        this.authoring.scope.env = env
+        // Tool của môi trường phải được nạp trước khi agent khảo sát.
+        await this.envs()?.ensure(env).catch(() => {})
+      }
+    }
     return this.authoring
+  }
+
+  /** Môi trường đã chọn: lần chọn gần nhất trong log. */
+  env(): string | undefined {
+    return (this.log.events.findLast((e) => e.type === 'chat/env')?.data as { env?: string } | undefined)?.env
+  }
+
+  private envs() {
+    return this.ctx.get('envs') as { ensure(name: string): Promise<unknown> } | undefined
+  }
+
+  /** Đổi môi trường của cuộc chat: nạp tool của môi trường, ghi log, báo agent ở lượt tiếp theo. */
+  async setEnv(env: string) {
+    if (this.status !== 'idle') throw new Error('agent is still working on the previous message')
+    const envs = this.envs()
+    if (!envs) throw new Error('environments are not configured')
+    await envs.ensure(env)
+    this.log.append('chat/env', { env })
+    if (this.authoring) this.authoring.scope.env = env
+    this.notes.push(`Người dùng đã chọn môi trường \`${env}\`. Từ giờ \`explore\`, \`dry_run\` và tool theo môi trường dùng môi trường này.`)
+    return this.summary()
   }
 
   /** Model đã chọn cho cuộc chat: lần chọn gần nhất trong log, nếu không có thì mặc định của service. */

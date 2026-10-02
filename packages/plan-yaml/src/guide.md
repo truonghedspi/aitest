@@ -106,6 +106,12 @@ inputs:
       - { action: http_request, args: { method: POST, url: '{{base_url}}/orders/{{order_id}}/cancel' } }
 ```
 
+### Môi trường
+
+- Plan chạy trên nhiều môi trường; địa chỉ, DB, topic khác nhau do `envs/<tên>.yml` quyết định. Không ghi cứng địa chỉ theo một môi trường.
+- Dùng `{{<system>.url}}` của catalog hoặc biến trong `vars` (giá trị là mặc định, môi trường ghi đè được).
+- Chỉ khai báo `envs: [..]` khi plan thật sự chỉ được chạy trên vài môi trường, ví dụ plan tạo nhiều dữ liệu không chạy trên UAT.
+
 ### Xử lý bất đồng bộ và callback
 
 - Trạng thái thay đổi sau một khoảng trễ: viết bước "Dùng wait_until gọi lặp db_query cho tới khi ..., tối đa N giây".

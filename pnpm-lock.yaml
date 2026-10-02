@@ -47,6 +47,9 @@ importers:
       '@aitest/core':
         specifier: workspace:*
         version: link:packages/core
+      '@aitest/environments':
+        specifier: workspace:*
+        version: link:packages/environments
       '@aitest/guard-basic':
         specifier: workspace:*
         version: link:packages/guard-basic
@@ -273,6 +276,9 @@ importers:
       '@aitest/core':
         specifier: workspace:*
         version: link:../core
+      '@aitest/environments':
+        specifier: workspace:*
+        version: link:../environments
       '@aitest/mcp-gateway':
         specifier: workspace:*
         version: link:../mcp-gateway
@@ -306,6 +312,21 @@ importers:
       yaml:
         specifier: ^2.8.0
         version: 2.9.1
+
+  packages/environments:
+    dependencies:
+      '@aitest/authoring':
+        specifier: workspace:*
+        version: link:../authoring
+      '@aitest/core':
+        specifier: workspace:*
+        version: link:../core
+      '@aitest/web-host':
+        specifier: workspace:*
+        version: link:../web-host
+      '@deepseek-ai/cordis':
+        specifier: ~4.0.4
+        version: 4.0.4
 
   packages/guard-basic:
     dependencies:

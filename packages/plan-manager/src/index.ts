@@ -36,6 +36,8 @@ export interface PlanDetail {
     context?: string
     requires: string[]
     systems: string[]
+    /** Môi trường được chạy plan; rỗng là mọi môi trường. */
+    envs: string[]
     inputs: Array<{ name: string; desc?: string; default?: unknown; required: boolean; mode: 'fill' | 'prepare' | 'user' }>
     cases: Array<{ id: string; title: string; tags: string[]; steps: string[]; expect: Array<{ id: string; desc: string }> }>
   }
@@ -70,7 +72,7 @@ export function apply(ctx: Context, config: Config) {
     }
   })
 
-  ctx.web.method('plans.run', async (params: { path: string; cases?: string[]; inputs?: Record<string, unknown> }) => {
+  ctx.web.method('plans.run', async (params: { path: string; cases?: string[]; inputs?: Record<string, unknown>; env?: string }) => {
     // Đọc qua `read_plan` để dùng chung giới hạn thư mục plan với agent soạn plan.
     const { content } = await call('read_plan', { path: params.path }) as { content: string }
     const result = await ctx.authoring.validate(content, resolve(params.path))
@@ -81,10 +83,13 @@ export function apply(ctx: Context, config: Config) {
     const plan = result.plan
     const unknown = (params.cases ?? []).filter((id) => !plan.cases.some((c) => c.id === id))
     if (unknown.length) throw new Error(`unknown case: ${unknown.join(', ')}`)
+    if (params.env && plan.envs?.length && !plan.envs.includes(params.env)) {
+      throw new Error(`plan ${plan.id} is limited to environments ${plan.envs.join(', ')}`)
+    }
     const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
     const inputs = Object.fromEntries(Object.entries(params.inputs ?? {}).filter(([, v]) => v !== '' && v !== undefined))
     running.add(runId)
-    ctx.runner.run({ plan, cases: params.cases?.length ? params.cases : undefined, runId, inputs })
+    ctx.runner.run({ plan, cases: params.cases?.length ? params.cases : undefined, runId, inputs, env: params.env || undefined })
       .catch((error) => ctx.logger('plan-manager').warn('run %s failed: %s', runId, errorMessage(error)))
       .finally(() => running.delete(runId))
     return { runId }
@@ -100,6 +105,7 @@ export function describePlan(plan: TestPlan): PlanDetail['plan'] {
     context: plan.context,
     requires: plan.requires,
     systems: plan.systems ?? [],
+    envs: plan.envs ?? [],
     inputs: (plan.inputs ?? []).map((i) => ({
       name: i.name, desc: i.desc, default: i.default, required: i.required,
       mode: i.fill.length ? 'fill' as const : i.prepare ? 'prepare' as const : 'user' as const,

@@ -290,6 +290,22 @@ Lý do bị chặn ghi vào `run.blocked` thì mọi case nhận verdict `blocke
 
 **Giữ bất biến.** Agent chuẩn bị không quyết định giá trị: `provide_input` đọc giá trị từ evidence trong scope (`ctx.evidence`), giống `assert_expectation`, và kiểm tra `require` ngay khi nhận. Verdict của case vẫn chỉ tính từ assertion. Quyền ghi chỉ có trong phiên chuẩn bị, theo `uses`. Agent chạy test của case vẫn chỉ thấy namespace trong `requires`.
 
+#### Môi trường
+
+Một Host chạy plan trên nhiều môi trường cùng lúc. Môi trường là lớp cấu hình lúc chạy, không phải bản sao của cả Host.
+
+| Thành phần | Vai trò |
+|---|---|
+| `core/environments.ts` | Định dạng và loader `envs/<tên>.yml`: `systems`, `brokers`, `tools`, `vars`, `policy`. `tools` giữ nguyên `${env.TÊN}` để kernel thay khi nạp |
+| `Kernel.spawn/despawn`, `PluginRow.env` | Row theo môi trường `<row>@<env>`, tầng `env`, không ghi patch layer. `envOf(fiber)` cho biết plugin thuộc môi trường nào, kể cả khi plugin đăng ký đồng bộ lúc nạp |
+| `ActionRegistry` | Mỗi tên action có một bản mặc định và tối đa một bản cho mỗi môi trường. `list`, `get`, `invoke` chọn theo `scope.env`, không có bản riêng thì dùng bản mặc định. `filter()` cho plugin ẩn action theo scope |
+| `@aitest/environments` (`ctx.envs`) | `ensure(env)` nạp bản sao của row được ghi đè, nạp lại khi file đổi. Bộ lọc ẩn tool có `enabled: false`. `action/before` chặn lời gọi không chỉ đọc khi `policy.readOnly`. `run/start` kiểm tra `plan.envs`, nạp tool, đưa `vars` vào lượt chạy, ghi `env/resolved` |
+| Runner | `RunOptions.env`, ghi `env` vào `run/start`, đặt `scope.env` cho case và scope chuẩn bị, biến `$env`. Biến của plan là mặc định; biến của lượt chạy (môi trường, catalog, đầu vào) ghi đè khi trùng tên |
+| Catalog hệ thống | Đọc `systems` của môi trường của scope; `channelIn` áp tên topic, exchange theo môi trường |
+| Chat | `chat/env` trong log; scope soạn plan và `explore` dùng môi trường của cuộc chat; `dry_run` chạy trên môi trường đó |
+
+Plan-yaml không thay `{{biến}}` lúc đọc file. Runner thay lúc chạy, khi đã có biến của môi trường, nên một plan dùng được cho mọi môi trường. Bản sao theo môi trường dùng cùng plugin với row gốc, nên mọi tool (kể cả MCP server qua `action-mcp-proxy`) có thể khác nhau theo môi trường mà không cần sửa plugin.
+
 ### 6.3. E2E qua trình duyệt
 
 File `aitest.e2e.yml` kế thừa `aitest.yml` qua khoá `extends`, rồi thêm row Playwright MCP:
@@ -487,6 +503,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | `packages/action-math/tests/math.test.ts` | `calc` với biến từ evidence; expectation dạng công thức bắt lỗi làm tròn số thực; kiểm tra công thức trong plan |
 | `packages/knowledge/tests/knowledge.test.ts` | Tra và đề xuất ghi chú, quy ước trong hướng dẫn, đánh dấu lỗi đã biết, có thể đã sửa, lỗi mới; method cho trang Knowledge |
 | `packages/run-viewer/tests/run-viewer.test.ts` | Danh sách, snapshot, các lần thử và evidence trong log, theo dõi file đang ghi dở ở process khác, chặn mã lượt chạy không hợp lệ |
+| `packages/environments/tests/environments.test.ts` | Hai Order API thật: hai lượt chạy song song trên hai môi trường kết nối đúng API, DB của mình; môi trường chỉ đọc chặn ghi; tắt tool theo môi trường; giới hạn `envs`; nạp lại khi file đổi |
 | `packages/plan-manager/tests/plan-manager.test.ts` | Danh sách gồm plan lỗi, chi tiết plan, giới hạn thư mục, chạy plan ở nền với case và đầu vào, lọc lượt chạy theo plan |
 | `packages/plugin-manager/tests/mcp-import.test.ts` | Đọc các định dạng cấu hình MCP, namespace, che bí mật, đổi tham chiếu biến môi trường |
 | `packages/plugin-manager/tests/plugin-manager.test.ts` | Tool theo plugin sở hữu, bật/tắt, cấu hình lỗi được quay lui, thêm/gỡ từ danh mục, thêm MCP server, tắt tool, khôi phục từ patch layer |
@@ -610,6 +627,7 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Kiro soạn plan huỷ lệnh đã khớp trong cuộc chat | Tự gọi `kb_list`, áp dụng bài học về độ trễ callback, theo quy ước mã plan và `dbadmin`; chạy thử 2/2 pass; đề xuất một bài học mới, ghi sau khi được duyệt |
 | Khởi động lại Host rồi nhờ Kiro dùng tool vừa thêm | MCP server nạp lại từ patch layer, `quote_list` vẫn tắt; Kiro gọi `quote_get` qua `explore` và trả đúng giá trần |
 | Kiro chạy `order-events.plan.yaml` (02/10/2026, Kafka 4.1.0, RabbitMQ 4.3) | EV-01 (Kafka, có expectation dạng công thức) pass, EV-02 (tap RabbitMQ tạo trước khi gọi API) pass; tổng 64,8 s |
+| Kiro chạy `order.plan.yaml --env staging --case TC-01` | Agent gọi API staging (cổng 4101) theo `base_url` của môi trường, `db_query` đọc DB riêng của staging; run log ghi `env/resolved` với `action-db@staging`; TC-01 pass, 38,1 s |
 | Kiro chạy `order-inputs.plan.yaml` với `--input side=SELL` | Đầu vào: `symbol` mặc định, `side` người chạy điền, `new_order` từ fill, `cancelled_order` agent chuẩn bị (tra `orders` không có, tự đặt rồi huỷ lệnh, trả giá trị qua evidence). INP-01, INP-02 pass; bước dọn chạy sau cùng; tổng 54,9 s |
 | Cuộc chat với Kiro: mở `order.plan.yaml` rồi nhờ thêm case huỷ lệnh đã huỷ | Kiro giữ TC-01 tới TC-03, thêm TC-04 theo đặc tả, kiểm tra plan, chạy thử riêng `[TC-04]`: pass |
 | Kiro chạy `order-events.plan.yaml` sau khi chuyển sang catalog hệ thống | EV-01, EV-02 pass; tổng 94,2 s. Kiro dùng URL, topic, exchange và path lọc từ mục "Hệ thống liên quan". Ở EV-01, Kiro gọi lại `kafka_wait_for` với `since: -30s`, vì DB mới cấp lại mã lệnh 1 trong khi topic còn bản tin cũ cùng mã. Bài học: `correlation` phải là mã duy nhất giữa các lượt chạy, hoặc bước chờ phải giới hạn `since` |

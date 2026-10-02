@@ -56,6 +56,7 @@ export const PlanSchema = z.object({
   description: z.string(),
   requires: z.array(z.string()).default([]),
   systems: z.array(z.string()).default([]),
+  envs: z.array(z.string()).default([]),
   inputs: z.dict(InputSchema).default({}),
   vars: z.dict(z.any()).default({}),
   context: z.string(),
@@ -130,8 +131,7 @@ export function parsePlan(text: string, source: string): TestPlan {
   if (issues.length) throw new PlanError(source, issues)
 
   const vars = interpolate(data.vars) as Record<string, unknown>
-  // Biến chưa biết được giữ nguyên `{{tên}}`; runner thay tiếp bằng biến lưu từ fixture khi chạy.
-  const fill = (s: string) => s.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (m, key) => (key in vars ? String(vars[key]) : m))
+  // `{{tên}}` giữ nguyên trong plan: runner thay lúc chạy, sau khi có biến của môi trường, đầu vào và fixture.
   const fixtures = (list: typeof data.setup) => list.map((f) => ({
     action: f.action, args: interpolate(f.args), save: f.save, desc: f.desc,
   }))
@@ -144,6 +144,7 @@ export function parsePlan(text: string, source: string): TestPlan {
     format: 'yaml',
     requires: data.requires,
     systems: data.systems,
+    envs: data.envs.length ? data.envs : undefined,
     inputs: Object.entries(data.inputs).map(([name, i]) => ({
       name,
       desc: i.desc,
@@ -156,7 +157,7 @@ export function parsePlan(text: string, source: string): TestPlan {
       cleanup: fixtures(i.cleanup),
     })),
     vars,
-    context: data.context && fill(data.context),
+    context: data.context,
     setup: fixtures(data.setup),
     teardown: fixtures(data.teardown),
     cases: data.cases.map((c) => ({
@@ -166,10 +167,10 @@ export function parsePlan(text: string, source: string): TestPlan {
       timeoutMs: c.timeout ? c.timeout * 1000 : undefined,
       setup: fixtures(c.setup),
       teardown: fixtures(c.teardown),
-      steps: c.steps.map(fill),
+      steps: c.steps,
       expect: c.expect.map((e) => ({
         id: e.id,
-        desc: fill(e.desc),
+        desc: e.desc,
         check: e.check?.op ? { op: e.check.op, value: e.check.value, ...(e.check.expr ? { expr: e.check.expr } : {}) } : undefined,
       })),
     })),

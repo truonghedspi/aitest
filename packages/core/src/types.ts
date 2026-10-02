@@ -96,6 +96,8 @@ export interface TestPlan {
   requires: string[]
   /** Đầu vào của lượt chạy, theo thứ tự khai báo; input sau được dùng giá trị của input trước. */
   inputs?: PlanInput[]
+  /** Môi trường được chạy plan; không khai báo thì chạy được mọi môi trường. */
+  envs?: string[]
   /** Hệ thống trong catalog mà plan dùng tới, ví dụ `order-service`; cung cấp biến `{{order-service.url}}`. */
   systems?: string[]
   vars: Record<string, unknown>
@@ -146,6 +148,8 @@ export interface ActionScope {
   signal: AbortSignal
   /** Ghi một event vào log append-only của scope. */
   log(type: string, data: unknown): void
+  /** Môi trường mà scope chạy trên đó; action có bản riêng theo môi trường được chọn theo trường này. */
+  env?: string
   /**
    * Xin người dùng duyệt một thao tác kèm bản xem trước. Chỉ có khi scope gắn với người dùng trực tiếp,
    * ví dụ cuộc chat. Action có tác động lâu dài phải gọi hàm này và từ chối chạy khi scope không có hàm.
@@ -386,6 +390,8 @@ export interface RunReport {
   runId: string
   plan: { id: string; name: string; source: string }
   agent: string
+  /** Môi trường của lượt chạy. */
+  env?: string
   startedAt: string
   finishedAt?: string
   durationMs: number
@@ -423,6 +429,8 @@ export interface PrepareScope extends ActionScope {
 export interface RunContext {
   runId: string
   plan: TestPlan
+  /** Môi trường của lượt chạy; mọi scope của lượt chạy dùng môi trường này. */
+  env?: string
   /** Giá trị đầu vào do người chạy truyền (CLI `--input`, form trên giao diện). */
   given: Record<string, unknown>
   /** Biến dùng chung cho mọi case: biến dựng sẵn `$run.*` và đầu vào đã phân giải. */

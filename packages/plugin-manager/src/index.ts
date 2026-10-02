@@ -118,6 +118,7 @@ export function apply(ctx: Context, config: Config) {
   })
 
   const guard = (id: string) => {
+    if (kernel.rows.get(id)?.layer === 'env') throw new Error(`row ${id} belongs to an environment; edit envs/<name>.yml instead`)
     if (config.lockedRows.includes(id)) throw new Error(`plugin ${id} is locked: the web interface depends on it`)
   }
 
@@ -134,6 +135,7 @@ export function apply(ctx: Context, config: Config) {
   })
 
   ctx.web.method('plugins.configure', async (params: { id: string; config: unknown }) => {
+    if (kernel.rows.get(params.id)?.layer === 'env') throw new Error(`row ${params.id} belongs to an environment; edit envs/<name>.yml instead`)
     if (params.id === ownRow()) throw new Error('configure the plugin manager through its own pages')
     try {
       await kernel.configure(params.id, params.config)

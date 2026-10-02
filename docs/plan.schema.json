@@ -27,6 +27,13 @@
       },
       "description": "Namespace action mà plan được dùng, ví dụ http, db."
     },
+    "envs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Môi trường được chạy plan (envs/<tên>.yml); không khai báo thì chạy được mọi môi trường."
+    },
     "systems": {
       "type": "array",
       "items": {

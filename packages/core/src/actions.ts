@@ -10,6 +10,9 @@ declare module '@deepseek-ai/cordis' {
 
 const NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/
 
+/** Bộ lọc action theo scope; trả `false` để ẩn action khỏi scope đó. */
+export type ActionFilter = (def: ActionDefinition, owner: Fiber, scope: Pick<ActionScope, 'namespaces'> & { kind?: ScopeKind; env?: string }) => boolean
+
 /**
  * Registry các action mà agent gọi được.
  *
@@ -17,9 +20,10 @@ const NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/
  * bị gỡ, action tự biến mất khỏi registry.
  */
 export class ActionRegistry extends Service {
-  private readonly defs = new Map<string, ActionDefinition>()
-  private readonly owners = new Map<string, Fiber>()
+  /** Mỗi tên có một bản mặc định và tối đa một bản cho mỗi môi trường. */
+  private readonly entries = new Map<string, Array<{ def: ActionDefinition; owner: Fiber; env?: string }>>()
   private readonly restricted = new Map<string, number>()
+  private readonly filters = new Set<ActionFilter>()
   private seq = 0
 
   constructor(ctx: Context) {
@@ -30,20 +34,42 @@ export class ActionRegistry extends Service {
     if (!NAME_PATTERN.test(def.name)) throw new Error(`invalid action name: ${def.name}`)
     // `this.ctx` là context của plugin gọi `register`, nên fiber của nó là chủ sở hữu action.
     const owner = this.ctx.fiber
+    // Plugin nạp theo môi trường (row `<id>@<env>`) đăng ký bản riêng của môi trường đó.
+    const env = (this.ctx.get('kernel') as { envOf?(fiber: Fiber): string | undefined } | undefined)?.envOf?.(owner)
     return this.ctx.effect(() => {
-      if (this.defs.has(def.name)) throw new Error(`duplicate action: ${def.name}`)
-      this.defs.set(def.name, def)
-      this.owners.set(def.name, owner)
+      const list = this.entries.get(def.name) ?? []
+      if (list.some((e) => e.env === env)) throw new Error(`duplicate action: ${def.name}${env ? ` in environment ${env}` : ''}`)
+      const entry = { def, owner, env }
+      this.entries.set(def.name, [...list, entry])
       return () => {
-        this.defs.delete(def.name)
-        this.owners.delete(def.name)
+        const rest = (this.entries.get(def.name) ?? []).filter((e) => e !== entry)
+        if (rest.length) this.entries.set(def.name, rest)
+        else this.entries.delete(def.name)
       }
-    }, `actions.register(${def.name})`)
+    }, `actions.register(${def.name}${env ? `@${env}` : ''})`)
   }
 
-  /** Fiber của plugin đã đăng ký action. */
-  ownerOf(name: string) {
-    return this.owners.get(name)
+  /** Bản của action cho môi trường: bản riêng nếu có, nếu không thì bản mặc định. */
+  private pick(name: string, env?: string) {
+    const list = this.entries.get(name)
+    if (!list) return undefined
+    return (env ? list.find((e) => e.env === env) : undefined) ?? list.find((e) => !e.env)
+  }
+
+  /** Fiber của plugin đã đăng ký action (theo môi trường khi có). */
+  ownerOf(name: string, env?: string) {
+    return this.pick(name, env)?.owner
+  }
+
+  /**
+   * Thêm bộ lọc ẩn action theo scope, ví dụ môi trường tắt một tool. Chỉ bớt đi, không thêm được.
+   * Bộ lọc nhận định nghĩa, fiber chủ sở hữu và scope; trả `false` để ẩn.
+   */
+  filter(fn: ActionFilter) {
+    return this.ctx.effect(() => {
+      this.filters.add(fn)
+      return () => { this.filters.delete(fn) }
+    }, 'actions.filter')
   }
 
   /**
@@ -65,22 +91,32 @@ export class ActionRegistry extends Service {
     return this.restricted.has(name)
   }
 
-  get(name: string) {
-    return this.defs.get(name)
+  get(name: string, env?: string) {
+    return this.pick(name, env)?.def
   }
 
-  /** Mọi action đã đăng ký, kể cả action đang bị ẩn; dùng cho trang quản lý. */
+  /** Mọi action mặc định đã đăng ký, kể cả action đang bị ẩn; dùng cho trang quản lý. */
   all() {
-    return [...this.defs.values()]
+    return [...this.entries.keys()].map((name) => this.pick(name)?.def).filter((d): d is ActionDefinition => !!d)
+  }
+
+  /** Môi trường có bản riêng của action. */
+  envsOf(name: string) {
+    return (this.entries.get(name) ?? []).map((e) => e.env).filter((e): e is string => !!e)
   }
 
   /**
-   * Danh sách action. Khi có `scope`, chỉ trả về action khai báo hỗ trợ loại scope đó.
+   * Danh sách action. Khi có `scope`, chỉ trả về action khai báo hỗ trợ loại scope đó, theo môi trường của scope.
    * Ở pha `agent`, danh sách còn bị giới hạn theo namespace; pha khác do người soạn plan
    * hoặc người dùng kiểm soát nên được dùng mọi action cùng loại scope.
    */
-  list(scope?: Pick<ActionScope, 'namespaces'> & { kind?: ScopeKind; phase?: ActionScope['phase'] }) {
-    const all = [...this.defs.values()].filter((def) => !this.restricted.has(def.name))
+  list(scope?: Pick<ActionScope, 'namespaces'> & { kind?: ScopeKind; phase?: ActionScope['phase']; env?: string }) {
+    const picked = [...this.entries.keys()]
+      .filter((name) => !this.restricted.has(name))
+      .map((name) => this.pick(name, scope?.env))
+      .filter((e): e is NonNullable<typeof e> => !!e)
+      .filter((e) => !scope || [...this.filters].every((fn) => fn(e.def, e.owner, scope)))
+    const all = picked.map((e) => e.def)
     if (!scope) return all
     const kind = scope.kind ?? 'case'
     const ofKind = all.filter((def) => (def.scopes ?? DEFAULT_SCOPES).includes(kind))

@@ -31,6 +31,7 @@ export function renderMarkdown(report: RunReport) {
     `| Run | \`${report.runId}\` |`,
     `| Plan | \`${report.plan.id}\` (${report.plan.source}) |`,
     `| Agent | ${report.agent} |`,
+    ...(report.env ? [`| Môi trường | ${report.env} |`] : []),
     `| Bắt đầu | ${report.startedAt} |`,
     `| Thời lượng | ${(report.durationMs / 1000).toFixed(1)} s |`,
     `| Kết quả | ${t.total} case: ${t.pass} pass, ${t.fail} fail, ${t.error} error, ${t.inconclusive} inconclusive${t.blocked ? `, ${t.blocked} blocked` : ''} |`,

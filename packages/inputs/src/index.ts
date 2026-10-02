@@ -212,7 +212,7 @@ function buildPrompt(run: RunContext, scope: PrepareScope, batch: PlanInput[], t
     '',
     `## Plan: ${run.plan.name} (${run.plan.id})`,
   ]
-  if (run.plan.context) lines.push(run.plan.context.trim())
+  if (run.plan.context) lines.push(fillTemplate(run.plan.context, vars).trim())
   lines.push('', '### Biến đã có', '```json', JSON.stringify(vars, null, 2), '```', '', '## Đầu vào cần chuẩn bị')
   for (const input of batch) {
     lines.push('', `### ${input.name}`)

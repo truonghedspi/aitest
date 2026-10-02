@@ -29,6 +29,8 @@ export interface RunSummary {
   /** `source`: đường dẫn file plan, tương đối với thư mục làm việc. */
   plan?: { id: string; name: string; source?: string }
   agent?: string
+  /** Môi trường của lượt chạy; lượt chạy cũ không ghi môi trường. */
+  env?: string
   startedAt?: string
   finished: boolean
   dryRun: boolean
@@ -54,8 +56,8 @@ export function apply(ctx: Context, config: Config) {
   // Tóm tắt theo thời điểm sửa file: lượt chạy đã xong không phải đọc lại log mỗi lần liệt kê.
   const cache = new Map<string, { mtime: number; summary?: RunSummary }>()
 
-  /** Lượt chạy mới nhất trước; `planId` lọc theo plan, `limit` tối đa `config.limit`. */
-  ctx.web.method('runs.list', async (params: { planId?: string; limit?: number } = {}) => {
+  /** Lượt chạy mới nhất trước; `planId`, `env` lọc theo plan, môi trường; `limit` tối đa `config.limit`. */
+  ctx.web.method('runs.list', async (params: { planId?: string; env?: string; limit?: number } = {}) => {
     const ids = (await readdir(root()).catch(() => [] as string[])).filter((id) => RUN_ID.test(id))
     const dated = await Promise.all(ids.map(async (id) => ({ id, mtime: (await stat(fileOf(id)).catch(() => undefined))?.mtimeMs })))
     const limit = Math.min(params.limit ?? config.limit, config.limit)
@@ -68,7 +70,9 @@ export function apply(ctx: Context, config: Config) {
         entry = { mtime: mtime!, summary: events.some((e) => e.type === 'run/start') ? summarize(id, events) : undefined }
         cache.set(id, entry)
       }
-      if (entry.summary && (!params.planId || entry.summary.plan?.id === params.planId)) out.push(entry.summary)
+      if (entry.summary && (!params.planId || entry.summary.plan?.id === params.planId) && (!params.env || entry.summary.env === params.env)) {
+        out.push(entry.summary)
+      }
     }
     return out
   })
@@ -121,7 +125,7 @@ async function readFrom(file: string, offset: number): Promise<{ events: RunEven
 }
 
 function summarize(runId: string, events: RunEvent[]): RunSummary {
-  const start = events.find((e) => e.type === 'run/start')?.data as { plan?: { id: string; name: string; source?: string }; agent?: string } | undefined
+  const start = events.find((e) => e.type === 'run/start')?.data as { plan?: { id: string; name: string; source?: string }; agent?: string; env?: string } | undefined
   const finished = events.some((e) => e.type === 'run/end')
   let report: ReturnType<typeof deriveReport> | undefined
   try {
@@ -138,6 +142,7 @@ function summarize(runId: string, events: RunEvent[]): RunSummary {
       source: start.plan.source ? toPosix(relative(process.cwd(), start.plan.source)) : undefined,
     },
     agent: start?.agent,
+    env: start?.env,
     startedAt: first,
     finished,
     dryRun: runId.startsWith('dryrun-'),

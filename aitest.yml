@@ -101,10 +101,13 @@ plugins:
   - id: authoring-explore
     name: '@aitest/authoring/explore'
   # Catalog hệ thống dưới kiểm thử (systems/, envs/): biến {{<system>.url}}, mô tả service cho agent, kiểm tra tham chiếu trong plan.
+  # Môi trường (envs/<tên>.yml): tool theo môi trường, chặn ghi, biến dùng chung; chọn bằng --env hoặc trên giao diện.
+  - id: envs
+    name: '@aitest/environments'
+    config:
+      default: ${env.AITEST_ENV:-local}
   - id: system-catalog
     name: '@aitest/system-catalog'
-    config:
-      env: ${env.AITEST_ENV:-local}
   - id: system-catalog-authoring
     name: '@aitest/system-catalog/authoring'
   # Danh mục tool đã kiểm duyệt (tool-catalog/*.yml): agent đề xuất, người dùng duyệt trong chat, row mới ghi vào patch layer.

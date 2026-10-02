@@ -269,4 +269,16 @@ describe('chat host over WebSocket', () => {
     const [summary] = (await ws.call('chats.list')).filter((c: any) => c.id === chat.id)
     expect(summary.title).toBe('Plan examples/plans/order-fee.plan.yaml')
   })
+
+  it('keeps an environment per chat and tells the agent when it changes', async () => {
+    const chat = await ws.call('chats.create', { env: 'staging' })
+    expect(chat.env).toBe('staging')
+    await expect(ws.call('chats.setEnv', { chatId: chat.id, env: 'nope' })).rejects.toThrow(/environment nope not found/)
+    const changed = await ws.call('chats.setEnv', { chatId: chat.id, env: 'local' })
+    expect(changed.env).toBe('local')
+    const events = (await ws.call('chats.subscribe', { chatId: chat.id })).events
+    expect(events.filter((e: any) => e.type === 'chat/env').map((e: any) => e.data.env)).toEqual(['staging', 'local'])
+    // Môi trường staging ghi đè kết nối DB: bản riêng của tool được nạp.
+    expect(harness.kernel.ctx.actions.envsOf('db_query')).toContain('staging')
+  })
 })

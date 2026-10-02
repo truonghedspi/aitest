@@ -70,7 +70,7 @@ export function apply(ctx: Context, config: Config) {
       const runId = `dryrun-${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
       const tracked: Tracked = {
         startedAt: Date.now(),
-        promise: ctx.runner.run({ plan, cases, runId, inputs: args.inputs }),
+        promise: ctx.runner.run({ plan, cases, runId, inputs: args.inputs, env: scope.env }),
       }
       tracked.promise.then(
         (report) => { tracked.report = report },

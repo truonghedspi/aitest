@@ -55,12 +55,16 @@ describe('plan manager over WebSocket', () => {
       rows: (dir) => [
         { id: 'web', name: '@aitest/web-host', config: { port: 0, staticDir: join(dir, 'static') } },
         { id: 'authoring-catalog', name: '@aitest/authoring/catalog', config: { planDirs: [join(dir, 'plans')] } },
+        { id: 'envs', name: '@aitest/environments', config: { dir: join(dir, 'envs'), default: 'local' } },
       ],
     })
     harness.kernel.ctx.runner.config.agent = 'scripted'
     await mkdir(join(harness.dir, 'plans/team'), { recursive: true })
     await writeFile(join(harness.dir, 'plans/team/pm.plan.yaml'), PLAN)
     await writeFile(join(harness.dir, 'plans/broken.plan.yaml'), 'id: BROKEN\n')
+    await writeFile(join(harness.dir, 'plans/limited.plan.yaml'), PLAN.replace('id: TP-PM', 'id: TP-LIMITED\nenvs: [alt]'))
+    await mkdir(join(harness.dir, 'envs'), { recursive: true })
+    await writeFile(join(harness.dir, 'envs/alt.yml'), 'label: Thay thế\nvars: { marker: alt }\n')
     planPath = toPosix(relative(process.cwd(), join(harness.dir, 'plans/team/pm.plan.yaml')))
     brokenPath = toPosix(relative(process.cwd(), join(harness.dir, 'plans/broken.plan.yaml')))
     ws = await WsClient.open((await harness.kernel.ctx.web.ready()).replace('http', 'ws') + '/ws')
@@ -75,6 +79,7 @@ describe('plan manager over WebSocket', () => {
     const plans = await ws.call('plans.list')
     expect(plans).toEqual([
       expect.objectContaining({ path: brokenPath, error: expect.any(String) }),
+      expect.objectContaining({ id: 'TP-LIMITED' }),
       expect.objectContaining({ path: planPath, id: 'TP-PM', cases: [{ id: 'PM-01', title: 'Liệt kê lệnh' }, { id: 'PM-02', title: 'Tra cứu lệnh không tồn tại' }] }),
     ])
   })
@@ -116,5 +121,24 @@ describe('plan manager over WebSocket', () => {
     const resolved = subscribed.events.find((e: any) => e.type === 'inputs/resolved')
     expect(resolved.data.inputs).toEqual([{ name: 'symbol', source: 'user', value: 'VNM' }])
     expect(await ws.call('runs.list', { planId: 'OTHER' })).toEqual([])
+  })
+
+  it('runs on a chosen environment, filters runs by environment and respects plan envs', async () => {
+    const limitedPath = planPath.replace('team/pm.plan.yaml', 'limited.plan.yaml')
+    expect((await ws.call('plans.get', { path: limitedPath })).plan.envs).toEqual(['alt'])
+    await expect(ws.call('plans.run', { path: limitedPath, env: 'local' })).rejects.toThrow(/limited to environments alt/)
+
+    const { runId } = await ws.call('plans.run', { path: planPath, cases: ['PM-01'], env: 'alt' })
+    let runs: any[] = []
+    for (let i = 0; i < 100; i++) {
+      runs = await ws.call('runs.list', { planId: 'TP-PM', env: 'alt' })
+      if (runs[0]?.finished) break
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    expect(runs.map((r) => [r.runId, r.env, r.cases[0].verdict])).toEqual([[runId, 'alt', 'pass']])
+    const local = await ws.call('runs.list', { planId: 'TP-PM', env: 'local' })
+    expect(local.every((r: any) => r.env === 'local')).toBe(true)
+    const events = (await ws.call('runs.subscribe', { runId })).events
+    expect(events.find((e: any) => e.type === 'env/resolved').data).toMatchObject({ env: 'alt', vars: ['marker'] })
   })
 })

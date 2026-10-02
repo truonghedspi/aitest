@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { connection } from '../connection.ts'
+import { defaultEnv, EnvSelect, EnvTag, envLabel, setSelectedEnv, useEnvs, useSelectedEnv } from '../env.tsx'
 import type { ClientPlugin, PageProps } from '../slots.ts'
 import { inputPlaceholder } from './plan-panel.tsx'
 import { ICON, RunList, RunTable, timeAgo, Totals, useRuns, VERDICT, type RunSummary } from './runs-page.tsx'
@@ -23,7 +24,7 @@ interface PlanDetail {
   errors: Array<{ message: string; path?: string }>
   warnings: Array<{ message: string; path?: string }>
   plan?: {
-    id: string; name: string; description?: string; context?: string; requires: string[]; systems: string[]
+    id: string; name: string; description?: string; context?: string; requires: string[]; systems: string[]; envs: string[]
     inputs: Array<{ name: string; desc?: string; default?: unknown; required: boolean; mode: 'fill' | 'prepare' | 'user' }>
     cases: Array<{ id: string; title: string; tags: string[]; steps: string[]; expect: Array<{ id: string; desc: string }> }>
   }
@@ -33,6 +34,7 @@ type Status = 'all' | 'never' | 'pass' | 'problem' | 'invalid'
 const STATUS_LABEL: Record<Status, string> = { all: 'Tất cả', never: 'Chưa chạy', pass: 'Đạt hết', problem: 'Có case chưa đạt', invalid: 'Plan lỗi' }
 
 function PlansPage({ param, navigate }: PageProps) {
+  const [env] = useSelectedEnv()
   if (param && param !== 'runs') return <PlanView path={param} navigate={navigate} />
   const tab = param === 'runs' ? 'runs' : 'plans'
   return (
@@ -44,7 +46,8 @@ function PlansPage({ param, navigate }: PageProps) {
           <button className={tab === 'runs' ? 'active' : ''} onClick={() => navigate('plans/runs')}>Lượt chạy</button>
         </div>
         <span className="spacer" />
-        <button className="primary" onClick={() => void newChat(navigate)}>+ Soạn plan mới cùng agent</button>
+        <EnvSelect value={env} onChange={setSelectedEnv} />
+        <button className="primary" onClick={() => void newChat(navigate, env)}>+ Soạn plan mới cùng agent</button>
       </header>
       {tab === 'plans' ? <PlanList navigate={navigate} /> : <RunList navigate={navigate} />}
     </main>
@@ -60,6 +63,8 @@ function PlanList({ navigate }: { navigate(path: string): void }) {
   const [status, setStatus] = useState<Status>('all')
   const [running, setRunning] = useState<PlanItem>()
   const runs = useRuns(undefined, 200)
+  const [env] = useSelectedEnv()
+  const envs = useEnvs()
 
   const load = () => connection.call<PlanItem[]>('plans.list').then(setPlans, (e) => setError((e as Error).message))
   useEffect(() => { void load() }, [])
@@ -67,14 +72,15 @@ function PlanList({ navigate }: { navigate(path: string): void }) {
   // Lần chạy gần nhất của mỗi plan; ưu tiên lượt chạy thật, không có thì lấy lượt chạy thử.
   const lastRun = useMemo(() => {
     const map = new Map<string, RunSummary>()
+    // Chỉ lượt chạy của môi trường đang chọn; lượt chạy cũ không ghi môi trường được tính là môi trường mặc định.
     for (const r of runs ?? []) {
       const key = r.plan?.id
-      if (!key) continue
+      if (!key || (env && (r.env ?? defaultEnv(envs)) !== env)) continue
       const current = map.get(key)
       if (!current || (current.dryRun && !r.dryRun)) map.set(key, r)
     }
     return map
-  }, [runs])
+  }, [runs, env, envs])
 
   const statusOf = (p: PlanItem): Exclude<Status, 'all'> => {
     if (p.error) return 'invalid'
@@ -103,10 +109,11 @@ function PlanList({ navigate }: { navigate(path: string): void }) {
       </div>
       {error && <div className="bad">{error}</div>}
       {!plans && !error && <div className="muted">Đang tải…</div>}
+      {env && <p className="muted small">Kết quả lần chạy gần nhất trên môi trường <EnvTag env={env} />. Đổi môi trường ở góc trên.</p>}
       {plans && !plans.length && (
         <div className="empty">
           <p>Chưa có plan nào trong các thư mục plan.</p>
-          <button className="primary" onClick={() => void newChat(navigate)}>Soạn plan đầu tiên cùng agent</button>
+          <button className="primary" onClick={() => void newChat(navigate, env)}>Soạn plan đầu tiên cùng agent</button>
         </div>
       )}
       {plans && plans.length > 0 && !shown.length && <div className="empty">Không có plan phù hợp bộ lọc.</div>}
@@ -132,11 +139,11 @@ function PlanList({ navigate }: { navigate(path: string): void }) {
                       <span className="small">{!r.finished ? <span className="badge pending">Đang chạy</span> : r.blocked ? <span className="warn">🚧 Chưa đủ điều kiện</span> : <Totals totals={r.totals} />}</span>
                       <span className="muted small">{r.startedAt && timeAgo(r.startedAt)}{r.dryRun ? ' · chạy thử' : ''}</span>
                     </>
-                  ) : <span className="muted small">Chưa chạy</span>}
+                  ) : <span className="muted small">Chưa chạy{env ? ` trên ${env}` : ''}</span>}
                 </div>
                 <div className="plan-card-actions" onClick={(e) => e.stopPropagation()}>
                   <button className="primary" disabled={!!p.error} onClick={() => setRunning(p)} title="Chạy plan với agent">▶ Chạy</button>
-                  <button onClick={() => void editWithAgent(p.path, navigate)} title="Mở plan trong cuộc chat để sửa cùng agent">Sửa cùng agent</button>
+                  <button onClick={() => void editWithAgent(p.path, navigate, env)} title="Mở plan trong cuộc chat để sửa cùng agent">Sửa cùng agent</button>
                 </div>
               </div>
             )
@@ -160,10 +167,26 @@ function PlanView({ path, navigate }: { path: string; navigate(path: string): vo
     connection.call<PlanDetail>('plans.get', { path }).then(setDetail, (e) => setError((e as Error).message))
   }, [path])
   const runs = useRuns(detail?.plan?.id)
-  const last = runs?.find((r) => !r.dryRun) ?? runs?.[0]
-  const verdictOf = (caseId: string) => last?.cases.find((c) => c.id === caseId)?.verdict
-
+  const [env, setEnv] = useSelectedEnv()
+  const envs = useEnvs()
   const plan = detail?.plan
+  // Lần chạy gần nhất theo từng môi trường; ưu tiên lượt chạy thật.
+  const lastByEnv = useMemo(() => {
+    const map = new Map<string, RunSummary>()
+    for (const r of runs ?? []) {
+      const key = r.env ?? defaultEnv(envs) ?? ''
+      const current = map.get(key)
+      if (!current || (current.dryRun && !r.dryRun)) map.set(key, r)
+    }
+    return map
+  }, [runs, envs])
+  const last = env ? lastByEnv.get(env) : runs?.find((r) => !r.dryRun) ?? runs?.[0]
+  /** Kết quả của case trong một lượt chạy; không có lượt chạy thì chưa có kết quả. */
+  const verdictIn = (run: RunSummary | undefined, caseId: string) => run?.cases.find((c) => c.id === caseId)?.verdict
+  const verdictOf = (caseId: string) => verdictIn(last, caseId)
+  const columns = (envs ?? []).filter((e) => !plan?.envs.length || plan.envs.includes(e.name))
+  const allowedHere = !env || !plan?.envs.length || plan.envs.includes(env)
+
   return (
     <main className="manager plan-view">
       <header>
@@ -171,8 +194,10 @@ function PlanView({ path, navigate }: { path: string; navigate(path: string): vo
         <h2>{plan?.name ?? path}</h2>
         {plan && <span className="muted">{plan.id}</span>}
         <span className="spacer" />
-        <button onClick={() => void editWithAgent(path, navigate)}>Sửa cùng agent</button>
-        <button className="primary" disabled={!detail?.valid} onClick={() => setRunning(true)}>▶ Chạy plan</button>
+        <EnvSelect value={env} onChange={setEnv} allowed={plan?.envs} />
+        <button onClick={() => void editWithAgent(path, navigate, env)}>Sửa cùng agent</button>
+        <button className="primary" disabled={!detail?.valid || !allowedHere} onClick={() => setRunning(true)}
+          title={allowedHere ? undefined : `Plan chỉ chạy trên: ${plan?.envs.join(', ')}`}>▶ Chạy plan</button>
       </header>
       {error && <div className="bad">{error}</div>}
       {!detail && !error && <div className="muted">Đang tải…</div>}
@@ -182,9 +207,10 @@ function PlanView({ path, navigate }: { path: string; navigate(path: string): vo
             <code className="muted small">{path}</code>
             {plan?.requires.map((r) => <span key={r} className="tag" title="Namespace tool">{r}</span>)}
             {plan?.systems.map((s) => <span key={s} className="tag system" title="Hệ thống trong catalog">{s}</span>)}
+            {!!plan?.envs.length && <span className="small muted">· chỉ chạy trên {plan.envs.map((e) => <EnvTag key={e} env={e} />)}</span>}
             {last && (
               <span className="small" onClick={() => navigate(`runs/${last.runId}`)} role="link">
-                · Lần chạy gần nhất {last.startedAt && timeAgo(last.startedAt)}: {last.blocked ? '🚧 chưa đủ điều kiện' : <Totals totals={last.totals} />}
+                · Lần chạy gần nhất{env ? ` trên ${env}` : ''} {last.startedAt && timeAgo(last.startedAt)}: {last.blocked ? '🚧 chưa đủ điều kiện' : <Totals totals={last.totals} />}
               </span>
             )}
           </div>
@@ -218,6 +244,43 @@ function PlanView({ path, navigate }: { path: string; navigate(path: string): vo
                 </section>
               )}
               {plan.context && <details><summary>Bối cảnh cho agent</summary><pre className="code">{plan.context}</pre></details>}
+              {columns.length > 1 && (
+                <section>
+                  <h4>Kết quả theo môi trường</h4>
+                  <div className="matrix-wrap">
+                    <table className="plain matrix">
+                      <thead>
+                        <tr>
+                          <th>Case</th>
+                          {columns.map((e) => {
+                            const r = lastByEnv.get(e.name)
+                            return (
+                              <th key={e.name} className={e.name === env ? 'current' : ''}>
+                                <button className="link" onClick={() => setEnv(e.name)} title={envLabel(e)}>{e.name}</button>
+                                <div className="muted small">
+                                  {r ? <span role="link" onClick={() => navigate(`runs/${r.runId}`)}>{r.startedAt && timeAgo(r.startedAt)}{r.dryRun ? ' · thử' : ''}</span> : 'chưa chạy'}
+                                </div>
+                              </th>
+                            )
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {plan.cases.map((c) => (
+                          <tr key={c.id}>
+                            <td><b>{c.id}</b> <span className="muted small">{c.title}</span></td>
+                            {columns.map((e) => {
+                              const r = lastByEnv.get(e.name)
+                              const v = r?.blocked ? 'blocked' : verdictIn(r, c.id)
+                              return <td key={e.name} className={e.name === env ? 'current' : ''} title={v ? VERDICT[v] : 'Chưa chạy'}>{v ? ICON[v] : '○'}</td>
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
               {plan.cases.map((c) => {
                 const v = verdictOf(c.id)
                 return (
@@ -261,10 +324,16 @@ function RunDialog({ path, detail: given, onClose, navigate }: { path: string; d
   const [inputs, setInputs] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const [selectedEnv] = useSelectedEnv()
+  const [env, setEnv] = useState(selectedEnv)
+  const envs = useEnvs()
   useEffect(() => {
     if (!given) connection.call<PlanDetail>('plans.get', { path }).then(setDetail, (e) => setError((e as Error).message))
   }, [path])
+  useEffect(() => { if (!env && selectedEnv) setEnv(selectedEnv) }, [selectedEnv])
   const plan = detail?.plan
+  const envInfo = envs?.find((e) => e.name === env)
+  const envAllowed = !env || !plan?.envs.length || plan.envs.includes(env)
   const cases = plan?.cases ?? []
   const chosen = selected ?? cases.map((c) => c.id)
   const missing = (plan?.inputs ?? []).filter((i) => i.required && i.mode === 'user' && i.default === undefined && !inputs[i.name]?.trim())
@@ -274,7 +343,7 @@ function RunDialog({ path, detail: given, onClose, navigate }: { path: string; d
     setError(undefined)
     try {
       const values = Object.fromEntries(Object.entries(inputs).filter(([, v]) => v.trim()).map(([k, v]) => [k, v.trim()]))
-      const { runId } = await connection.call<{ runId: string }>('plans.run', { path, cases: selected, inputs: values })
+      const { runId } = await connection.call<{ runId: string }>('plans.run', { path, cases: selected, inputs: values, env })
       onClose()
       navigate(`runs/${runId}`)
     } catch (e) {
@@ -291,6 +360,13 @@ function RunDialog({ path, detail: given, onClose, navigate }: { path: string; d
         {detail && !detail.valid && <div className="bad">Plan chưa hợp lệ: {detail.errors.map((e) => e.message).join('; ')}</div>}
         {plan && (
           <>
+            {!!envs?.length && (
+              <div className="env-row">
+                <EnvSelect value={env} onChange={setEnv} allowed={plan.envs} />
+                {envInfo?.readOnly && <span className="warn small">Môi trường chỉ đọc: bước tạo hoặc sửa dữ liệu sẽ bị chặn.</span>}
+                {!envAllowed && <span className="bad small">Plan chỉ chạy trên: {plan.envs.join(', ')}</span>}
+              </div>
+            )}
             <h4>Case <span className="muted small">({chosen.length}/{cases.length})</span>
               <button className="link small" onClick={() => setSelected(undefined)}>chọn tất cả</button>
               <button className="link small" onClick={() => setSelected([])}>bỏ chọn</button>
@@ -329,8 +405,8 @@ function RunDialog({ path, detail: given, onClose, navigate }: { path: string; d
             <p className="muted small">Agent chạy test thật trên môi trường đang cấu hình. Bạn được chuyển sang màn theo dõi ngay khi lượt chạy bắt đầu.</p>
             <div className="actions">
               <button onClick={onClose}>Huỷ</button>
-              <button className="primary" disabled={busy || !chosen.length || missing.length > 0 || !detail?.valid} onClick={start}>
-                {busy ? 'Đang bắt đầu…' : `▶ Chạy ${chosen.length} case`}
+              <button className="primary" disabled={busy || !chosen.length || missing.length > 0 || !detail?.valid || !envAllowed} onClick={start}>
+                {busy ? 'Đang bắt đầu…' : `▶ Chạy ${chosen.length} case${env ? ` trên ${env}` : ''}`}
               </button>
             </div>
             {missing.length > 0 && <div className="warn small">Cần điền: {missing.map((i) => i.name).join(', ')}</div>}
@@ -344,14 +420,14 @@ function RunDialog({ path, detail: given, onClose, navigate }: { path: string; d
 
 /* ------------------------------------------------------------------ tiện ích */
 
-async function newChat(navigate: (path: string) => void) {
-  const chat = await connection.call<{ id: string }>('chats.create', {})
+async function newChat(navigate: (path: string) => void, env?: string) {
+  const chat = await connection.call<{ id: string }>('chats.create', { env })
   navigate(`chat/${chat.id}`)
 }
 
 /** Mở plan trong một cuộc chat mới để sửa cùng agent. */
-async function editWithAgent(path: string, navigate: (path: string) => void) {
-  const chat = await connection.call<{ id: string }>('chats.create', {})
+async function editWithAgent(path: string, navigate: (path: string) => void, env?: string) {
+  const chat = await connection.call<{ id: string }>('chats.create', { env })
   await connection.call('chats.openPlan', { chatId: chat.id, path })
   navigate(`chat/${chat.id}`)
 }

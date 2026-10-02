@@ -1,6 +1,6 @@
 import type {} from '@aitest/authoring'
 import type { Context, TestPlan } from '@aitest/core'
-import { SYSTEM_VAR_KEYS, type Catalog, type EventChannel, type SystemSpec } from './model.ts'
+import { channelIn, SYSTEM_VAR_KEYS, type Catalog, type EventChannel, type SystemSpec } from './model.ts'
 import type {} from './index.ts'
 
 /**
@@ -14,7 +14,7 @@ export const inject = ['systems', 'actions', 'authoring']
 
 export function apply(ctx: Context) {
   /** Namespace đang có tool cho agent chạy test; tool bị tắt bằng `restrict` không được tính. */
-  const installed = () => new Set(ctx.actions.list({ kind: 'case', namespaces: new Set(), phase: 'setup' }).map((a) => a.namespace))
+  const installed = (env?: string) => new Set(ctx.actions.list({ kind: 'case', namespaces: new Set(), phase: 'setup', env }).map((a) => a.namespace))
 
   ctx.actions.register({
     name: 'list_systems',
@@ -28,9 +28,9 @@ export function apply(ctx: Context) {
       'Plan khai báo hệ thống trong `systems` để dùng biến `{{<system>.url}}` và tham chiếu `<system>.<operation>`.',
     ].join(' '),
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    async execute() {
-      const catalog = await ctx.systems.load()
-      const available = installed()
+    async execute(_args: Record<string, never>, { scope }) {
+      const catalog = await ctx.systems.load(scope.env)
+      const available = installed(scope.env)
       return {
         env: catalog.env.name,
         systems: catalog.systems.map((s) => ({
@@ -40,7 +40,10 @@ export function apply(ctx: Context) {
           owner: s.owner,
           url: catalog.env.systems[s.id]?.url,
           operations: s.operations.map((o) => `${o.id}: ${o.method} ${o.path}`),
-          events: s.events.map((e) => ({ id: e.id, kind: e.kind, broker: e.broker, tool: toolStatus(e, catalog, available), messages: e.messages.map((m) => m.name) })),
+          events: s.events.map((raw) => channelIn(raw, s.id, catalog.env)).map((e) => ({
+            id: e.id, kind: e.kind, broker: e.broker, topic: e.topic, exchange: e.exchange,
+            tool: toolStatus(e, catalog, available), messages: e.messages.map((m) => m.name),
+          })),
           consumers: s.consumers.map((c) => c.group),
           data: s.data.map((d) => ({ namespace: d.namespace, tables: d.tables })),
           docs: s.docs,
@@ -78,16 +81,17 @@ export function apply(ctx: Context) {
       required: ['system'],
       additionalProperties: false,
     },
-    async execute(args: { system: string; item?: string }) {
-      const catalog = await ctx.systems.load()
+    async execute(args: { system: string; item?: string }, { scope }) {
+      const catalog = await ctx.systems.load(scope.env)
       const system = catalog.systems.find((s) => s.id === args.system)
       if (!system) throw new Error(`unknown system ${args.system}; known: ${catalog.systems.map((s) => s.id).join(', ') || 'none'}`)
       const url = catalog.env.systems[system.id]?.url
-      if (!args.item) return { ...system, env: catalog.env.name, url }
+      if (!args.item) return { ...system, events: system.events.map((e) => channelIn(e, system.id, catalog.env)), env: catalog.env.name, url }
       const operation = system.operations.find((o) => o.id === args.item)
       if (operation) return { system: system.id, env: catalog.env.name, url, operation }
-      const channel = system.events.find((e) => e.id === args.item)
-      if (channel) return { system: system.id, env: catalog.env.name, channel: { ...channel, tool: toolStatus(channel, catalog, installed()) } }
+      const found = system.events.find((e) => e.id === args.item)
+      const channel = found && channelIn(found, system.id, catalog.env)
+      if (channel) return { system: system.id, env: catalog.env.name, channel: { ...channel, tool: toolStatus(channel, catalog, installed(scope.env)) } }
       throw new Error(`${system.id} has no operation or event channel ${args.item}; items: ${itemIds(system).join(', ')}`)
     },
     present: (args) => ({ kind: 'code', title: `Hệ thống ${args.system}${args.item ? `.${args.item}` : ''}` }),

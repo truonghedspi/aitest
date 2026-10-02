@@ -31,6 +31,8 @@ export interface PluginRow {
   removed?: boolean
   /** Thư mục dùng để phân giải `name` tương đối; kernel tự gán theo file khai báo row. */
   baseDir?: string
+  /** Row là bản theo môi trường (`<row gốc>@<môi trường>`); action của row chỉ dùng cho scope cùng môi trường. */
+  env?: string
 }
 
 export interface KernelConfig {
@@ -52,7 +54,7 @@ const FiberState = { PENDING: 0, LOADING: 1, ACTIVE: 2, FAILED: 3 } as const
 const defaultRows: PluginRow[] = Object.keys(builtins).map((name) => ({ id: name.slice('aitest:'.length), name }))
 
 /** Tầng khai báo row: cấu hình mặc định, file cấu hình, patch layer, hoặc ghi đè lúc khởi động. */
-export type RowLayer = 'builtin' | 'config' | 'patch' | 'override'
+export type RowLayer = 'builtin' | 'config' | 'patch' | 'override' | 'env'
 
 export type RowStatus = 'active' | 'loading' | 'pending' | 'failed' | 'disabled'
 
@@ -83,6 +85,8 @@ export class Kernel {
   readonly rows = new Map<string, RowState>()
   readonly baseDir: string
   private patch: PluginRow[] = []
+  /** Row đang được nạp; plugin đăng ký đồng bộ trong `apply` thì fiber của row chưa được gán. */
+  private loading?: RowState
 
   constructor(readonly configFile?: string, readonly patchFile?: string) {
     this.baseDir = configFile ? dirname(configFile) : process.cwd()
@@ -201,6 +205,38 @@ export class Kernel {
     await this.persist(state)
   }
 
+  /** Môi trường của row sở hữu fiber; `undefined` với row mặc định. */
+  envOf(fiber: Fiber | undefined): string | undefined {
+    const id = this.ownerOf(fiber)
+    return id ? this.rows.get(id)?.row.env : this.loading?.row.env
+  }
+
+  /**
+   * Nạp một row theo môi trường, không ghi patch layer: bản sao của row mặc định với cấu hình của môi trường.
+   * Row lỗi khi nạp thì bị bỏ và lỗi được ném ra.
+   */
+  async spawn(row: PluginRow & { env: string }) {
+    if (this.rows.has(row.id)) throw new Error(`row id already exists: ${row.id}`)
+    const state: RowState = { row: { ...row, baseDir: row.baseDir ?? this.baseDir }, layer: 'env' }
+    this.rows.set(row.id, state)
+    try {
+      await this.load(state, true)
+    } catch (error) {
+      await this.unload(state)
+      this.rows.delete(row.id)
+      throw error
+    }
+    return state
+  }
+
+  /** Gỡ row theo môi trường do `spawn` tạo. */
+  async despawn(id: string) {
+    const state = this.require(id)
+    if (state.layer !== 'env') throw new Error(`row ${id} is not an environment row`)
+    await this.unload(state)
+    this.rows.delete(id)
+  }
+
   /** Nạp module plugin theo tên, không gắn vào cây; dùng để đọc `Config` khi thêm plugin mới. */
   resolve(name: string, baseDir = this.baseDir) {
     return resolvePlugin(name, baseDir)
@@ -220,7 +256,12 @@ export class Kernel {
     state.error = undefined
     try {
       state.plugin ??= await resolvePlugin(state.row.name, state.row.baseDir ?? this.baseDir)
-      state.fiber = this.ctx.plugin(state.plugin, interpolate(state.row.config ?? {}))
+      this.loading = state
+      try {
+        state.fiber = this.ctx.plugin(state.plugin, interpolate(state.row.config ?? {}))
+      } finally {
+        this.loading = undefined
+      }
     } catch (error) {
       state.error = (error as Error).message
       if (settle) throw error

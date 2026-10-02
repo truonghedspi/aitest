@@ -65,6 +65,7 @@ export function timeline(events: RunEvent[]): TimelineItem[] {
       case 'draft/edit': items.push({ kind: 'note', seq: e.seq, text: 'Bạn đã sửa bản nháp plan.' }); break
       case 'draft/open': items.push({ kind: 'note', seq: e.seq, text: `Bạn đã mở plan ${d.path}.` }); break
       case 'chat/model': items.push({ kind: 'note', seq: e.seq, text: `Đã đổi model sang ${d.modelId}.` }); break
+      case 'chat/env': items.push({ kind: 'note', seq: e.seq, text: `Môi trường: ${d.env}. Khảo sát và chạy thử dùng môi trường này.` }); break
       case 'turn/end':
         if (d.error) items.push({ kind: 'error', seq: e.seq, text: d.error })
         else if (d.stopReason && d.stopReason !== 'end_turn') items.push({ kind: 'note', seq: e.seq, text: `Agent dừng: ${d.stopReason}` })

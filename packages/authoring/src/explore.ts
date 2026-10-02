@@ -20,8 +20,9 @@ export function apply(ctx: Context) {
       scope = {
         kind: 'explore',
         id: parent.id,
-        // Tính lại mỗi lần đọc: tool thêm giữa phiên (ví dụ qua `propose_tool`) khảo sát được ngay.
-        get namespaces() { return new Set(ctx.actions.list().map((a) => a.namespace)) },
+        // Tính lại mỗi lần đọc: tool thêm giữa phiên (ví dụ qua `propose_tool`) và đổi môi trường có hiệu lực ngay.
+        get namespaces() { return new Set(ctx.actions.list({ kind: 'explore', namespaces: new Set(), phase: 'setup', env: parent.env }).map((a) => a.namespace)) },
+        get env() { return parent.env },
         phase: 'agent',
         signal: parent.signal,
         log: parent.log,
@@ -54,7 +55,7 @@ export function apply(ctx: Context) {
     },
     async execute(input: { action: string; args?: Record<string, unknown> }, { scope }) {
       const args = input.args ?? {}
-      const target = ctx.actions.list({ kind: 'explore', namespaces: new Set(), phase: 'setup' })
+      const target = ctx.actions.list({ kind: 'explore', namespaces: new Set(), phase: 'setup', env: scope.env })
         .find((a) => a.name === input.action)
       if (!target) throw new Error(`action ${input.action} is not available for exploration`)
       const readOnly = target.readOnly === true || target.isReadOnlyCall?.(args) === true

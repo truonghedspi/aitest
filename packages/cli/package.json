@@ -12,6 +12,7 @@
   "dependencies": {
     "@aitest/authoring": "workspace:*",
     "@aitest/core": "workspace:*",
+    "@aitest/environments": "workspace:*",
     "@aitest/mcp-gateway": "workspace:*",
     "@aitest/runner": "workspace:*",
     "@aitest/web-host": "workspace:*",

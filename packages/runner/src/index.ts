@@ -26,6 +26,8 @@ export interface RunOptions {
   model?: string
   /** Giá trị đầu vào do người chạy điền, theo tên input của plan. */
   inputs?: Record<string, unknown>
+  /** Môi trường chạy (`envs/<tên>.yml`); mặc định của service `envs` khi có. */
+  env?: string
 }
 
 export interface RunnerConfig {
@@ -67,7 +69,8 @@ export class Runner extends Service {
     const cwd = this.config.cwd ?? process.cwd()
     const runId = options.runId ?? `${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
     const log = await this.ctx.runlog.create(runId)
-    log.append('run/start', { plan: { id: plan.id, name: plan.name, source: plan.source }, agent: agentName })
+    const env = options.env || (this.ctx.get('envs') as { config?: { default?: string } } | undefined)?.config?.default
+    log.append('run/start', { plan: { id: plan.id, name: plan.name, source: plan.source }, agent: agentName, ...(env ? { env } : {}) })
 
     let connection: AgentConnection | undefined
     let connectError: string | undefined
@@ -79,7 +82,7 @@ export class Runner extends Service {
     }
 
     const model = options.model ?? this.config.model
-    const run = this.createRunContext(log, plan, options.inputs ?? {}, connection, connectError, cwd, model)
+    const run = this.createRunContext(log, plan, options.inputs ?? {}, connection, connectError, cwd, model, env)
     try {
       await this.ctx.parallel('run/start', run)
       await this.ctx.parallel('run/prepare', run)
@@ -90,7 +93,7 @@ export class Runner extends Service {
 
     for (const testCase of cases) {
       if (run.blocked.length) this.blockCase(log, testCase, run.blocked)
-      else await this.runCase(log, plan, testCase, connection, connectError, cwd, model, run.vars)
+      else await this.runCase(log, plan, testCase, connection, connectError, cwd, model, run.vars, env)
     }
 
     // Dọn dữ liệu của lượt chạy theo thứ tự ngược; lỗi được ghi lại, không đổi verdict của case.
@@ -115,14 +118,15 @@ export class Runner extends Service {
   /** Ngữ cảnh chuẩn bị của lượt chạy cho `run/prepare`: biến dựng sẵn, fixture và phiên agent trong scope `prepare`. */
   private createRunContext(
     log: RunLog, plan: TestPlan, given: Record<string, unknown>,
-    connection: AgentConnection | undefined, connectError: string | undefined, cwd: string, model?: string,
+    connection: AgentConnection | undefined, connectError: string | undefined, cwd: string, model?: string, env?: string,
   ): RunContext {
     const controller = new AbortController()
-    const vars: Record<string, unknown> = runVars(log.runId)
+    const vars: Record<string, unknown> = { ...runVars(log.runId), ...(env ? { '$env': env } : {}) }
     log.append('run/vars', { vars })
     return {
       runId: log.runId,
       plan,
+      env,
       given,
       vars,
       blocked: [],
@@ -130,7 +134,7 @@ export class Runner extends Service {
       log: (type, data) => { log.append(type, data) },
       signal: controller.signal,
       createScope: (namespaces) => ({
-        kind: 'prepare', id: 'prepare', runId: log.runId, plan, vars: { ...vars, ...fillTemplate(plan.vars, vars) },
+        kind: 'prepare', id: 'prepare', runId: log.runId, plan, env, vars: { ...fillTemplate(plan.vars, vars), ...vars },
         phase: 'setup', namespaces: new Set(namespaces), signal: controller.signal,
         log: (type, data) => { log.append(type, data) },
       }),
@@ -187,7 +191,7 @@ export class Runner extends Service {
   private async runCase(
     log: RunLog, plan: TestPlan, testCase: TestCase,
     connection: AgentConnection | undefined, connectError: string | undefined, cwd: string, model: string | undefined,
-    runVariables: Record<string, unknown>,
+    runVariables: Record<string, unknown>, env?: string,
   ) {
     const started = performance.now()
     const controller = new AbortController()
@@ -197,10 +201,11 @@ export class Runner extends Service {
       runId: log.runId,
       plan,
       case: testCase,
-      // Biến dựng sẵn và đầu vào của lượt chạy; biến của plan được thay đầu vào trước.
-      vars: { ...runVariables, ...fillTemplate(plan.vars, runVariables), '$case.id': testCase.id },
+      // Biến của plan là giá trị mặc định; biến của lượt chạy (môi trường, catalog, đầu vào, `$run.*`) ghi đè khi trùng tên.
+      vars: { ...fillTemplate(plan.vars, runVariables), ...runVariables, '$case.id': testCase.id },
       phase: 'setup',
       namespaces: new Set(plan.requires),
+      env,
       signal: controller.signal,
       log: (type, data) => { log.append(type, data, testCase.id) },
     }

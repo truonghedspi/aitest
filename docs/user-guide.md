@@ -48,7 +48,7 @@ Hai file đọc địa chỉ hệ thống từ biến môi trường:
 | `ORDER_API_URL` | Địa chỉ API, dùng trong `vars` của plan mẫu | `http://127.0.0.1:4100` |
 | `ORDER_DB` | Đường dẫn file SQLite | `examples/order-api/orders.db` |
 | `AITEST_BROWSER` | Trình duyệt cho test giao diện | `chrome` |
-| `AITEST_ENV` | Môi trường của catalog hệ thống, đọc từ `envs/<tên>.yml` | `local` |
+| `AITEST_ENV` | Môi trường mặc định (`envs/<tên>.yml`), xem mục 5.10 | `local` |
 
 Khi áp dụng cho hệ thống của bạn, sửa các row `action-db`, `action-dbadmin` trong `aitest.yml` và biến trong `vars` của plan.
 
@@ -116,6 +116,7 @@ cases:
 |---|---|---|
 | `id`, `name` | Có | Mã và tên plan |
 | `requires` | Không | Namespace action được bật: `http`, `db`, `webhook`, `browser`... Xem bằng `aitest actions` |
+| `envs` | Không | Môi trường được chạy plan; không khai báo thì chạy được mọi môi trường. Xem mục 5.10 |
 | `inputs` | Không | Đầu vào của lượt chạy: người chạy điền, `fill`, agent `prepare`, `default`. Xem mục 6.1 |
 | `systems` | Không | Hệ thống trong catalog mà plan dùng tới, ví dụ `[order-service]`; cung cấp biến `{{order-service.url}}` theo môi trường. Xem mục 5.9 |
 | `vars` | Không | Biến dùng trong bước qua `{{tên}}`; hỗ trợ `${env.TÊN:-mặc định}` |
@@ -408,6 +409,56 @@ Khi chạy, agent nhận thêm mục "Hệ thống liên quan" trong prompt: bas
 | Môi trường hiện tại không có URL cho hệ thống | warning |
 
 Agent soạn plan đọc catalog bằng `list_systems` và `describe_system` (schema request, response, danh sách bản tin), nên viết bước đúng tên operation và đúng trường ngay lần đầu. Mỗi kênh sự kiện kèm trạng thái tool: namespace cần dùng và đã có tool hay chưa. Khi chưa có, agent đề xuất thêm tool từ danh mục (mục 5.7) trước khi viết bước.
+
+### 5.10. Môi trường
+
+Một plan chạy được trên nhiều môi trường (dev, staging, UAT…) mà không phải sửa plan. Mỗi môi trường kết nối DB, broker, server riêng. Một Host chạy song song nhiều môi trường.
+
+**Khai báo.** Mỗi môi trường là một file `envs/<tên>.yml`. File này không chứa bí mật nên commit được.
+
+```yaml
+# envs/staging.yml
+label: Staging (tích hợp)
+systems:                                   # địa chỉ service và tên topic theo môi trường (catalog hệ thống, mục 5.9)
+  order-service:
+    url: https://orders.stg.example.com
+    events:
+      order-events: { topic: stg.order-events }
+tools:                                     # ghi đè cấu hình row trong aitest.yml, theo mã row
+  action-db:     { config: { file: '${env.STG_ORDER_DB}' } }
+  action-kafka:  { config: { brokers: ['kafka.stg:9092'], sasl: { mechanism: plain, username: qa, password: '${env.STG_KAFKA_PASSWORD}' } } }
+  action-pg:     { enabled: true, config: { args: ['-y', '@modelcontextprotocol/server-postgres', '${env.STG_PG_URL}'] } }
+  action-webhook: { enabled: false }       # tắt tool ở môi trường này
+vars:                                      # ghi đè biến cùng tên trong plan
+  base_url: https://orders.stg.example.com
+policy:
+  readOnly: false                          # true: chặn mọi lời gọi có thể ghi dữ liệu
+```
+
+| Phần | Ý nghĩa |
+|---|---|
+| `tools.<row>.config` | Gộp vào cấu hình row trong `aitest.yml`: object gộp từng khoá, mảng và giá trị khác thay hẳn |
+| `tools.<row>.enabled` | `false` tắt tool ở môi trường này; `true` bật ở môi trường này row đang tắt mặc định |
+| `vars` | Biến dùng chung cho mọi plan; giá trị trong `vars` của plan là mặc định, môi trường ghi đè khi trùng tên |
+| `policy.readOnly` | Chặn mọi lời gọi có thể ghi dữ liệu vào hệ thống, kể cả fixture và agent chuẩn bị dữ liệu. Tool nội bộ (assert, webhook, chờ, tính toán) và tool soạn plan không bị chặn |
+
+Môi trường mặc định do `AITEST_ENV` quyết định (mặc định `local`). Môi trường mặc định chạy được cả khi không có file.
+
+**Chọn môi trường khi chạy:**
+
+| Nơi | Cách chọn |
+|---|---|
+| CLI | `pnpm aitest run <plan> --env staging` |
+| Trang Plan | Ô "Môi trường" ở đầu trang. Danh sách plan hiện kết quả của môi trường đang chọn. Hộp thoại chạy cho chọn lại môi trường |
+| Cuộc chat | Ô môi trường ở đầu cuộc chat. Khảo sát và chạy thử của agent dùng môi trường này; agent được báo khi đổi |
+
+**Giới hạn plan theo môi trường.** Khai báo `envs: [dev, staging]` trong plan thì chạy trên môi trường khác sẽ bị chặn (`blocked`). Biến `{{$env}}` chứa tên môi trường của lượt chạy.
+
+**Theo dõi theo môi trường.** Lượt chạy ghi môi trường. Trang chi tiết plan có bảng **Kết quả theo môi trường**: mỗi case một dòng, mỗi môi trường một cột, ô là kết quả lần chạy gần nhất. Nhờ đó, case đạt ở dev mà lỗi ở staging hiện ra ngay.
+
+**Kiểm tra cấu hình.** `pnpm aitest envs` liệt kê môi trường. `pnpm aitest envs check [tên]` nạp tool của từng môi trường và báo lỗi: row không tồn tại, cấu hình sai schema, plugin không khởi động được.
+
+Ví dụ trong repo: `envs/local.yml` (mặc định), `envs/staging.yml` (API, DB riêng ở cổng 4101), `envs/uat.yml` (chỉ đọc).
 
 ## 6. Chuẩn bị và dọn dữ liệu
 

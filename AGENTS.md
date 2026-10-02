@@ -41,6 +41,7 @@ packages/            @aitest/<tên> — mỗi package là một hoặc nhiều p
   run-viewer/        lượt chạy (trang con của Plan): danh sách, giải thích kết quả, dòng thời gian, theo dõi lượt chạy đang diễn ra
   knowledge/         tri thức của nhóm trong kb/: tool kb_list/kb_read/kb_propose, quy ước vào hướng dẫn, đánh dấu lỗi đã biết
   plugin-manager/    trang Plugin và Tool: bật/tắt, cấu hình, thêm/gỡ, thêm MCP server, tắt tool, chạy thử
+  environments/      môi trường (ctx.envs): tool theo môi trường qua kernel.spawn, chặn ghi (policy.readOnly), plan.envs, envs.list
   inputs/            đầu vào của lượt chạy: người chạy điền, fill, agent prepare (provide_input, register_cleanup), default, blocked
   system-catalog/    catalog hệ thống (ctx.systems): biến {{system.url}}, section prompt, list_systems/describe_system, quy tắc kiểm tra
   tool-catalog/      list_tool_catalog, propose_tool: agent đề xuất thêm tool từ danh mục, người dùng duyệt trong chat
@@ -53,7 +54,7 @@ examples/
 docs/                architecture.md, user-guide.md, plan.schema.json
 kb/                  tri thức của nhóm: bug/, convention/, lesson/ (Markdown + frontmatter)
 systems/             catalog hệ thống: <id>/service.yml (OpenAPI, kênh sự kiện, consumer, dữ liệu)
-envs/                môi trường: URL của service, broker → namespace tool; chọn bằng AITEST_ENV
+envs/                môi trường: URL service, topic, ghi đè cấu hình tool, biến, chặn ghi; chọn bằng --env, AITEST_ENV hoặc trên giao diện
 tool-catalog/        danh mục tool đã kiểm duyệt: plugin, tham số, mẫu cấu hình chỉ đọc và phần ghi
 aitest.yml           cấu hình plugin mặc định
 aitest.e2e.yml       kế thừa aitest.yml, thêm Playwright MCP
@@ -73,7 +74,8 @@ pnpm test                    # vitest; agent kịch bản, không gọi LLM; kho
 AITEST_SKIP_BROWSER=1 pnpm test   # bỏ qua bài test trình duyệt khi máy không có Chrome
 pnpm demo:api                # Order API mẫu ở cổng 4100
 pnpm aitest validate <plan>
-pnpm aitest run <plan> [--case A,B] [--agent kiro] [--input tên=giá-trị]   # gọi Kiro thật, tốn lượt dùng
+pnpm aitest run <plan> [--env staging] [--case A,B] [--agent kiro] [--input tên=giá-trị]   # gọi Kiro thật, tốn lượt dùng
+pnpm aitest envs check       # nạp tool của từng môi trường, báo lỗi cấu hình
 pnpm aitest -c aitest.e2e.yml run examples/plans/order-ui.plan.yaml
 pnpm aitest report .aitest/runs/<id>/events.jsonl           # dựng lại báo cáo từ log
 pnpm web:build && pnpm aitest -c aitest.web.yml serve       # giao diện soạn plan tại http://127.0.0.1:4300
@@ -93,6 +95,7 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 - **Mọi thao tác của agent đi qua gateway.** Không cấp cho agent MCP server nào khác ngoài endpoint của gateway. Tích hợp MCP server ngoài phải qua `action-mcp-proxy` để giữ guard, evidence và log.
 - **Thực thi quyết định tại nơi thực thi.** Giới hạn `requires` và guard được kiểm tra trong `ActionRegistry.invoke`, không chỉ ở danh sách tool hay prompt. Kiểm thử từ chối phải gọi qua `invoke`.
 - **Fixture không qua AI.** `setup`/`teardown` và `fill` của input do runner chạy; lỗi setup cho verdict `error` và không gọi agent; teardown luôn chạy. Agent chỉ chuẩn bị dữ liệu trong scope `prepare` (input có `prepare`): giá trị phải đọc từ evidence qua `provide_input`, dữ liệu tạo ra được dọn qua `register_cleanup`.
+- **Plan không gắn với một môi trường.** Mọi thứ khác nhau giữa môi trường nằm trong `envs/<tên>.yml`; tool theo môi trường là row `<row>@<env>` do `ctx.envs` nạp, registry chọn theo `scope.env`. Không đọc `AITEST_ENV` trực tiếp trong plugin; dùng `scope.env` hoặc `ctx.envs.config.default`.
 - **Môi trường chưa đủ điều kiện là `blocked`, không phải `fail`.** Input thiếu hoặc không thoả `require` chặn cả lượt chạy; case không được chạy.
 - **Giao diện dựng từ log.** Mọi thứ giao diện hiển thị lâu dài phải là event trong log của cuộc chat; chỉ token đang stream đi qua `chat/live`. Thông tin hiển thị mới đòi hỏi event mới hoặc trường mới trong `view`.
 - **Thay đổi lúc chạy đi vào patch layer.** Bật/tắt, cấu hình, thêm/gỡ plugin và tắt tool chỉ đi qua `ctx.kernel`; kernel ghi `*.patch.yml` khi plugin nạp thành công. Không sửa file cấu hình gốc từ code.

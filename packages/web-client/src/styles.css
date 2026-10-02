@@ -315,3 +315,13 @@ table.plain th, table.plain td { text-align: left; padding: 4px 12px 4px 0; bord
 .case-checklist { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .case-checklist label { display: flex; gap: 6px; align-items: baseline; }
 .case-checklist input[type=checkbox] { width: auto; flex: none; }
+/* Môi trường */
+.env-select { display: inline-flex; align-items: center; gap: 6px; }
+.env-select select { width: auto; }
+.badge.readonly, .tag.env.readonly { color: var(--warn); border-color: var(--warn); }
+.tag.env { font-family: var(--mono, ui-monospace, monospace); }
+.env-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.matrix-wrap { overflow-x: auto; }
+table.matrix td, table.matrix th { text-align: center; }
+table.matrix td:first-child, table.matrix th:first-child { text-align: left; }
+table.matrix .current { background: var(--surface-2); }

@@ -5,6 +5,7 @@ import type {
 export interface RunStartData {
   plan: { id: string; name: string; source: string }
   agent: string
+  env?: string
 }
 
 export interface CaseStartData {
@@ -98,6 +99,7 @@ export function deriveReport(events: RunEvent[]): RunReport {
     runId: start.runId,
     plan: start.data.plan,
     agent: start.data.agent,
+    env: start.data.env,
     startedAt: start.ts,
     finishedAt: end?.ts,
     durationMs: end ? Date.parse(end.ts) - Date.parse(start.ts) : 0,

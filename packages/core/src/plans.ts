@@ -79,5 +79,5 @@ export function runVars(runId: string, started = new Date(), timeZone = process.
   }
 }
 
-/** Tên biến dựng sẵn; `$case.id` do runner đặt cho từng case. */
-export const BUILTIN_VARS = ['$run.id', '$run.short', '$run.date', '$run.time', '$run.epoch', '$case.id']
+/** Tên biến dựng sẵn; `$case.id` do runner đặt cho từng case, `$env` là môi trường của lượt chạy. */
+export const BUILTIN_VARS = ['$run.id', '$run.short', '$run.date', '$run.time', '$run.epoch', '$case.id', '$env']

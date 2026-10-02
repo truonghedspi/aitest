@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import { errorMessage, interpolate, toPosix, z } from '@aitest/core'
+import { errorMessage, loadEnvironment, toPosix, z, type EnvironmentSpec } from '@aitest/core'
 
 /**
  * Mô hình hệ thống dưới kiểm thử, tách thành hai phần:
@@ -78,12 +78,8 @@ export interface SystemSpec {
   file: string
 }
 
-export interface EnvSpec {
-  name: string
-  systems: Record<string, { url?: string }>
-  brokers: Record<string, { namespace: string; description?: string }>
-  file?: string
-}
+/** Phần môi trường mà catalog dùng: địa chỉ service, tên topic hoặc exchange theo môi trường, ánh xạ broker. */
+export type EnvSpec = Pick<EnvironmentSpec, 'name' | 'systems' | 'brokers'> & { file?: string }
 
 export interface CatalogIssue {
   file: string
@@ -144,11 +140,6 @@ const ServiceSchema = z.object({
   })).default([]),
 })
 
-const EnvSchema = z.object({
-  name: z.string(),
-  systems: z.dict(z.object({ url: z.string() })).default({}),
-  brokers: z.dict(z.object({ namespace: z.string().required(), description: z.string() })).default({}),
-})
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
 
@@ -263,19 +254,16 @@ export async function loadOpenApi(file: string): Promise<HttpOperation[]> {
   return operations
 }
 
-/** Nạp `envs/<tên>.yml` và thay `${env.TÊN}`. Thiếu file thì trả môi trường rỗng kèm issue. */
+/** Nạp `envs/<tên>.yml` qua loader chung của core. Thiếu file thì trả môi trường rỗng kèm issue. */
 export async function loadEnv(dir: string, name: string): Promise<{ env: EnvSpec; issues: CatalogIssue[] }> {
-  const file = resolve(dir, `${name}.yml`)
-  try {
-    const data = EnvSchema(interpolate(parseYaml(await readFile(file, 'utf8'))))
-    return { env: { name: data.name ?? name, systems: data.systems, brokers: data.brokers, file: display(file) }, issues: [] }
-  } catch (error) {
-    const missing = (error as NodeJS.ErrnoException).code === 'ENOENT'
-    return {
-      env: { name, systems: {}, brokers: {} },
-      issues: [{ file: display(file), error: missing ? `environment ${name} not found` : errorMessage(error).split('\n')[0] }],
-    }
-  }
+  const { env, issues } = await loadEnvironment(dir, name)
+  return { env: { name: env.name, systems: env.systems, brokers: env.brokers, file: env.file }, issues }
+}
+
+/** Kênh sự kiện theo môi trường: tên topic, exchange được ghi đè bởi `envs/<tên>.yml` nếu có. */
+export function channelIn(channel: EventChannel, systemId: string, env: EnvSpec): EventChannel {
+  const override = env.systems[systemId]?.events?.[channel.id]
+  return override ? { ...channel, topic: override.topic ?? channel.topic, exchange: override.exchange ?? channel.exchange } : channel
 }
 
 /** Biến do catalog cung cấp cho plan: `<system>.url`. */

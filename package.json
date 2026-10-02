@@ -38,6 +38,7 @@
     "@aitest/chat": "workspace:*",
     "@aitest/cli": "workspace:*",
     "@aitest/core": "workspace:*",
+    "@aitest/environments": "workspace:*",
     "@aitest/guard-basic": "workspace:*",
     "@aitest/inputs": "workspace:*",
     "@aitest/knowledge": "workspace:*",

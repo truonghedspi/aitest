@@ -11,7 +11,8 @@ import { bootFromFile, deriveReport, parseJson, PlanError, type Kernel } from '@
 const USAGE = `aitest — nền tảng AI tự đọc kịch bản và chạy test
 
 Cách dùng:
-  aitest run <plan> [--case TC-01,TC-02] [--agent kiro] [--model <id>] [--input tên=giá-trị ...]
+  aitest run <plan> [--env staging] [--case TC-01,TC-02] [--agent kiro] [--model <id>] [--input tên=giá-trị ...]
+  aitest envs [check [tên]]                               Liệt kê môi trường; check nạp tool của từng môi trường để kiểm tra
                                                           Chạy test plan, mã thoát khác 0 nếu có case không pass
   aitest validate <plan>                                  Kiểm tra cú pháp và schema của plan
   aitest actions                                          Liệt kê action đã đăng ký
@@ -33,6 +34,7 @@ export async function main(argv: string[]) {
       agent: { type: 'string' },
       model: { type: 'string' },
       input: { type: 'string', multiple: true },
+      env: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   })
@@ -50,6 +52,7 @@ export async function main(argv: string[]) {
   try {
     switch (command) {
       case 'run': return await run(kernel, need(target, 'plan'), values)
+      case 'envs': return await envs(kernel, target, positionals[2])
       case 'validate': return await validate(kernel, need(target, 'plan'))
       case 'actions': return listActions(kernel)
       case 'report': return await replay(kernel, need(target, 'events.jsonl'))
@@ -63,15 +66,44 @@ export async function main(argv: string[]) {
   }
 }
 
-async function run(kernel: Kernel, plan: string, values: { case?: string; agent?: string; model?: string; input?: string[] }) {
+async function run(kernel: Kernel, plan: string, values: { case?: string; agent?: string; model?: string; input?: string[]; env?: string }) {
   const report = await kernel.ctx.runner.run({
     plan,
+    env: values.env,
     agent: values.agent,
     model: values.model,
     inputs: parseInputs(values.input ?? []),
     cases: values.case?.split(',').map((s) => s.trim()).filter(Boolean),
   })
   return report.totals.pass === report.totals.total ? 0 : 1
+}
+
+/** `aitest envs`: danh sách môi trường; `aitest envs check [tên]`: nạp tool của môi trường, báo lỗi cấu hình. */
+async function envs(kernel: Kernel, sub?: string, only?: string) {
+  const service = kernel.ctx.get('envs') as import('@aitest/environments').EnvironmentService | undefined
+  if (!service) throw new Error('plugin @aitest/environments is not loaded')
+  const list = await service.list()
+  let failed = 0
+  for (const env of list.filter((e) => !only || e.name === only)) {
+    const flags = [env.default ? 'mặc định' : '', env.readOnly ? 'chỉ đọc' : ''].filter(Boolean).join(', ')
+    process.stdout.write(`${env.name}${env.label ? ` — ${env.label}` : ''}${flags ? ` (${flags})` : ''}\n`)
+    process.stdout.write(`  file: ${env.file ?? '(không có, dùng cấu hình mặc định)'}\n`)
+    if (env.tools.length) process.stdout.write(`  ghi đè: ${env.tools.map((t) => t.enabled ? t.row : `${t.row} (tắt)`).join(', ')}\n`)
+    for (const issue of env.issues) process.stdout.write(`  ERROR ${issue.error}\n`)
+    failed += env.issues.length
+    if (sub === 'check') {
+      try {
+        await service.ensure(env.name)
+        const tools = kernel.ctx.actions.all().map((d) => d.name).filter((n) => kernel.ctx.actions.envsOf(n).includes(env.name))
+        process.stdout.write(`  OK nạp được${tools.length ? `; tool riêng: ${tools.join(', ')}` : ''}\n`)
+      } catch (error) {
+        failed++
+        process.stdout.write(`  ERROR ${(error as Error).message}\n`)
+      }
+    }
+  }
+  if (only && !list.some((e) => e.name === only)) throw new Error(`unknown environment ${only}`)
+  return failed ? 1 : 0
 }
 
 /** `--input tên=giá-trị`: giá trị dạng số, `true`/`false`, JSON được giữ kiểu; còn lại là chuỗi. */

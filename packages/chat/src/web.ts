@@ -28,8 +28,9 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
     return chats.list()
   })
 
-  ctx.web.method('chats.create', async (params: { title?: string }) => {
+  ctx.web.method('chats.create', async (params: { title?: string; env?: string }) => {
     const chat = await chats.create(params.title)
+    if (params.env) await chat.setEnv(params.env)
     void pushList()
     return chat.summary()
   })
@@ -79,6 +80,12 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
   })
 
   ctx.web.method('chats.models', async (params: { chatId: string }) => (await chats.get(params.chatId)).models())
+
+  ctx.web.method('chats.setEnv', async (params: { chatId: string; env: string }) => {
+    const summary = await (await chats.get(params.chatId)).setEnv(params.env)
+    void pushList()
+    return summary
+  })
 
   ctx.web.method('chats.setModel', async (params: { chatId: string; modelId: string }) => {
     return (await chats.get(params.chatId)).setModel(params.modelId)

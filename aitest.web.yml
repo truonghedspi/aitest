@@ -21,6 +21,8 @@ plugins:
   # Quản lý plugin và tool từ giao diện; thay đổi ghi vào aitest.web.patch.yml.
   - id: plugin-manager
     name: '@aitest/plugin-manager'
+  - id: envs-web
+    name: '@aitest/environments/web'
   # Quản lý plan: danh sách, chi tiết, chạy plan từ giao diện
   - id: plan-manager
     name: '@aitest/plan-manager'
