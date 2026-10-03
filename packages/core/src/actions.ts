@@ -25,6 +25,8 @@ export class ActionRegistry extends Service {
   private readonly restricted = new Map<string, number>()
   private readonly filters = new Set<ActionFilter>()
   private seq = 0
+  /** Lời gọi đang chạy: dùng để người dùng dừng đúng một lời gọi (`cancel`). */
+  private readonly inflight = new Map<string, { scope: ActionScope; name: string; controller: AbortController; started: number }>()
 
   constructor(ctx: Context) {
     super(ctx, 'actions')
@@ -125,6 +127,24 @@ export class ActionRegistry extends Service {
   }
 
   /**
+   * Dừng một lời gọi đang chạy (người dùng bấm Dừng trên thẻ tool). Action nhận `signal` bị huỷ;
+   * lời gọi trả về ngay `status: error` kèm `annotations.cancelled`. Trả `false` khi lời gọi đã xong.
+   */
+  cancel(callId: string, reason = 'cancelled by the user'): boolean {
+    const entry = this.inflight.get(callId)
+    if (!entry) return false
+    entry.controller.abort(reason)
+    return true
+  }
+
+  /** Lời gọi đang chạy, lọc theo mã scope (ví dụ mã cuộc chat). */
+  running(scopeId?: string) {
+    return [...this.inflight.entries()]
+      .filter(([, e]) => !scopeId || e.scope.id === scopeId)
+      .map(([callId, e]) => ({ callId, name: e.name, scopeId: e.scope.id, phase: e.scope.phase, startedAt: e.started }))
+  }
+
+  /**
    * Thực thi action qua pipeline `action/before` → `execute` → `action/after` → `action/result`.
    * Hàm này không ném lỗi; mọi lỗi được chuẩn hoá thành `ActionOutcome`.
    */
@@ -149,11 +169,28 @@ export class ActionRegistry extends Service {
     if (decision.type === 'deny') {
       outcome = { status: 'denied', error: decision.reason, durationMs: elapsed(), annotations: {} }
     } else {
+      // Signal riêng của lời gọi: huỷ khi scope bị huỷ hoặc khi người dùng dừng đúng lời gọi này.
+      const controller = new AbortController()
+      const signal = AbortSignal.any([scope.signal, controller.signal])
+      this.inflight.set(call.id, { scope, name, controller, started: Date.now() })
+      // Lời gọi bị dừng (người dùng dừng, case quá thời gian, lượt chạy bị dừng) trả kết quả ngay,
+      // kể cả khi action không tự dừng theo signal.
+      const cancelled = new Promise<never>((_, reject) => {
+        const stop = () => reject(controller.signal.aborted ? new CancelledError(controller.signal.reason) : new Error(`aborted: ${errorMessage(signal.reason ?? 'scope ended')}`))
+        if (signal.aborted) stop()
+        else signal.addEventListener('abort', stop, { once: true })
+      })
       try {
-        const value = await definition.execute(call.args, { scope, callId: call.id, signal: scope.signal })
+        const running = Promise.resolve().then(() => definition.execute(call.args, { scope, callId: call.id, signal }))
+        // Action không dừng theo signal có thể lỗi sau khi lời gọi đã trả về: bỏ qua lỗi muộn đó.
+        running.catch(() => {})
+        const value = await Promise.race([running, cancelled])
         outcome = { status: 'ok', value, durationMs: elapsed(), annotations: {} }
       } catch (error) {
-        outcome = { status: 'error', error: errorMessage(error), durationMs: elapsed(), annotations: {} }
+        const stopped = error instanceof CancelledError
+        outcome = { status: 'error', error: errorMessage(error), durationMs: elapsed(), annotations: stopped ? { cancelled: true } : {} }
+      } finally {
+        this.inflight.delete(call.id)
       }
     }
 
@@ -166,6 +203,13 @@ export class ActionRegistry extends Service {
     })
     this.ctx.emit('action/result', call, outcome)
     return outcome
+  }
+}
+
+/** Lời gọi bị người dùng dừng; thông báo dặn agent không tự gọi lại. */
+class CancelledError extends Error {
+  constructor(reason: unknown) {
+    super(`${typeof reason === 'string' ? reason : 'cancelled by the user'}; do not retry unless the user asks`)
   }
 }
 

@@ -377,3 +377,26 @@ button.tag.active { border-color: var(--accent); }
 .skill-menu li code { white-space: nowrap; flex-shrink: 0; }
 .skill-menu li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .skill-menu li.active { background: var(--surface-2); }
+
+/* Chế độ duyệt tool */
+.permission-toggle { font-size: 12px; padding: 3px 8px; white-space: nowrap; }
+.permission-toggle.auto { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+
+/* Plan dạng tài liệu cho người đọc nghiệp vụ */
+.view-tabs { margin: 4px 0; }
+.plan-doc-wrap { overflow-y: auto; flex: 1; min-height: 0; }
+.plan-doc { display: flex; flex-direction: column; gap: 12px; line-height: 1.5; padding: 4px 2px; }
+.plan-doc h3 { margin: 0; }
+.plan-doc h4 { margin: 4px 0; font-size: 14px; }
+.plan-doc ul, .plan-doc ol { margin: 2px 0; padding-left: 22px; }
+.plan-doc li { margin: 2px 0; }
+.plan-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: 13px; }
+.plan-facts dt { color: var(--muted); }
+.plan-facts dd { margin: 0; }
+.doc-case { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
+.doc-case .case-id { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+.doc-case .label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.doc-case .tech { overflow-wrap: anywhere; }
+
+/* Dừng tool đang chạy */
+.tool summary .stop-tool { margin-left: auto; font-size: 12px; padding: 1px 8px; }

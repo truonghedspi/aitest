@@ -27,6 +27,8 @@ export interface ChatSummary {
   env?: string
   /** Cuộc chat đã lưu trữ. */
   archived?: boolean
+  /** Chế độ duyệt tool: `ask` hỏi người dùng, `auto` tự duyệt tool của aitest. */
+  permissionMode?: 'ask' | 'auto'
 }
 
 export type LiveFrame =

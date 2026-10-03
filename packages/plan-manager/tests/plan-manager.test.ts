@@ -100,6 +100,34 @@ describe('plan manager over WebSocket', () => {
     await expect(ws.call('plans.get', { path: 'package.json' })).rejects.toThrow(/outside plan directories/)
   })
 
+  it('previews an unsaved draft for business readers: fixtures, structured steps and criteria', async () => {
+    const draft = [
+      'id: TP-PREVIEW', 'name: Huỷ lệnh', 'requires: [http]', 'systems: [order-service]',
+      'setup:', '  - { action: http_request, desc: Đặt một lệnh mới, args: { method: POST, url: "{{order-service.url}}/orders", body: {} }, save: { order_id: $.body.id } }',
+      'teardown:', '  - { action: http_request, args: { method: GET, url: "{{order-service.url}}/orders" } }',
+      'cases:', '  - id: C1', '    title: Huỷ lệnh NEW', '    steps:',
+      '      - { call: order-service.cancelOrder, path: { id: "{{order_id}}" }, desc: huỷ lệnh vừa đặt }',
+      '      - Đọc bảng orders theo id.',
+      '    expect:',
+      '      - { id: http-200, desc: API trả 200, check: { op: eq, value: 200 } }',
+      '      - { id: fee, desc: Phí đúng, check: { op: eq, expr: "qty * price" } }',
+      '      - { id: note, desc: Giao diện báo thành công }', '',
+    ].join('\n')
+    const preview = await ws.call('plans.preview', { content: draft })
+    expect(preview.plan).toMatchObject({
+      setup: ['Đặt một lệnh mới'],
+      teardown: ['Chạy `http_request`'],
+      cases: [{
+        calls: [{ call: 'order-service.cancelOrder', desc: 'huỷ lệnh vừa đặt', path: { id: '{{order_id}}' } }, null],
+        expect: [{ id: 'http-200', op: 'eq', value: 200 }, { id: 'fee', op: 'eq', expr: 'qty * price' }, { id: 'note' }],
+      }],
+    })
+    expect(preview.plan.cases[0].expect[2]).not.toHaveProperty('op')
+    const broken = await ws.call('plans.preview', { content: 'id: X' })
+    expect(broken.valid).toBe(false)
+    expect(broken.plan).toBeUndefined()
+  })
+
   it('runs a plan in the background and lists its runs by plan', async () => {
     await expect(ws.call('plans.run', { path: brokenPath })).rejects.toThrow(/plan is invalid/)
     await expect(ws.call('plans.run', { path: planPath, cases: ['NOPE'] })).rejects.toThrow(/unknown case: NOPE/)

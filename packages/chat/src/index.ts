@@ -36,6 +36,8 @@ export interface ChatSummary {
   env?: string
   /** Cuộc chat đã lưu trữ: ẩn khỏi danh sách chính, không gửi tin nhắn được cho tới khi bỏ lưu trữ. */
   archived: boolean
+  /** Chế độ duyệt tool của cuộc chat. */
+  permissionMode?: PermissionMode
 }
 
 export interface Config {
@@ -46,7 +48,18 @@ export interface Config {
   userTools: string[]
   historyChars: number
   autoArchiveDays: number
+  permissionMode: PermissionMode
+  alwaysAsk: string[]
 }
+
+/**
+ * Cách duyệt tool trong cuộc chat.
+ * - `ask`: tool có tác động (chạy thử, lưu plan, ghi bộ nhớ nhóm…) chờ người dùng bấm duyệt.
+ * - `auto`: tự duyệt mọi tool của aitest, trừ tool trong `alwaysAsk`. Tool riêng của agent (ghi file, chạy shell)
+ *   không đi qua gateway nên vẫn luôn phải hỏi.
+ */
+export type PermissionMode = 'ask' | 'auto'
+export const PERMISSION_MODES: PermissionMode[] = ['ask', 'auto']
 
 const DEFAULT_TITLE = 'Cuộc chat mới'
 
@@ -87,6 +100,8 @@ export class ChatService extends Service {
     userTools: z.array(z.string()).default(DEFAULT_USER_TOOLS),
     historyChars: z.natural().default(20000).description('Độ dài tối đa lịch sử gửi lại khi khôi phục cuộc chat.'),
     autoArchiveDays: z.natural().default(0).description('Tự lưu trữ cuộc chat không hoạt động quá số ngày này; 0 là tắt.'),
+    permissionMode: z.union(['ask', 'auto'] as const).default('ask').description('Chế độ duyệt tool mặc định của cuộc chat mới: `ask` hỏi người dùng, `auto` tự duyệt.'),
+    alwaysAsk: z.array(z.string()).default(['propose_tool']).description('Tool luôn phải hỏi người dùng, kể cả ở chế độ tự duyệt.'),
   })
 
   private readonly chats = new Map<string, Chat>()
@@ -219,7 +234,8 @@ export class ChatService extends Service {
 export default ChatService
 
 interface PendingPermission {
-  resolve(allowed: boolean): void
+  tool?: string
+  resolve(allowed: boolean, by?: 'user' | 'auto'): void
 }
 
 export class Chat {
@@ -250,6 +266,7 @@ export class Chat {
       status: this.status,
       env: this.env(),
       archived: this.archived(),
+      permissionMode: this.permissionMode(),
     }
   }
 
@@ -303,8 +320,20 @@ export class Chat {
     }
   }
 
+  /** Dừng lượt hiện tại: huỷ lượt của agent, các lời gọi tool đang chạy và việc chạy nền (chạy thử) của cuộc chat. */
   cancel() {
     this.controller?.abort()
+    if (!this.authoring) return
+    for (const call of this.ctx.actions.running(this.authoring.id)) this.ctx.actions.cancel(call.callId)
+    this.ctx.emit('authoring/stop', this.authoring.id)
+  }
+
+  /** Dừng một lời gọi tool đang chạy của cuộc chat (nút Dừng trên thẻ tool). */
+  cancelTool(callId: string) {
+    const call = this.authoring && this.ctx.actions.running(this.authoring.id).find((c) => c.callId === callId)
+    if (!call) throw new Error(`tool call ${callId} is not running in this chat`)
+    this.ctx.actions.cancel(callId)
+    return { cancelled: true, name: call.name }
   }
 
   /** Người dùng trả lời một yêu cầu xin quyền dùng tool của agent. */
@@ -390,6 +419,30 @@ export class Chat {
       }
     }
     return this.authoring
+  }
+
+  /** Chế độ duyệt tool: lần chọn gần nhất trong log, nếu không có thì mặc định của service. */
+  permissionMode(): PermissionMode {
+    const chosen = (this.log.events.findLast((e) => e.type === 'chat/permissionMode')?.data as { mode?: PermissionMode } | undefined)?.mode
+    return chosen ?? this.service.config.permissionMode
+  }
+
+  /** Đổi chế độ duyệt; chuyển sang `auto` thì tự duyệt luôn các yêu cầu đang chờ đủ điều kiện. */
+  setPermissionMode(mode: PermissionMode) {
+    this.assertActive()
+    if (!PERMISSION_MODES.includes(mode)) throw new Error(`permission mode must be one of ${PERMISSION_MODES.join(', ')}`)
+    this.log.append('chat/permissionMode', { mode })
+    if (mode === 'auto') {
+      for (const [, pending] of this.pending) if (this.autoAccepts(pending.tool)) pending.resolve(true, 'auto')
+    }
+    return this.summary()
+  }
+
+  /** Ở chế độ tự duyệt, tool này có được duyệt không cần hỏi: phải là tool soạn plan của aitest và không thuộc `alwaysAsk`. */
+  private autoAccepts(tool: string | undefined) {
+    if (this.permissionMode() !== 'auto' || !tool) return false
+    if (this.service.config.alwaysAsk.includes(tool)) return false
+    return !!this.ctx.actions.get(tool)?.scopes?.includes('authoring')
   }
 
   /** Môi trường đã chọn: lần chọn gần nhất trong log. */
@@ -593,14 +646,22 @@ export class Chat {
     return this.ask({ requestId, tool, title: request.title, args: raw.rawInput })
   }
 
-  /** Hiện thẻ duyệt và chờ người dùng quyết định. Ngoài lượt của agent thì từ chối ngay. */
+  /**
+   * Hiện thẻ duyệt và chờ người dùng quyết định. Ngoài lượt của agent thì từ chối ngay.
+   * Ở chế độ tự duyệt, thẻ vẫn được ghi (kèm bản xem trước) và được duyệt ngay với `by: 'auto'`.
+   */
   private async ask(request: { requestId: string; tool?: string; title: string; args?: unknown; preview?: unknown }): Promise<boolean> {
     if (!this.controller) return false
     this.log.append('permission/request', request)
+    if (this.autoAccepts(request.tool)) {
+      this.log.append('permission/decision', { requestId: request.requestId, tool: request.tool, title: request.title, allowed: true, by: 'auto' })
+      return true
+    }
     this.setStatus('waiting')
-    const allowed = await new Promise<boolean>((resolve) => this.pending.set(request.requestId, { resolve }))
+    const { allowed, by } = await new Promise<{ allowed: boolean; by: 'user' | 'auto' }>((resolve) =>
+      this.pending.set(request.requestId, { tool: request.tool, resolve: (allowed, by = 'user') => resolve({ allowed, by }) }))
     this.pending.delete(request.requestId)
-    this.log.append('permission/decision', { requestId: request.requestId, tool: request.tool, title: request.title, allowed, by: 'user' })
+    this.log.append('permission/decision', { requestId: request.requestId, tool: request.tool, title: request.title, allowed, by })
     if (this.controller) this.setStatus('running')
     return allowed
   }

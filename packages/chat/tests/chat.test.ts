@@ -209,6 +209,48 @@ describe('chat host over WebSocket', () => {
     expect(modelLog.at(-1)).toBe('open:fast')
   })
 
+  it('auto-accepts aitest tools in auto mode, still asks for tools in alwaysAsk, and accepts pending requests when switched on', async () => {
+    const run = async (chatId: string, text: string) => {
+      const pushedBefore = ws.pushed.length
+      await ws.call('chats.send', { chatId, text })
+      return pushedBefore
+    }
+    const after = (from: number, type: string) => ws.waitFor((m) => ws.pushed.indexOf(m) >= from && m.type === 'event' && m.event.type === type)
+
+    // Bật tự duyệt ngay khi tạo: lưu plan không cần hỏi; thẻ vẫn được ghi kèm quyết định `auto`.
+    const auto = await ws.call('chats.create', { title: 'Tự duyệt', permissionMode: 'auto' })
+    expect(auto.permissionMode).toBe('auto')
+    await ws.call('chats.subscribe', { chatId: auto.id })
+    await after(await run(auto.id, 'Soạn và lưu'), 'turn/end')
+    let events = (await ws.call('chats.subscribe', { chatId: auto.id })).events
+    expect(events.find((e: any) => e.type === 'permission/decision' && e.data.tool === 'save_plan').data).toMatchObject({ allowed: true, by: 'auto' })
+    expect(events.filter((e: any) => e.type === 'agent/message').at(-1).data.text).toBe('Đã lưu.')
+
+    // propose_tool thuộc alwaysAsk: vẫn chờ người dùng.
+    process.env.AITEST_CHAT_RABBITMQ_URL = 'amqp://guest:guest@127.0.0.1:5672'
+    const from = await run(auto.id, 'Thêm RabbitMQ để kiểm tra sự kiện')
+    const request = await after(from, 'permission/request')
+    expect(request.event.data.tool).toBe('propose_tool')
+    await ws.waitFor((m) => ws.pushed.indexOf(m) >= from && m.type === 'live' && m.frame.type === 'status' && m.frame.status === 'waiting')
+    await ws.call('chats.decide', { chatId: auto.id, requestId: request.event.data.requestId, allowed: false })
+    await after(from, 'turn/end')
+    expect(harness.kernel.ctx.actions.get('rabbitmq_tap')).toBeUndefined()
+
+    // Đang chờ duyệt lưu plan thì bật tự duyệt: yêu cầu đang chờ được duyệt luôn.
+    const ask = await ws.call('chats.create', { title: 'Hỏi rồi bật' })
+    expect(ask.permissionMode).toBe('ask')
+    await ws.call('chats.subscribe', { chatId: ask.id })
+    const from2 = await run(ask.id, 'Soạn và lưu')
+    await after(from2, 'permission/request')
+    await ws.waitFor((m) => ws.pushed.indexOf(m) >= from2 && m.type === 'live' && m.frame.type === 'status' && m.frame.status === 'waiting')
+    expect((await ws.call('chats.setPermissionMode', { chatId: ask.id, mode: 'auto' })).permissionMode).toBe('auto')
+    await after(from2, 'turn/end')
+    events = (await ws.call('chats.subscribe', { chatId: ask.id })).events
+    expect(events.find((e: any) => e.type === 'permission/decision' && e.data.tool === 'save_plan').data.by).toBe('auto')
+    expect(events.some((e: any) => e.type === 'chat/permissionMode' && e.data.mode === 'auto')).toBe(true)
+    await expect(ws.call('chats.setPermissionMode', { chatId: ask.id, mode: 'yolo' })).rejects.toThrow(/must be one of/)
+  })
+
   it('shows the proposed tool config on one approval card and adds the tool when approved', async () => {
     process.env.AITEST_CHAT_RABBITMQ_URL = 'amqp://guest:guest@127.0.0.1:5672'
     const chat = await ws.call('chats.create', { title: 'Thêm tool' })

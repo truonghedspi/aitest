@@ -7,7 +7,7 @@ export type TimelineItem =
   | { kind: 'thought'; seq: number; text: string }
   | { kind: 'tool'; seq: number; call: ActionCallData; pending: boolean }
   | { kind: 'agent-tool'; seq: number; title: string; status: string }
-  | { kind: 'permission'; seq: number; requestId: string; title: string; tool?: string; args?: unknown; preview?: any; decision?: boolean }
+  | { kind: 'permission'; seq: number; requestId: string; title: string; tool?: string; args?: unknown; preview?: any; decision?: boolean; by?: string }
   | { kind: 'note'; seq: number; text: string }
   | { kind: 'error'; seq: number; text: string }
 
@@ -59,12 +59,18 @@ export function timeline(events: RunEvent[]): TimelineItem[] {
       }
       case 'permission/decision': {
         const item = permissions.get(d.requestId)
-        if (item) item.decision = d.allowed
+        if (item) {
+          item.decision = d.allowed
+          item.by = d.by
+        }
         break
       }
       case 'draft/edit': items.push({ kind: 'note', seq: e.seq, text: 'Bạn đã sửa bản nháp plan.' }); break
       case 'draft/open': items.push({ kind: 'note', seq: e.seq, text: `Bạn đã mở plan ${d.path}.` }); break
       case 'chat/model': items.push({ kind: 'note', seq: e.seq, text: `Đã đổi model sang ${d.modelId}.` }); break
+      case 'chat/permissionMode':
+        items.push({ kind: 'note', seq: e.seq, text: d.mode === 'auto' ? 'Đã bật tự duyệt: tool của aitest chạy không cần hỏi (trừ tool luôn phải hỏi).' : 'Đã tắt tự duyệt: tool có tác động chờ bạn duyệt.' })
+        break
       case 'agent/session':
         if (d.restored) items.push({ kind: 'note', seq: e.seq, text: 'Đã khôi phục phiên của agent: agent còn nhớ toàn bộ ngữ cảnh trước đó.' })
         else if (d.previous) items.push({ kind: 'note', seq: e.seq, text: 'Không khôi phục được phiên cũ của agent; đã mở phiên mới và gửi lại lịch sử hội thoại cùng bản nháp.' })

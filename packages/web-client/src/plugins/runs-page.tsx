@@ -247,7 +247,9 @@ function RunDetail({ runId, caseId, navigate }: { runId: string; caseId?: string
         </button>
         <h2>{summary?.plan?.name ?? runId}</h2>
         <EnvTag env={summary?.env} />
-        {!finished && <span className="badge pending">Đang chạy…</span>}
+        {!finished && <span className="badge pending">{runLevel.some((e) => e.type === 'run/cancelled') ? 'Đang dừng…' : 'Đang chạy…'}</span>}
+        {!finished && !runId.startsWith('dryrun-') && !runLevel.some((e) => e.type === 'run/cancelled') && <CancelRun runId={runId} />}
+        {finished && runLevel.some((e) => e.type === 'run/cancelled') && <span className="badge failed">Đã dừng giữa chừng</span>}
         <Totals totals={totals} />
       </header>
       <p className="muted small">
@@ -603,5 +605,27 @@ function RawEvents({ events }: { events: RunEvent[] }) {
         <details key={e.seq} className="raw-event"><summary><code>#{e.seq} {e.type}</code> <span className="muted small">{e.ts}</span></summary><Json value={e.data} /></details>
       ))}
     </div>
+  )
+}
+
+/** Dừng lượt chạy khởi động từ trang Plan; case đang chạy vẫn dọn dẹp, case chưa chạy ghi lỗi "run cancelled". */
+function CancelRun({ runId }: { runId: string }) {
+  const [error, setError] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const cancel = async () => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await connection.call('plans.cancel', { runId })
+    } catch (e) {
+      setError((e as Error).message)
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <button disabled={busy} onClick={cancel} title="Case đang chạy dừng nhưng vẫn chạy bước dọn dẹp; case chưa chạy được bỏ qua">⏹ Dừng lượt chạy</button>
+      {error && <span className="bad small" title={error}>Không dừng được: {error}</span>}
+    </>
   )
 }

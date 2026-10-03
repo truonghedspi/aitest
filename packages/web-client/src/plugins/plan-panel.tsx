@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { connection } from '../connection.ts'
+import { PlanDocument, type PlanDoc } from '../plan-document.tsx'
 import { draftState, SAVE_DIR } from '../derive.ts'
 import type { ClientPlugin, PanelProps } from '../slots.ts'
 import { useChat } from '../store.ts'
@@ -24,6 +25,8 @@ function PlanPanel({ chatId }: PanelProps) {
   const [busy, setBusy] = useState<string>()
   const [error, setError] = useState<string>()
   const [picking, setPicking] = useState(false)
+  /** Xem plan dạng tài liệu (mặc định, cho người đọc nghiệp vụ) hoặc sửa YAML. */
+  const [view, setView] = useState<'preview' | 'yaml'>('preview')
   /** Case được chọn để chạy thử; `undefined` nghĩa là chạy mọi case. */
   const [selected, setSelected] = useState<string[]>()
   const summary = draft.validation?.summary
@@ -125,12 +128,20 @@ function PlanPanel({ chatId }: PanelProps) {
         )}
       </div>
       {picker}
-      <textarea
-        className="editor"
-        spellCheck={false}
-        value={text}
-        onChange={(e) => { setText(e.target.value); setDirty(true) }}
-      />
+      <div className="tabs inline view-tabs">
+        <button className={view === 'preview' ? 'active' : ''} onClick={() => setView('preview')}>Xem trước</button>
+        <button className={view === 'yaml' ? 'active' : ''} onClick={() => setView('yaml')}>YAML</button>
+      </div>
+      {view === 'preview'
+        ? <DraftPreview content={text} />
+        : (
+          <textarea
+            className="editor"
+            spellCheck={false}
+            value={text}
+            onChange={(e) => { setText(e.target.value); setDirty(true) }}
+          />
+        )}
       <div className="actions">
         <button disabled={!!busy} onClick={() => invoke('Đang kiểm tra…', 'validate_plan', { content: text })}>Kiểm tra</button>
         <button disabled={!!busy || selected?.length === 0} onClick={dryRun}>
@@ -265,4 +276,34 @@ export function inputPlaceholder(i: { desc?: string; default?: unknown; required
     : i.mode === 'prepare' ? 'trống: agent tự chuẩn bị'
     : i.default !== undefined ? `trống: mặc định ${JSON.stringify(i.default)}`
     : i.required ? 'bắt buộc điền' : 'không bắt buộc'
+}
+
+interface Preview { valid: boolean; errors: Array<{ message: string }>; plan?: PlanDoc }
+
+/** Bản nháp dạng tài liệu; dựng lại khi nội dung đổi (chờ người dùng ngừng gõ). */
+function DraftPreview({ content }: { content: string }) {
+  const [preview, setPreview] = useState<Preview>()
+  const [error, setError] = useState<string>()
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      connection.call<Preview>('plans.preview', { content }).then((p) => { setPreview(p); setError(undefined) }, (e) => setError((e as Error).message))
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [content])
+  if (error) return <div className="muted">Không dựng được bản xem trước: {error}. Xem tab YAML.</div>
+  if (!preview) return <div className="muted">Đang dựng bản xem trước…</div>
+  if (!preview.plan) {
+    return (
+      <div className="plan-doc">
+        <div className="bad">Bản nháp chưa đọc được thành plan:</div>
+        <ul>{preview.errors.map((e, i) => <li key={i} className="small">{e.message}</li>)}</ul>
+      </div>
+    )
+  }
+  return (
+    <div className="plan-doc-wrap">
+      {!preview.valid && <div className="warn small">Plan còn {preview.errors.length} lỗi; xem kết quả kiểm tra bên dưới.</div>}
+      <PlanDocument plan={preview.plan} />
+    </div>
+  )
 }

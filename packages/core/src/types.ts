@@ -432,6 +432,8 @@ export interface RunReport {
   inputs: ResolvedInput[]
   /** Lý do lượt chạy bị chặn trước khi chạy case. */
   blocked: string[]
+  /** Lượt chạy bị người dùng dừng giữa chừng: lý do (event `run/cancelled`). */
+  cancelled?: string
   cases: CaseReport[]
   logFile?: string
 }

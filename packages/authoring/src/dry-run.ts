@@ -25,6 +25,9 @@ export const Config = z.object({
 })
 
 interface Tracked {
+  /** Phiên soạn plan đã chạy thử; dùng khi người dùng dừng lượt của phiên. */
+  sessionId: string
+  controller: AbortController
   promise: Promise<RunReport>
   report?: RunReport
   error?: string
@@ -68,9 +71,12 @@ export function apply(ctx: Context, config: Config) {
         throw new Error(`at most ${config.maxCases} cases per dry run; choose cases with \`cases\``)
       }
       const runId = `dryrun-${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
+      const controller = new AbortController()
       const tracked: Tracked = {
+        sessionId: scope.id,
+        controller,
         startedAt: Date.now(),
-        promise: ctx.runner.run({ plan, cases, runId, inputs: args.inputs, env: scope.env }),
+        promise: ctx.runner.run({ plan, cases, runId, inputs: args.inputs, env: scope.env, signal: controller.signal }),
       }
       tracked.promise.then(
         (report) => { tracked.report = report },
@@ -118,7 +124,14 @@ export function apply(ctx: Context, config: Config) {
       }
       if (!tracked.report && !tracked.error) {
         const wait = Math.min(args.waitSec ?? 30, config.maxWait) * 1000
-        await Promise.race([tracked.promise.catch(() => {}), sleep(wait, undefined, { signal }).catch(() => {})])
+        // Người dùng dừng lời gọi đang chờ kết quả: dừng luôn lượt chạy thử.
+        const stop = () => tracked.controller.abort(signal.reason ?? 'cancelled by the user')
+        signal.addEventListener('abort', stop, { once: true })
+        try {
+          await Promise.race([tracked.promise.catch(() => {}), sleep(wait, undefined, { signal }).catch(() => {})])
+        } finally {
+          signal.removeEventListener('abort', stop)
+        }
       }
       if (tracked.error) return { runId: args.runId, status: 'error', error: tracked.error }
       if (!tracked.report) {
@@ -128,6 +141,15 @@ export function apply(ctx: Context, config: Config) {
     },
     present: (_args, outcome) => ({ kind: 'run-result', title: 'Kết quả chạy thử', ...(outcome.value as object | undefined) }),
   })
+
+  // Người dùng dừng lượt của cuộc chat: dừng các lượt chạy thử đang chạy của phiên đó.
+  ctx.on('authoring/stop', (sessionId) => {
+    for (const tracked of runs.values()) {
+      if (tracked.sessionId === sessionId && !tracked.report && !tracked.error) tracked.controller.abort('cancelled by the user')
+    }
+  })
+  // Gỡ plugin: dừng mọi lượt chạy thử còn chạy.
+  ctx.effect(() => () => { for (const tracked of runs.values()) tracked.controller.abort('dry-run plugin unloaded') })
 
   ctx.authoring.guideSection({
     id: 'authoring/dry-run',

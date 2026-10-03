@@ -39,7 +39,22 @@ export interface PlanDetail {
     /** Môi trường được chạy plan; rỗng là mọi môi trường. */
     envs: string[]
     inputs: Array<{ name: string; desc?: string; default?: unknown; required: boolean; mode: 'fill' | 'prepare' | 'user' }>
-    cases: Array<{ id: string; title: string; tags: string[]; steps: string[]; expect: Array<{ id: string; desc: string }> }>
+    /** Bước chuẩn bị, dọn dẹp chung cho mọi case: mô tả, hoặc tên action khi không có mô tả. */
+    setup: string[]
+    teardown: string[]
+    cases: Array<{
+      id: string
+      title: string
+      tags: string[]
+      /** Câu chỉ dẫn cho agent; bước có cấu trúc đã được chuyển thành câu. */
+      steps: string[]
+      /** Lời gọi gốc của bước có cấu trúc, cùng chỉ số với `steps`. */
+      calls: Array<{ call: string; desc?: string; path?: unknown; query?: unknown; body?: unknown } | null>
+      setup: string[]
+      teardown: string[]
+      /** Kết quả mong đợi kèm tiêu chí: toán tử, giá trị hoặc công thức. */
+      expect: Array<{ id: string; desc: string; op?: string; value?: unknown; expr?: string }>
+    }>
   }
 }
 
@@ -53,7 +68,8 @@ export interface ModelList {
 }
 
 export function apply(ctx: Context, config: Config) {
-  const running = new Set<string>()
+  /** Lượt chạy đang chạy do trang Plan khởi động, kèm controller để dừng. */
+  const running = new Map<string, AbortController>()
   // Danh sách model của agent chạy test: mở một phiên tạm để hỏi agent, lưu 10 phút.
   let models: { at: number; value: Promise<ModelList> } | undefined
   const loadModels = async (): Promise<ModelList> => {
@@ -110,6 +126,18 @@ export function apply(ctx: Context, config: Config) {
     }
   })
 
+  /** Bản nháp chưa lưu dưới dạng dễ đọc (bảng "Xem trước" của cuộc chat): parse và kiểm tra, không đọc file. */
+  ctx.web.method('plans.preview', async (params: { content: string }): Promise<Omit<PlanDetail, 'path'>> => {
+    const result = await ctx.authoring.validate(params.content)
+    return {
+      content: params.content,
+      valid: result.valid,
+      errors: result.issues.filter((i) => i.level === 'error'),
+      warnings: result.issues.filter((i) => i.level === 'warning'),
+      plan: result.plan && describePlan(result.plan),
+    }
+  })
+
   ctx.web.method('plans.run', async (params: { path: string; cases?: string[]; inputs?: Record<string, unknown>; env?: string; model?: string }) => {
     // Đọc qua `read_plan` để dùng chung giới hạn thư mục plan với agent soạn plan.
     const { content } = await call('read_plan', { path: params.path }) as { content: string }
@@ -126,15 +154,33 @@ export function apply(ctx: Context, config: Config) {
     }
     const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
     const inputs = Object.fromEntries(Object.entries(params.inputs ?? {}).filter(([, v]) => v !== '' && v !== undefined))
-    running.add(runId)
-    ctx.runner.run({ plan, cases: params.cases?.length ? params.cases : undefined, runId, inputs, env: params.env || undefined, model: params.model || undefined })
+    const controller = new AbortController()
+    running.set(runId, controller)
+    ctx.runner.run({
+      plan, cases: params.cases?.length ? params.cases : undefined, runId, inputs, env: params.env || undefined, model: params.model || undefined,
+      signal: controller.signal,
+    })
       .catch((error) => ctx.logger('plan-manager').warn('run %s failed: %s', runId, errorMessage(error)))
       .finally(() => running.delete(runId))
     return { runId }
   })
+
+  /** Dừng lượt chạy do trang Plan khởi động: case đang chạy dừng (vẫn dọn dẹp), case chưa chạy ghi `error`. */
+  ctx.web.method('plans.cancel', (params: { runId: string }) => {
+    const controller = running.get(params.runId)
+    if (!controller) throw new Error(`run ${params.runId} is not running from this host`)
+    controller.abort('cancelled by the user')
+    return { cancelled: true }
+  })
+
+  ctx.effect(() => () => { for (const controller of running.values()) controller.abort('plan-manager unloaded') })
 }
 
 /** Thông tin plan cho giao diện: case kèm bước và expectation, đầu vào kèm cách lấy giá trị. */
+function fixtureText(step: { action: string; desc?: string }) {
+  return step.desc?.trim() || `Chạy \`${step.action}\``
+}
+
 export function describePlan(plan: TestPlan): PlanDetail['plan'] {
   return {
     id: plan.id,
@@ -148,8 +194,20 @@ export function describePlan(plan: TestPlan): PlanDetail['plan'] {
       name: i.name, desc: i.desc, default: i.default, required: i.required,
       mode: i.fill.length ? 'fill' as const : i.prepare ? 'prepare' as const : 'user' as const,
     })),
+    setup: plan.setup.map(fixtureText),
+    teardown: plan.teardown.map(fixtureText),
     cases: plan.cases.map((c) => ({
-      id: c.id, title: c.title, tags: c.tags, steps: c.steps, expect: c.expect.map((e) => ({ id: e.id, desc: e.desc })),
+      id: c.id, title: c.title, tags: c.tags, steps: c.steps,
+      calls: c.steps.map((_, i) => {
+        const call = c.calls?.[i]
+        return call ? { call: call.call, desc: call.desc, path: call.path, query: call.query, body: call.body } : null
+      }),
+      setup: c.setup.map(fixtureText),
+      teardown: c.teardown.map(fixtureText),
+      expect: c.expect.map((e) => ({
+        id: e.id, desc: e.desc,
+        ...(e.check ? { op: e.check.op, ...(e.check.expr ? { expr: e.check.expr } : { value: e.check.value }) } : {}),
+      })),
     })),
   }
 }

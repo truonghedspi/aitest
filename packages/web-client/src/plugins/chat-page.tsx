@@ -22,8 +22,22 @@ function chatTitle(events: Array<{ type: string; data: any }>): string | undefin
   return events.findLast((e) => e.type === 'chat/renamed' || e.type === 'chat/created')?.data?.title
 }
 
+/** Chế độ duyệt người dùng chọn gần nhất; cuộc chat mới dùng lại chế độ này. */
+const PERMISSION_KEY = 'aitest.permissionMode'
+function lastPermissionMode(): 'ask' | 'auto' | undefined {
+  try {
+    const value = localStorage.getItem(PERMISSION_KEY)
+    return value === 'auto' || value === 'ask' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+function rememberPermissionMode(mode: 'ask' | 'auto') {
+  try { localStorage.setItem(PERMISSION_KEY, mode) } catch { /* trình duyệt chặn lưu trữ: bỏ qua */ }
+}
+
 async function createChat(navigate: (path: string) => void, env?: string) {
-  const chat = await connection.call<ChatSummary>('chats.create', { env })
+  const chat = await connection.call<ChatSummary>('chats.create', { env, permissionMode: lastPermissionMode() })
   navigate(`chat/${chat.id}`)
 }
 
@@ -141,6 +155,7 @@ function ChatView({ chatId }: { chatId: string }) {
           <ArchiveButton chatId={chatId} archived={archived} busy={chat.status !== 'idle'} />
           {!archived && <ChatEnvPicker chatId={chatId} events={chat.events} busy={chat.status !== 'idle'} />}
           {!archived && <ModelPicker chatId={chatId} busy={chat.status !== 'idle'} />}
+          {!archived && <PermissionToggle chatId={chatId} mode={permissionMode(chat.events, chat.summary?.permissionMode)} />}
           <span className={`status ${chat.status}`}>{STATUS_LABEL[chat.status]}</span>
         </header>
         <div className="timeline">
@@ -171,7 +186,10 @@ function Item({ item, chatId }: { item: TimelineItem; chatId: string }) {
     case 'user': return <div className="bubble user">{item.text}</div>
     case 'agent': return <div className="bubble agent"><Markdown text={item.text} /></div>
     case 'thought': return <details className="thought"><summary>Suy nghĩ của agent</summary>{item.text}</details>
-    case 'tool': return <ToolCallCard call={item.call} pending={item.pending} />
+    case 'tool': return (
+      <ToolCallCard call={item.call} pending={item.pending}
+        onCancel={() => void connection.call('chats.cancelTool', { chatId, callId: item.call.callId }).catch(() => {})} />
+    )
     case 'agent-tool': return <div className="agent-tool">⚙ {item.title} — {item.status}</div>
     case 'permission': return <PermissionCard item={item} chatId={chatId} />
     case 'note': return <div className="note">{item.text}</div>
@@ -243,6 +261,34 @@ function ArchiveButton({ chatId, archived, busy }: { chatId: string; archived: b
   )
 }
 
+function permissionMode(events: Array<{ type: string; data: any }>, fallback?: 'ask' | 'auto'): 'ask' | 'auto' {
+  return events.findLast((e) => e.type === 'chat/permissionMode')?.data.mode ?? fallback ?? 'ask'
+}
+
+/** Bật/tắt tự duyệt tool cho cuộc chat; lựa chọn được nhớ cho cuộc chat mới. */
+function PermissionToggle({ chatId, mode }: { chatId: string; mode: 'ask' | 'auto' }) {
+  const [error, setError] = useState<string>()
+  const toggle = async () => {
+    const next = mode === 'auto' ? 'ask' : 'auto'
+    setError(undefined)
+    try {
+      await connection.call('chats.setPermissionMode', { chatId, mode: next })
+      rememberPermissionMode(next)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  return (
+    <button className={`permission-toggle ${mode}`} onClick={toggle}
+      title={mode === 'auto'
+        ? 'Đang tự duyệt: chạy thử, lưu plan, ghi bộ nhớ… chạy không cần hỏi. Thêm tool mới và tool riêng của agent vẫn hỏi. Bấm để tắt.'
+        : 'Đang hỏi trước khi chạy tool có tác động. Bấm để tự duyệt.'}>
+      {mode === 'auto' ? '⚡ Tự duyệt' : 'Hỏi duyệt'}
+      {error && <span className="bad small" title={error}> !</span>}
+    </button>
+  )
+}
+
 function ChatEnvPicker({ chatId, events, busy }: { chatId: string; events: Array<{ type: string; data: any }>; busy: boolean }) {
   const envs = useEnvs()
   const [error, setError] = useState<string>()
@@ -266,6 +312,12 @@ function ChatEnvPicker({ chatId, events, busy }: { chatId: string; events: Array
 
 function PermissionCard({ item, chatId }: { item: Extract<TimelineItem, { kind: 'permission' }>; chatId: string }) {
   const decide = (allowed: boolean) => connection.call('chats.decide', { chatId, requestId: item.requestId, allowed })
+  // Tool không phải của aitest (hoặc thuộc nhóm luôn hỏi) vẫn chờ: duyệt luôn yêu cầu này bằng tay.
+  const autoFromNow = async () => {
+    rememberPermissionMode('auto')
+    await connection.call('chats.setPermissionMode', { chatId, mode: 'auto' })
+    await decide(true).catch(() => {})
+  }
   const label = item.tool === 'dry_run' ? 'chạy thử plan trên môi trường kiểm thử'
     : item.tool === 'save_plan' ? 'lưu plan' : item.title
   return (
@@ -277,8 +329,14 @@ function PermissionCard({ item, chatId }: { item: Extract<TimelineItem, { kind: 
         : item.args !== undefined && item.tool !== 'dry_run' && item.tool !== 'save_plan' && <Json value={item.args} />}
       {item.tool === 'save_plan' && <div className="muted">Đường dẫn: <code>{(item.args as any)?.path}</code></div>}
       {item.decision === undefined
-        ? <div className="actions"><button className="primary" onClick={() => decide(true)}>Cho phép</button><button onClick={() => decide(false)}>Từ chối</button></div>
-        : <div className="muted">{item.decision ? 'Đã cho phép' : 'Đã từ chối'}</div>}
+        ? (
+          <div className="actions">
+            <button className="primary" onClick={() => decide(true)}>Cho phép</button>
+            {item.tool && <button onClick={autoFromNow} title="Bật tự duyệt cho cuộc chat này; yêu cầu đang chờ được duyệt luôn">Cho phép và tự duyệt từ giờ</button>}
+            <button onClick={() => decide(false)}>Từ chối</button>
+          </div>
+        )
+        : <div className="muted">{!item.decision ? 'Đã từ chối' : item.by === 'auto' ? 'Tự duyệt (chế độ tự duyệt)' : 'Đã cho phép'}</div>}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { connection } from '../connection.ts'
+import { PlanDocument, type PlanDoc } from '../plan-document.tsx'
 import { defaultEnv, EnvSelect, EnvTag, envLabel, setSelectedEnv, useEnvs, useSelectedEnv } from '../env.tsx'
 import type { ClientPlugin, PageProps } from '../slots.ts'
 import { inputPlaceholder } from './plan-panel.tsx'
@@ -31,11 +32,7 @@ interface PlanDetail {
   valid: boolean
   errors: Array<{ message: string; path?: string }>
   warnings: Array<{ message: string; path?: string }>
-  plan?: {
-    id: string; name: string; description?: string; context?: string; requires: string[]; systems: string[]; envs: string[]
-    inputs: Array<{ name: string; desc?: string; default?: unknown; required: boolean; mode: 'fill' | 'prepare' | 'user' }>
-    cases: Array<{ id: string; title: string; tags: string[]; steps: string[]; expect: Array<{ id: string; desc: string }> }>
-  }
+  plan?: PlanDoc & { requires: string[] }
 }
 
 type Status = 'all' | 'never' | 'pass' | 'problem' | 'invalid'
@@ -289,20 +286,10 @@ function PlanView({ path, navigate }: { path: string; navigate(path: string): vo
                   </div>
                 </section>
               )}
-              {plan.cases.map((c) => {
-                const v = verdictOf(c.id)
-                return (
-                  <details key={c.id} className="case-card">
-                    <summary>
-                      <span title={v ? VERDICT[v] : 'Chưa chạy'}>{v ? ICON[v] : '○'}</span> <b>{c.id}</b> {c.title}
-                      <span className="muted small"> · {c.steps.length} bước · {c.expect.length} kết quả mong đợi</span>
-                      {c.tags.map((t) => <span key={t} className="tag">{t}</span>)}
-                    </summary>
-                    <ol>{c.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
-                    {c.expect.length > 0 && <ul className="expect">{c.expect.map((e) => <li key={e.id}><code>{e.id}</code> {e.desc}</li>)}</ul>}
-                  </details>
-                )
-              })}
+              <PlanDocument plan={plan} compact caseBadge={(id) => {
+                const v = verdictOf(id)
+                return <span title={v ? VERDICT[v] : 'Chưa chạy'}>{v ? ICON[v] : '○'}</span>
+              }} />
             </>
           )}
           {tab === 'runs' && (

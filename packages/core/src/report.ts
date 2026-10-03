@@ -37,10 +37,12 @@ export function deriveReport(events: RunEvent[]): RunReport {
   const cases = new Map<string, CaseReport>()
   let inputs: ResolvedInput[] = []
   let blocked: string[] = []
+  let cancelled: string | undefined
 
   for (const event of events) {
     if (event.type === 'inputs/resolved') inputs = (event.data as { inputs: ResolvedInput[] }).inputs
     if (event.type === 'run/blocked') blocked = (event.data as { reasons: string[] }).reasons
+    if (event.type === 'run/cancelled') cancelled = (event.data as { reason?: string }).reason ?? 'run cancelled'
     const id = event.caseId
     if (event.type === 'case/start') {
       const data = event.data as CaseStartData
@@ -106,6 +108,7 @@ export function deriveReport(events: RunEvent[]): RunReport {
     totals,
     inputs,
     blocked,
+    ...(cancelled ? { cancelled } : {}),
     cases: list,
   }
 }

@@ -21,6 +21,11 @@ declare module '@deepseek-ai/cordis' {
   interface Events {
     /** Bổ sung lỗi/cảnh báo cho một plan đã parse thành công. Listener ghi vào `issues`. @mode parallel */
     'authoring/lint'(plan: TestPlan, issues: LintIssue[]): Promise<void>
+    /**
+     * Người dùng dừng lượt hiện tại của phiên soạn plan (nút Dừng của cuộc chat). Plugin dừng việc chạy nền của phiên,
+     * ví dụ lượt chạy thử. Lời gọi tool đang chạy đã được huỷ qua `ctx.actions.cancel`. @mode emit
+     */
+    'authoring/stop'(sessionId: string): void
   }
 }
 

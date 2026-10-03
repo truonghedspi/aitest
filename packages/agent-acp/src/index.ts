@@ -175,6 +175,8 @@ async function connect(config: Config, cwd: string, logger: ReturnType<Context['
             exited,
           ])
           return { stopReason: result.stopReason }
+        } catch (error) {
+          throw describeAcpError(error)
         } finally {
           signal.removeEventListener('abort', onAbort)
         }
@@ -184,6 +186,19 @@ async function connect(config: Config, cwd: string, logger: ReturnType<Context['
       },
     }
   }
+}
+
+/**
+ * Lỗi JSON-RPC của agent: `message` thường chỉ là "Internal error", lý do thật (hết hạn mức, lỗi xác thực)
+ * nằm trong `data`. Gộp lại để cuộc chat và báo cáo hiện đúng nguyên nhân.
+ */
+export function describeAcpError(error: unknown): Error {
+  if (!error || typeof error !== 'object') return new Error(String(error))
+  const { message, data, code } = error as { message?: unknown; data?: unknown; code?: unknown }
+  const detail = typeof data === 'string' ? data : data && typeof data === 'object' ? (data as { message?: unknown }).message ?? JSON.stringify(data) : undefined
+  const head = typeof message === 'string' && message ? message : `agent error${code !== undefined ? ` ${String(code)}` : ''}`
+  if (detail === undefined || head.includes(String(detail))) return error instanceof Error ? error : new Error(head)
+  return new Error(`${head}: ${String(detail)}`)
 }
 
 function toUpdate(update: acp.SessionNotification['update']): AgentUpdate {

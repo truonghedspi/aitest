@@ -1,6 +1,6 @@
 import type { WebConnection } from '@aitest/web-host'
 import type { Context, RunEvent } from '@aitest/core'
-import type { ChatService } from './index.ts'
+import type { ChatService, PermissionMode } from './index.ts'
 
 /**
  * Method WebSocket của cuộc chat, theo mẫu luồng follow của dsh:
@@ -28,9 +28,10 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
     return chats.list()
   })
 
-  ctx.web.method('chats.create', async (params: { title?: string; env?: string }) => {
+  ctx.web.method('chats.create', async (params: { title?: string; env?: string; permissionMode?: PermissionMode }) => {
     const chat = await chats.create(params.title)
     if (params.env) await chat.setEnv(params.env)
+    if (params.permissionMode && params.permissionMode !== chat.permissionMode()) chat.setPermissionMode(params.permissionMode)
     void pushList()
     return chat.summary()
   })
@@ -64,6 +65,8 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
     return { cancelled: true }
   })
 
+  ctx.web.method('chats.cancelTool', async (params: { chatId: string; callId: string }) => (await chats.get(params.chatId)).cancelTool(params.callId))
+
   ctx.web.method('chats.decide', async (params: { chatId: string; requestId: string; allowed: boolean }) => {
     ;(await chats.get(params.chatId)).decide(params.requestId, params.allowed)
     return { ok: true }
@@ -96,6 +99,13 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
 
   ctx.web.method('chats.setEnv', async (params: { chatId: string; env: string }) => {
     const summary = await (await chats.get(params.chatId)).setEnv(params.env)
+    void pushList()
+    return summary
+  })
+
+  /** Bật hoặc tắt chế độ tự duyệt tool của cuộc chat. */
+  ctx.web.method('chats.setPermissionMode', async (params: { chatId: string; mode: PermissionMode }) => {
+    const summary = (await chats.get(params.chatId)).setPermissionMode(params.mode)
     void pushList()
     return summary
   })

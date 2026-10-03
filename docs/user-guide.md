@@ -305,14 +305,16 @@ Sau khi `git pull`, luôn chạy lại `pnpm serve`: giao diện đã build khô
 | Cột trái | Danh sách cuộc chat; tiêu đề tự đặt theo tin nhắn đầu tiên |
 | Đầu cuộc chat | Chọn **model** cho cuộc chat; danh sách lấy từ agent. Đổi model áp dụng cho các tin nhắn sau và được ghi vào hội thoại |
 | Cột giữa | Hội thoại; mỗi tool agent dùng hiện thành một thẻ, bấm để xem chi tiết |
-| Cột phải | "Plan đang soạn": YAML mới nhất, kết quả kiểm tra, kết quả chạy thử; nút "Mở plan có sẵn" và ô chọn case chạy thử |
+| Cột phải | "Plan đang soạn": tab **Xem trước** trình bày plan như tài liệu cho BA (các bước, kết quả mong đợi và tiêu chí đạt viết thành câu), tab **YAML** để sửa; kết quả kiểm tra, kết quả chạy thử; nút "Mở plan có sẵn" và ô chọn case chạy thử |
 
 Cách làm việc hiệu quả:
 
 1. Mô tả tính năng và các trường hợp cần kiểm thử. Ví dụ: "Soạn test plan cho mục 3 trong đặc tả: huỷ lệnh NEW thành công, huỷ lệnh đã huỷ bị từ chối 409."
 2. Trả lời câu hỏi của agent nếu có.
 3. Khi agent xin phép **chạy thử** hoặc **lưu plan**, thẻ duyệt hiện trong hội thoại. Bấm "Cho phép" hoặc "Từ chối". Các tool chỉ đọc (đọc tài liệu, khảo sát, kiểm tra) không cần duyệt.
+   Không muốn duyệt từng lần thì bấm nút **Hỏi duyệt** trên đầu cuộc chat để chuyển sang **⚡ Tự duyệt**, hoặc bấm "Cho phép và tự duyệt từ giờ" trên thẻ. Ở chế độ tự duyệt, chạy thử, lưu plan, ghi bộ nhớ, ghi chú Knowledge chạy ngay; thẻ vẫn hiện trong hội thoại với nhãn "Tự duyệt". Hai trường hợp vẫn phải hỏi: thêm tool mới vào nền tảng (`propose_tool`), và tool riêng của agent như ghi file hay chạy lệnh. Cuộc chat mới dùng lại chế độ bạn chọn gần nhất. Chạy thử có ghi dữ liệu vào môi trường đang chọn; với môi trường dùng chung, nên bật chặn ghi (`readOnly`) cho môi trường đó.
 4. Góp ý bằng lời, hoặc sửa YAML trực tiếp ở cột phải rồi bấm "Kiểm tra", "Chạy thử", "Lưu". Agent được báo về phần bạn sửa ở tin nhắn tiếp theo.
+5. Tool chạy lâu (chạy thử, chờ kết quả, truy vấn chậm) có nút **⏹ Dừng** trên thẻ trong hội thoại. Dừng lời gọi chờ kết quả chạy thử thì lượt chạy thử cũng dừng; case đang chạy vẫn chạy bước dọn dẹp. Agent nhận thông báo bạn đã dừng và làm tiếp, không tự gọi lại. Nút "Dừng" ở ô nhập dừng cả lượt của agent, kể cả tool và lượt chạy thử đang chạy.
 
 Khi chạy thử phát hiện case không đạt, agent phân biệt plan viết chưa rõ với lỗi thật của hệ thống. Plan không bị sửa để che lỗi của hệ thống.
 
@@ -867,6 +869,7 @@ Trang **Plan** (`pnpm aitest -c aitest.web.yml serve`) gom plan và lượt ch�
 | Xem lần chạy gần nhất | Bấm cột kết quả trên thẻ; lượt chạy thật được ưu tiên hơn lượt chạy thử |
 | Chạy plan | "▶ Chạy" → chọn case, điền đầu vào (mục 6.1) → "▶ Chạy N case". Giao diện chuyển ngay sang màn theo dõi lượt chạy |
 | Sửa cùng agent | Mở plan trong một cuộc chat mới (mục 5.6) |
+| Dừng lượt chạy | Trên màn theo dõi lượt chạy, bấm "⏹ Dừng lượt chạy". Case đang chạy dừng nhưng vẫn dọn dẹp; case chưa chạy ghi lỗi "run cancelled"; báo cáo ghi "Đã dừng giữa chừng" |
 | Soạn plan mới | "+ Soạn plan mới cùng agent" |
 
 **Chi tiết plan.** Bấm một thẻ để xem chi tiết:
@@ -1001,6 +1004,7 @@ Khi khởi động, log của Host ghi proxy đang dùng (`proxy from env: http=
 | Trang báo "web client is not built" | Chạy `pnpm web:build` |
 | Gửi tin nhắn báo "agent is still working" | Chờ agent xong lượt hiện tại, hoặc bấm "Dừng" |
 | Agent dừng với lỗi `agent process exited` | Kiểm tra đăng nhập Kiro; tin nhắn tiếp theo tự kết nối lại |
+| Lỗi `Internal error: … monthly usage limit has been reached` | Tài khoản Kiro đã hết hạn mức dùng của tháng. Chờ chu kỳ mới, hoặc đổi tài khoản (`kiro-cli login`) |
 | `validate_plan` báo `namespace dbadmin is fixture-only` | Bỏ `dbadmin` khỏi `requires`; fixture vẫn dùng được `dbadmin_query` |
 | Agent báo "không có <tên> trong catalog" hoặc "không có bảng … trong hệ thống đã khai báo" với MCP server vừa thêm | Danh mục tool và catalog hệ thống chỉ là mô tả bổ sung; MCP server tự thêm không cần có ở đó. Nhắc agent: "gọi list_actions, dùng namespace <tên> và khảo sát bảng bằng explore". Đánh dấu chỉ đọc cho tool truy vấn (trang Tool) để agent khảo sát được. Muốn agent hiểu cơ sở dữ liệu thuộc service nào, khai báo `data: [{ namespace: <tên>, tables: [...] }]` trong `systems/<id>/service.yml` |
 | Giao diện hiện "Đã có bản giao diện mới" | Bấm "Tải lại". Giao diện được build lại khi Host đang chạy |

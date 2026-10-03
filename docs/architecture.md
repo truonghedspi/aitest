@@ -144,9 +144,25 @@ Action chạy trong một **scope** có loại `case` (test case), `authoring` (
 | `run/event` | emit | Mỗi bản ghi mới trong run log |
 | `run/report` | parallel | Reporter xuất báo cáo |
 | `authoring/lint` | parallel | Bổ sung lỗi, cảnh báo khi kiểm tra plan |
+| `authoring/stop` | emit | Người dùng dừng lượt của phiên soạn plan; plugin dừng việc chạy nền của phiên (lượt chạy thử) |
 | `chat/live` | emit | Token đang stream và trạng thái của cuộc chat; không ghi log |
 
 Event ghi vào run log mà plugin dùng chung: `case/annotation` (`{ key, value }`) gắn thông tin vào case; `deriveReport` đưa vào `CaseReport.annotations`.
+
+**Dừng giữa chừng.** `ActionRegistry` cấp cho mỗi lời gọi một `signal` riêng, nối với `signal` của scope.
+
+- `ctx.actions.cancel(callId)` dừng đúng một lời gọi; `ctx.actions.running(scopeId?)` liệt kê lời gọi đang chạy.
+- Lời gọi bị dừng trả về ngay, kể cả khi action không tự dừng theo signal. Kết quả có `status: error`, `annotations.cancelled`, và thông báo dặn agent không tự gọi lại. Scope bị huỷ (case quá thời gian, lượt chạy bị dừng) cũng kết thúc lời gọi đang chạy.
+- `RunOptions.signal` dừng lượt chạy:
+  - Case đang chạy nhận verdict `error` "run cancelled" nhưng vẫn chạy teardown.
+  - Case chưa chạy ghi `error` mà không gọi agent.
+  - Bước dọn của lượt chạy vẫn chạy.
+  - Runner ghi `run/cancelled`; `deriveReport` đưa lý do vào `report.cancelled`.
+- Trong cuộc chat:
+  - Nút Dừng trên thẻ tool gọi `chats.cancelTool`.
+  - Nút Dừng của cả lượt huỷ lượt của agent, các lời gọi đang chạy và phát `authoring/stop`.
+  - Plugin `authoring/dry-run` dừng lượt chạy thử khi lời gọi `get_run_result` đang chờ bị dừng, hoặc khi nhận `authoring/stop`.
+- Trang Plan dừng lượt chạy do chính Host đó khởi động qua `plans.cancel`.
 
 Listener waterfall không giữ quyết định thì phải `return next()`.
 
@@ -428,12 +444,25 @@ Mỗi cuộc chat có một log `.aitest/chats/<id>/events.jsonl`, đồng thờ
 | `agent/prompt` | Toàn bộ văn bản gửi agent, gồm chỉ dẫn vai trò ở lượt đầu |
 | `agent/tool` | Tool call do ACP báo, gồm cả tool riêng của agent |
 | `action/start`, `action/call` | Lời gọi tool soạn plan, kèm tham số, kết quả, `view`, pha (`agent` hoặc `user`) |
-| `permission/request`, `permission/decision` | Yêu cầu dùng tool và quyết định (`policy` hoặc `user`) |
+| `permission/request`, `permission/decision` | Yêu cầu dùng tool và quyết định (`policy`, `user` hoặc `auto`) |
+| `chat/permissionMode` | Chế độ duyệt tool của cuộc chat: `ask` hoặc `auto` |
 | `draft/edit` | Người dùng sửa bản nháp trên giao diện |
 | `draft/open` | Người dùng mở plan có sẵn làm bản nháp: đường dẫn và nội dung |
 | `turn/start`, `turn/end` | Ranh giới một lượt; `turn/end` ghi `stopReason` hoặc lỗi |
 
 Quy tắc duyệt: tool soạn plan chỉ đọc được duyệt tự động. `dry_run`, `save_plan` và mọi tool riêng của agent (ghi file, chạy shell) cần người dùng bấm duyệt.
+
+**Chế độ tự duyệt.** Mỗi cuộc chat có chế độ `ask` (mặc định, theo `permissionMode` của row `chat`) hoặc `auto`, ghi bằng event `chat/permissionMode`.
+
+- Ở chế độ `auto`, mọi tool có scope `authoring` được duyệt ngay, gồm cả thẻ của tool tự xin duyệt (`scope.confirm`). Thẻ vẫn được ghi kèm bản xem trước, quyết định ghi `by: 'auto'`.
+- Ba nhóm vẫn phải hỏi:
+  - Tool trong `alwaysAsk` (mặc định `propose_tool`), vì tool này thêm plugin vào cấu hình.
+  - Tool riêng của agent, vì không đi qua gateway.
+  - Lời gọi ngoài lượt của agent.
+- Chuyển sang `auto` khi đang có thẻ chờ thì thẻ đủ điều kiện được duyệt luôn. Giao diện nhớ lựa chọn gần nhất cho cuộc chat mới (`chats.create` nhận `permissionMode`).
+- `dry_run` ghi dữ liệu vào môi trường đang chọn. Với môi trường dùng chung, dùng `readOnly` của môi trường để chặn ghi, không dựa vào việc người dùng duyệt từng lần.
+
+Bảng "Plan đang soạn" có hai tab. **Xem trước** (mặc định) trình bày plan như một tài liệu cho người đọc nghiệp vụ, dựng bằng `plans.preview` của plan-manager: mục tiêu, hệ thống, dữ liệu đầu vào, bước chuẩn bị và dọn dẹp theo `desc`, các bước, kết quả mong đợi kèm tiêu chí viết thành câu ("Đạt khi giá trị thực tế bằng 409"). Bước có cấu trúc hiện mục đích trước, lời gọi API thu nhỏ bên dưới. Trang chi tiết plan dùng cùng thành phần `PlanDocument`. **YAML** là trình soạn như trước.
 
 Người dùng thao tác trực tiếp trên bảng "Plan đang soạn": mở plan có sẵn, sửa YAML, bấm Kiểm tra, Chạy thử (chọn case), Lưu. `chats.listPlans` và `chats.openPlan` gọi `list_plans`, `read_plan` với scope không ghi log, vì đây là thao tác duyệt; `draft/open` mang nội dung plan nên bản nháp vẫn dựng lại được từ log. Sau khi mở, Host gọi `validate_plan` (pha `user`) để bảng plan có danh sách case. Các thao tác này gọi cùng tool soạn plan với pha `user`, được ghi log, và được báo cho agent ở lượt kế tiếp. Nhờ vậy, agent không làm việc trên bản nháp cũ.
 
@@ -529,7 +558,10 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 |---|---|
 | `packages/authoring/tests/authoring.test.ts` | Giới hạn tool theo scope, hướng dẫn, nguồn context, explore chỉ đọc, quy tắc kiểm tra, chạy thử, lưu |
 | `packages/chat/tests/restore.test.ts` | Khôi phục phiên agent sau khi Host khởi động lại; agent mất phiên thì gửi lại lịch sử, bản nháp, môi trường; agent không hỗ trợ `loadSession` |
-| `packages/chat/tests/chat.test.ts` | Giao thức WebSocket thật với agent giả lập: stream, tool call kèm `view`, duyệt quyền, thao tác của người dùng, mở plan có sẵn, follow theo `seq`, khôi phục từ log, mục lục bộ nhớ ở lượt đầu, báo bộ nhớ đổi, nhắc ghi nhớ, việc còn mở trong prompt và khi đóng trên giao diện |
+| `packages/runner/tests/cancel.test.ts` | Dừng một lời gọi tool (action không tự dừng), dừng lượt chạy giữa case (teardown vẫn chạy, case sau ghi lỗi), dừng chạy thử khi dừng lời gọi chờ kết quả hoặc khi nhận `authoring/stop` |
+| `packages/plan-manager/tests/plan-manager.test.ts` | Danh sách, chi tiết, bản xem trước của bản nháp (bước chuẩn bị, bước có cấu trúc, tiêu chí), chạy plan, lọc lượt chạy |
+| `packages/agent-acp/tests/error.test.ts` | Lỗi JSON-RPC của agent hiện lý do trong `data` (ví dụ hết hạn mức) thay vì chỉ "Internal error" |
+| `packages/chat/tests/chat.test.ts` | Giao thức WebSocket thật với agent giả lập: chế độ tự duyệt, `alwaysAsk`, bật tự duyệt khi đang chờ, stream, tool call kèm `view`, duyệt quyền, thao tác của người dùng, mở plan có sẵn, follow theo `seq`, khôi phục từ log, mục lục bộ nhớ ở lượt đầu, báo bộ nhớ đổi, nhắc ghi nhớ, việc còn mở trong prompt và khi đóng trên giao diện |
 | `packages/web-client/tests/derive.test.ts` | Trạng thái bản nháp khi mở plan trong và ngoài thư mục lưu, sửa sau khi mở |
 | `packages/core/tests/calc.test.ts` | BigDecimal: chính xác với số lớn, giữ phần thập phân, chia không hết phải chọn cách làm tròn, đủ 8 cách làm tròn, so sánh không qua số thực, từ chối biểu thức không hợp lệ |
 | `packages/action-math/tests/json.test.ts` | Parse JSON không mất chữ số |

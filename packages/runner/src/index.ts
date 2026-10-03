@@ -28,6 +28,11 @@ export interface RunOptions {
   inputs?: Record<string, unknown>
   /** Môi trường chạy (`envs/<tên>.yml`); mặc định của service `envs` khi có. */
   env?: string
+  /**
+   * Dừng lượt chạy khi signal bị huỷ (người dùng bấm Dừng): case đang chạy dừng với verdict `error` nhưng vẫn chạy
+   * teardown; case chưa chạy ghi `error` "run cancelled"; dọn dữ liệu của lượt chạy vẫn chạy.
+   */
+  signal?: AbortSignal
 }
 
 export interface RunnerConfig {
@@ -95,9 +100,13 @@ export class Runner extends Service {
     }
     if (run.blocked.length) log.append('run/blocked', { reasons: run.blocked })
 
+    const cancelled = () => options.signal?.aborted ? `run cancelled: ${errorMessage(options.signal.reason ?? 'by the user')}` : undefined
+    options.signal?.addEventListener('abort', () => log.append('run/cancelled', { reason: cancelled() }), { once: true })
     for (const testCase of cases) {
-      if (run.blocked.length) this.blockCase(log, testCase, run.blocked)
-      else await this.runCase(log, plan, testCase, connection, connectError, cwd, model, run.vars, env)
+      const stop = cancelled()
+      if (stop) this.endCase(log, testCase, 'error', [stop])
+      else if (run.blocked.length) this.blockCase(log, testCase, run.blocked)
+      else await this.runCase(log, plan, testCase, connection, connectError, cwd, model, run.vars, env, options.signal)
     }
 
     // Dọn dữ liệu của lượt chạy theo thứ tự ngược; lỗi được ghi lại, không đổi verdict của case.
@@ -188,17 +197,24 @@ export class Runner extends Service {
 
   /** Case không được chạy vì lượt chạy bị chặn; ghi đủ `case/start`, `case/end` để báo cáo liệt kê case. */
   private blockCase(log: RunLog, testCase: TestCase, reasons: string[]) {
+    this.endCase(log, testCase, 'blocked', reasons)
+  }
+
+  /** Case không được chạy (môi trường chưa đủ điều kiện, lượt chạy bị dừng): ghi kết quả ngay. */
+  private endCase(log: RunLog, testCase: TestCase, verdict: 'blocked' | 'error', reasons: string[]) {
     log.append('case/start', { id: testCase.id, title: testCase.title, steps: testCase.steps, expect: testCase.expect }, testCase.id)
-    log.append('case/end', { verdict: 'blocked', reasons, durationMs: 0 }, testCase.id)
+    log.append('case/end', { verdict, reasons, durationMs: 0 }, testCase.id)
   }
 
   private async runCase(
     log: RunLog, plan: TestPlan, testCase: TestCase,
     connection: AgentConnection | undefined, connectError: string | undefined, cwd: string, model: string | undefined,
-    runVariables: Record<string, unknown>, env?: string,
+    runVariables: Record<string, unknown>, env?: string, runSignal?: AbortSignal,
   ) {
     const started = performance.now()
     const controller = new AbortController()
+    const onCancel = () => controller.abort(new Error(`run cancelled: ${errorMessage(runSignal?.reason ?? 'by the user')}`))
+    runSignal?.addEventListener('abort', onCancel, { once: true })
     const scope: CaseScope = {
       kind: 'case',
       id: testCase.id,
@@ -255,6 +271,7 @@ export class Runner extends Service {
       base = { verdict: 'error', reasons: [errorMessage(error)] }
     } finally {
       clearTimeout(timer)
+      runSignal?.removeEventListener('abort', onCancel)
       transcript.flush()
       controller.abort()
       await session?.close().catch(() => {})
