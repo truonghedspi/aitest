@@ -313,15 +313,22 @@ function DraftPreview({ content }: { content: string }) {
   const [error, setError] = useState<string>()
   useEffect(() => {
     const timer = setTimeout(() => {
-      connection.call<Preview>('plans.preview', { content }).then((p) => { setPreview(p); setError(undefined) }, (e) => setError((e as Error).message))
+      connection.call<Preview>('chats.preview', { content }).then((p) => { setPreview(p); setError(undefined) }, (e) => setError((e as Error).message))
     }, 300)
     return () => clearTimeout(timer)
   }, [content])
-  if (error) return <div className="muted">Không dựng được bản xem trước: {error}. Xem tab YAML.</div>
-  if (!preview) return <div className="muted">Đang dựng bản xem trước…</div>
+  if (error) {
+    return (
+      <div className="plan-doc-wrap muted">
+        Không dựng được bản xem trước: {error}.
+        {/unknown method/.test(error) ? ' Host đang chạy phiên bản cũ hơn giao diện: dừng `serve` (Ctrl+C), chạy lại, rồi tải lại trang.' : ' Xem tab YAML.'}
+      </div>
+    )
+  }
+  if (!preview) return <div className="plan-doc-wrap muted">Đang dựng bản xem trước…</div>
   if (!preview.plan) {
     return (
-      <div className="plan-doc">
+      <div className="plan-doc-wrap">
         <div className="bad">Bản nháp chưa đọc được thành plan:</div>
         <ul>{preview.errors.map((e, i) => <li key={i} className="small">{e.message}</li>)}</ul>
       </div>

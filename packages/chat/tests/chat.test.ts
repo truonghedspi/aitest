@@ -183,6 +183,14 @@ describe('chat host over WebSocket', () => {
     expect(userCall.data.name).toBe('validate_plan')
   })
 
+  it('previews a draft as a document without the Plan page plugin', async () => {
+    const preview = await ws.call('chats.preview', { content: PLAN })
+    expect(preview).toMatchObject({ valid: true, plan: { id: 'TP-CHAT', cases: [{ id: 'C1', expect: [{ id: 'http-200', op: 'eq', value: 200 }] }] } })
+    const broken = await ws.call('chats.preview', { content: 'id: X' })
+    expect(broken.valid).toBe(false)
+    expect(broken.plan).toBeUndefined()
+  })
+
   it('lists models and switches the model of a chat', async () => {
     const [summary] = await ws.call('chats.list')
     const models = await ws.call('chats.models', { chatId: summary.id })

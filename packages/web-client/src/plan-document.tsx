@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 /**
  * Plan dưới dạng tài liệu cho người đọc nghiệp vụ (BA, QA): mục tiêu, phạm vi, dữ liệu đầu vào, rồi từng case với
  * chuẩn bị, các bước, kết quả mong đợi viết thành câu, dọn dẹp. Chi tiết kỹ thuật (lời gọi API, công thức) thu nhỏ.
- * Dữ liệu lấy từ `describePlan` của plan-manager (`plans.get`, `plans.preview`).
+ * Dữ liệu lấy từ `describePlan` của core (`plans.get` của trang Plan, `chats.preview` của cuộc chat).
  */
 export interface PlanDoc {
   id: string

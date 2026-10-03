@@ -1,5 +1,5 @@
 import type { WebConnection } from '@aitest/web-host'
-import type { Context, RunEvent } from '@aitest/core'
+import { describePlan, type Context, type RunEvent } from '@aitest/core'
 import type { ChatService, PermissionMode } from './index.ts'
 
 /**
@@ -63,6 +63,20 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
   ctx.web.method('chats.cancel', async (params: { chatId: string }) => {
     ;(await chats.get(params.chatId)).cancel()
     return { cancelled: true }
+  })
+
+  /**
+   * Bản xem trước của bản nháp (tab "Xem trước" của bảng plan): parse và kiểm tra nội dung, trả plan dạng tài liệu.
+   * Thuộc cuộc chat, không phụ thuộc plugin trang Plan.
+   */
+  ctx.web.method('chats.preview', async (params: { content: string }) => {
+    const result = await ctx.authoring.validate(params.content)
+    return {
+      valid: result.valid,
+      errors: result.issues.filter((i) => i.level === 'error'),
+      warnings: result.issues.filter((i) => i.level === 'warning'),
+      plan: result.plan && describePlan(result.plan),
+    }
   })
 
   ctx.web.method('chats.stopDryRun', async (params: { chatId: string; runId: string }) => (await chats.get(params.chatId)).stopDryRun(params.runId))

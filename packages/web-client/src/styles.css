@@ -114,6 +114,8 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 .tabs button.active { background: var(--surface-2); border-color: var(--border); font-weight: 600; }
 .panel-empty { padding: 24px; color: var(--muted); line-height: 1.5; }
 .plan-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow: auto; min-height: 0; flex: 1; }
+/* Cả bảng cuộn chung; mục con giữ chiều cao tự nhiên, không bị co khi nội dung dài. */
+.plan-panel > * { flex-shrink: 0; }
 .panel-meta { color: var(--muted); font-size: 12px; }
 .editor { width: 100%; min-height: 42vh; resize: vertical; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; line-height: 1.45; tab-size: 2; }
 .plan-panel section { border-top: 1px solid var(--border); padding-top: 8px; }
@@ -384,7 +386,7 @@ button.tag.active { border-color: var(--accent); }
 
 /* Plan dạng tài liệu cho người đọc nghiệp vụ */
 .view-tabs { margin: 4px 0; }
-.plan-doc-wrap { overflow-y: auto; flex: 1; min-height: 0; }
+.plan-doc-wrap { min-height: 42vh; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg); }
 .plan-doc { display: flex; flex-direction: column; gap: 12px; line-height: 1.5; padding: 4px 2px; }
 .plan-doc h3 { margin: 0; }
 .plan-doc h4 { margin: 4px 0; font-size: 14px; }
@@ -423,3 +425,6 @@ pre.diff .ctx { color: var(--muted); }
 .run-progress .activity li.pending .icon { animation: pulse 1.2s ease-in-out infinite; }
 .run-progress .agent-said { white-space: pre-wrap; }
 @keyframes pulse { 50% { opacity: .3; } }
+
+/* Nút Kiểm tra, Chạy thử, Lưu luôn trong tầm tay khi bản xem trước hoặc YAML dài. */
+.plan-panel > .actions { position: sticky; bottom: -12px; z-index: 2; background: var(--surface); padding: 8px 0; margin-bottom: -8px; border-top: 1px solid var(--border); }
