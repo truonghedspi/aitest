@@ -83,7 +83,7 @@ pnpm test                    # vitest; agent kịch bản, không gọi LLM; kho
 AITEST_SKIP_BROWSER=1 pnpm test   # bỏ qua bài test trình duyệt khi máy không có Chrome
 pnpm demo:api                # Order API mẫu ở cổng 4100
 pnpm aitest validate <plan>
-pnpm aitest run <plan> [--env staging] [--case A,B] [--agent kiro] [--input tên=giá-trị]   # gọi Kiro thật, tốn lượt dùng
+pnpm aitest run <plan> [--env staging] [--case A,B] [--parallel N] [--agent kiro] [--input tên=giá-trị]   # gọi Kiro thật, tốn lượt dùng
 pnpm aitest envs check       # nạp tool của từng môi trường, báo lỗi cấu hình
 pnpm aitest -c aitest.e2e.yml run examples/plans/order-ui.plan.yaml
 pnpm aitest report .aitest/runs/<id>/events.jsonl           # dựng lại báo cáo từ log

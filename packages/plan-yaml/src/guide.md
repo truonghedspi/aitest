@@ -161,6 +161,12 @@ Chia công thức dài thành bước có tên bằng `let`; báo cáo ghi giá 
 - Fixture gọi được mọi action, kể cả kết nối ghi DB (`dbadmin_query`) mà agent chạy test không thấy.
 - Mỗi case phải tự chuẩn bị dữ liệu, không dựa vào case trước. Dọn dữ liệu đã tạo trong `teardown`.
 
+### Chạy song song (`concurrency`)
+
+- `concurrency: N` (cấp plan) cho phép tối đa N case chạy cùng lúc; lượt chạy nhanh gần N lần vì thời gian chủ yếu là thời gian suy nghĩ của agent.
+- Chỉ khai báo khi mọi case độc lập: mỗi case tạo và đọc dữ liệu riêng (mã, symbol, khách hàng khác nhau), truy vấn lọc theo dữ liệu của chính case.
+- Không khai báo khi `setup` hoặc `teardown` xoá, sửa dữ liệu mà case khác đang dùng, khi case đếm bản ghi toàn bảng, hoặc khi case dùng chung trình duyệt (E2E giao diện).
+
 ### Đầu vào (`inputs`) và dữ liệu trên môi trường dùng chung
 
 Môi trường tích hợp dùng chung với người khác và thay đổi theo thời điểm, nên plan không ghi cứng mã tài khoản, mã lệnh, ngày.

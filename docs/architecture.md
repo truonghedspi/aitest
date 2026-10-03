@@ -218,7 +218,9 @@ sequenceDiagram
   Runner->>CLI: deriveReport(log) → run/report → reporter
 ```
 
-Mỗi case dùng một session ACP mới, nên ngữ cảnh của case trước không ảnh hưởng case sau. Toàn bộ lượt chạy dùng chung một process agent.
+Mỗi case dùng một session ACP mới, nên ngữ cảnh của case trước không ảnh hưởng case sau. Lượt chạy tuần tự dùng chung một process agent.
+
+**Chạy song song.** Plan khai báo `concurrency: N` khi các case độc lập; `RunOptions.concurrency` (CLI `--parallel N`) thắng giá trị của plan. Số luồng bị giới hạn bởi `maxConcurrency` của runner (mặc định 4) và số case. Mỗi luồng lấy case kế tiếp trong hàng đợi. Luồng thứ hai trở đi mở kết nối agent riêng ở case đầu tiên và ghi `agent/connected` kèm `slot`; không mở được thì ghi `agent/connect-failed` rồi dùng chung kết nối chính. Event của các case xen kẽ trong run log nhưng mỗi event mang `caseId`, nên `deriveReport` dựng đúng từng case. Bước chuẩn bị (`run/prepare`) chạy trước mọi case; dọn dữ liệu của lượt chạy chạy sau khi mọi luồng kết thúc.
 
 ## 5. Định dạng test plan
 
@@ -912,6 +914,7 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Cuộc chat với Kiro: `/api-input-validation soạn case kiểm tra ràng buộc price của createOrder` (chọn skill bằng gợi ý `/` trên giao diện) | Prompt có nội dung skill; agent không gọi `use_skill`, đọc thẳng plan mẫu kèm skill bằng `read_skill_file`, dùng `get_system_context` rồi làm theo quy trình của skill: lập bảng giá trị biên (1, 0, −1, thiếu trường) và hỏi xác nhận trước khi soạn |
 | Codex qua ACP (`@agentclientprotocol/codex-acp` 2.1.1, `gpt-5.6-terra[high]`, 03/10/2026): `order.plan.yaml --case TC-01` với `aitest.codex.yml` | Lần đầu Codex không thấy tool (Codex chỉ hiện tool MCP khi được tìm) và tự đọc skill cục bộ. Sau khi thêm `instructions`: Codex gọi `http_request` nhưng bị từ chối, vì yêu cầu xin phép chỉ có `toolCallId`; khắc phục bằng ghép thông tin `tool_call`. Sau hai khắc phục: TC-01 pass, 46,7 s; mọi lời gọi qua gateway, có `reason` và `step` |
 | Codex chạy `order.plan.yaml` sau khi gộp assertion (03/10/2026) | Mỗi case một lời gọi `assert_expectation` với `assertions`, không gọi `note_step`; tổng 10 lời gọi tool cho 3 case. TC-01 pass trong 28,6 s (trước đó 46,7 s), TC-02 pass 29,5 s, TC-03 fail đúng 26,1 s; tổng 85,7 s |
+| Codex chạy `order.plan.yaml` với `concurrency: 3` (03/10/2026) | Ba luồng, mỗi luồng một process `codex-acp` (`agent/connected` slot 0, 1, 2); TC-01 pass 25,2 s, TC-02 pass 27,6 s, TC-03 fail đúng 29,4 s; tổng 31,6 s so với 85,7 s khi chạy tuần tự. Console ghi mã case trước mỗi dòng tool |
 | Cuộc chat soạn plan với Codex (`aitest.codex.web.yml`): "tra cứu lệnh không tồn tại phải trả 404" | Codex gọi `get_authoring_guide`, `list_systems`, `list_actions`, `get_system_context`, `read_plan`, `new_plan_skeleton`, `explore` (DB và HTTP), `validate_plan`; plan có bước `call:` đạt kiểm tra ngay; không có thẻ duyệt thừa |
 
 Phát hiện trong lần chạy đầu với Kiro: agent viết path `$.result.status` vì kết quả tool bọc giá trị trong trường `result`. Ba assertion đầu tiên không đạt, sau đó agent tự sửa path. Cách khắc phục đã áp dụng:
@@ -938,7 +941,7 @@ Phát hiện khi soạn plan cùng agent:
 | Prompt bằng tiếng Việt | Kiro hiểu tốt trong PoC | Tách section prompt theo ngôn ngữ nếu cần |
 | Assert `contains` trên snapshot toàn trang có thể đạt nhầm, ví dụ chữ VCB nằm trong ô nhập liệu chứ không nằm trong bảng | Kết hợp đối chiếu chéo với DB trong cùng case | Hướng dẫn agent chụp snapshot theo `target` của vùng cần kiểm tra; thêm toán tử so khớp theo vai trò phần tử |
 | Trình duyệt dùng chung giữa các case | Teardown `browser_close` đưa trình duyệt về trạng thái sạch | Một process Playwright MCP cho mỗi case khi cần cô lập tuyệt đối |
-| Một process agent cho cả lượt chạy | Tiết kiệm thời gian khởi động | Thêm tuỳ chọn mỗi case một process khi cần cô lập tuyệt đối |
+| Một process agent cho cả lượt chạy tuần tự | Tiết kiệm thời gian khởi động; chạy song song thì mỗi luồng một process | Thêm tuỳ chọn mỗi case một process khi cần cô lập tuyệt đối |
 | Agent loop chạy ở Kiro nên aitest không thấy suy luận nội bộ hay prompt hệ thống của Kiro | Ghi mọi thứ ACP gửi về và mọi văn bản aitest gửi đi | Thêm driver tự gọi LLM khi cần kiểm soát từng bước như dsh |
 | Web host chưa có đăng nhập; ai mở được trang đều thêm được MCP server, tức là chạy được lệnh trên máy Host | Mặc định chỉ lắng nghe `127.0.0.1`; mọi thao tác ghi log kiểm toán | Thêm plugin xác thực và phân quyền quản trị trước khi mở cho nhóm |
 | Chưa chạy thật trên Windows | Đã sửa các điểm đã biết: khởi chạy lệnh `.cmd` bằng `cross-spawn`, kiểm tra đường dẫn khác ổ đĩa (`isInside`), dòng CRLF trong ghi chú, xoá thư mục khi file còn mở, `.gitattributes` giữ LF | Workflow CI chạy bộ test trên Windows, Linux, macOS khi đẩy repo lên GitHub |

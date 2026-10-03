@@ -86,6 +86,7 @@ Plan `order.plan.yaml` có case TC-03 cố ý **fail**, vì ứng dụng mẫu c
 | `pnpm aitest validate <plan>` | Kiểm tra cú pháp, schema và namespace action. Luôn chạy lệnh này sau khi sửa plan |
 | `pnpm aitest run <plan>` | Chạy mọi case trong plan |
 | `pnpm aitest run <plan> --case TC-01,TC-02` | Chỉ chạy các case liệt kê |
+| `pnpm aitest run <plan> --parallel 3` | Chạy tối đa 3 case cùng lúc, thay giá trị `concurrency` của plan. Chỉ dùng khi các case độc lập |
 | `pnpm aitest run <plan> --agent <tên>` | Chọn agent khác với cấu hình |
 | `pnpm aitest run <plan> --model <id>` | Chọn model của agent, ví dụ `claude-sonnet-4.5`; xem danh sách bằng `kiro-cli chat --list-models` |
 | `pnpm aitest actions` | Liệt kê action agent có thể dùng |
@@ -138,6 +139,7 @@ cases:
 | `vars` | Không | Biến dùng trong bước qua `{{tên}}`; hỗ trợ `${env.TÊN:-mặc định}` |
 | `context` | Không | Bối cảnh nghiệp vụ: cấu trúc bảng, quy tắc, ý nghĩa trạng thái |
 | `setup`, `teardown` | Không | Bước chuẩn bị và dọn dữ liệu, xem mục 6 |
+| `concurrency` | Không | Số case chạy cùng lúc; không khai báo thì chạy lần lượt. Xem mục 6 |
 | `cases[].id`, `title` | Có | Mã và tên case |
 | `cases[].steps` | Có | Các bước, viết bằng ngôn ngữ tự nhiên |
 | `cases[].expect` | Nên có | Kết quả mong đợi; case không có expectation luôn nhận `inconclusive` |
@@ -776,6 +778,16 @@ Quy tắc:
 | Action | Fixture gọi được mọi action, kể cả action không có trong `requires` |
 
 Kết nối DB được tách làm hai: `db_query` chỉ đọc dành cho agent, còn `dbadmin_query` có quyền ghi và chỉ dùng trong fixture. Không khai báo `dbadmin` trong `requires`, để agent không thể sửa dữ liệu.
+
+**Chạy song song (`concurrency`).** Thời gian của một case chủ yếu là thời gian suy nghĩ của agent, nên chạy nhiều case cùng lúc rút ngắn lượt chạy gần tương ứng. Khai báo `concurrency: 3` ở cấp plan để chạy tối đa 3 case cùng lúc; mỗi case chạy song song dùng một process agent riêng. Runner giới hạn tối đa 4 luồng (cấu hình `maxConcurrency` của row `runner`). Chỉ khai báo khi mọi case độc lập:
+
+| Được chạy song song | Không được chạy song song |
+|---|---|
+| Mỗi case tạo dữ liệu riêng (symbol, mã khách hàng khác nhau) và truy vấn lọc theo dữ liệu đó | `setup` của plan xoá dữ liệu mà case khác đang dùng, như ví dụ `DELETE FROM orders WHERE symbol = 'MWG'` ở trên |
+| Case chỉ đọc dữ liệu cố định | Case đếm bản ghi toàn bảng, hoặc chờ sự kiện không có mã riêng của case |
+| Test API, test sự kiện có `correlation` riêng | Test giao diện dùng chung một trình duyệt |
+
+Khi chạy song song, console ghi mã case trước mỗi dòng tool, và bảng tiến trình trên giao diện hiện từng case đang chạy.
 
 ### 6.1. Đầu vào của lượt chạy (`inputs`)
 

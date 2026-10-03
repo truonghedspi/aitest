@@ -12,7 +12,7 @@ import { bootFromFile, deriveReport, parseJson, PlanError, type Kernel } from '@
 const USAGE = `aitest — nền tảng AI tự đọc kịch bản và chạy test
 
 Cách dùng:
-  aitest run <plan> [--env staging] [--case TC-01,TC-02] [--agent kiro] [--model <id>] [--input tên=giá-trị ...]
+  aitest run <plan> [--env staging] [--case TC-01,TC-02] [--parallel N] [--agent kiro] [--model <id>] [--input tên=giá-trị ...]
   aitest envs [check [tên]]                               Liệt kê môi trường; check nạp tool của từng môi trường để kiểm tra
                                                           Chạy test plan, mã thoát khác 0 nếu có case không pass
   aitest validate <plan>                                  Kiểm tra cú pháp và schema của plan
@@ -38,6 +38,7 @@ export async function main(argv: string[]) {
       model: { type: 'string' },
       input: { type: 'string', multiple: true },
       env: { type: 'string' },
+      parallel: { type: 'string' },
       output: { type: 'string', short: 'o' },
       'dry-run': { type: 'boolean' },
       overwrite: { type: 'boolean' },
@@ -74,7 +75,7 @@ export async function main(argv: string[]) {
   }
 }
 
-async function run(kernel: Kernel, plan: string, values: { case?: string; agent?: string; model?: string; input?: string[]; env?: string }) {
+async function run(kernel: Kernel, plan: string, values: { case?: string; agent?: string; model?: string; input?: string[]; env?: string; parallel?: string }) {
   const report = await kernel.ctx.runner.run({
     plan,
     env: values.env,
@@ -82,8 +83,16 @@ async function run(kernel: Kernel, plan: string, values: { case?: string; agent?
     model: values.model,
     inputs: parseInputs(values.input ?? []),
     cases: values.case?.split(',').map((s) => s.trim()).filter(Boolean),
+    concurrency: values.parallel ? positiveInt(values.parallel, '--parallel') : undefined,
   })
   return report.totals.pass === report.totals.total ? 0 : 1
+}
+
+/** Số nguyên dương của tham số dòng lệnh; báo lỗi rõ thay vì chạy với giá trị sai. */
+function positiveInt(text: string, flag: string): number {
+  const n = Number(text)
+  if (!Number.isInteger(n) || n < 1) throw new Error(`${flag} must be a positive integer, got ${text}`)
+  return n
 }
 
 /** `aitest envs`: danh sách môi trường; `aitest envs check [tên]`: nạp tool của môi trường, báo lỗi cấu hình. */

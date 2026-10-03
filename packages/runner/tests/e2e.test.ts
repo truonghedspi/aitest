@@ -82,6 +82,33 @@ describe('aitest e2e (scripted agent)', () => {
     expect(junit).toContain('failures="1"')
   })
 
+  it('runs independent cases in parallel, one agent connection per worker', async () => {
+    const source = join(root, 'examples/plans/order.plan.yaml')
+    const plan = await kernel.ctx.plans.load(source)
+    const text = (await readFile(source, 'utf8')).replace(/^concurrency: \d+\n/m, '')
+    expect(kernel.ctx.plans.parse(text.replace('\ncases:', '\nconcurrency: 2\ncases:'), source).concurrency).toBe(2)
+    expect(() => kernel.ctx.plans.parse(text.replace('\ncases:', '\nconcurrency: 0\ncases:'), source)).toThrow()
+    const order = (events: Array<{ type: string; caseId?: string }>) => events.filter((e) => e.type === 'case/start' || e.type === 'case/end').map((e) => e.type)
+
+    // Plan khai báo `concurrency`; ba case được chia cho hai luồng.
+    const byPlan = await kernel.ctx.runner.run({ plan: { ...plan, concurrency: 2 }, agent: 'scripted' })
+    expect(Object.fromEntries(byPlan.cases.map((c) => [c.id, c.verdict]))).toEqual({ 'TC-01': 'pass', 'TC-02': 'pass', 'TC-03': 'fail' })
+    const planEvents = await kernel.ctx.runlog.read(byPlan.logFile!)
+    expect(planEvents.filter((e) => e.type === 'agent/connected')).toHaveLength(2)
+    expect(order(planEvents).slice(0, 2)).toEqual(['case/start', 'case/start'])
+
+    // Tham số của lượt chạy thắng plan; không vượt số case.
+    const byOption = await kernel.ctx.runner.run({ plan: { ...plan, concurrency: 2 }, agent: 'scripted', concurrency: 8 })
+    const optionEvents = await kernel.ctx.runlog.read(byOption.logFile!)
+    expect(optionEvents.find((e) => e.type === 'run/start')!.data).toMatchObject({ concurrency: 3 })
+    expect(optionEvents.filter((e) => e.type === 'agent/connected')).toHaveLength(3)
+    expect(order(optionEvents).slice(0, 3)).toEqual(['case/start', 'case/start', 'case/start'])
+    expect(byOption.cases.map((c) => c.verdict)).toEqual(['pass', 'pass', 'fail'])
+    // Báo cáo dựng lại từ log xen kẽ vẫn đúng từng case.
+    const replayed = deriveReport(optionEvents)
+    expect(replayed.cases.find((c) => c.id === 'TC-02')!.expectations.every((e) => e.assertion?.passed)).toBe(true)
+  })
+
   it('guard blocks write SQL on read-only namespace', async () => {
     const plan = await kernel.ctx.plans.load(join(root, 'examples/plans/order.plan.yaml'))
     const scope = caseScope(plan)

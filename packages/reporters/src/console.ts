@@ -1,4 +1,4 @@
-import type { Context, Verdict } from '@aitest/core'
+import { isCaseScope, type Context, type Verdict } from '@aitest/core'
 
 /** In tiến độ và tổng kết ra terminal. */
 export const name = 'reporter-console'
@@ -12,19 +12,26 @@ const DIM = '\x1b[2m'
 export function apply(ctx: Context, config: { verbose?: boolean } = {}) {
   const out = (line = '') => process.stdout.write(line + '\n')
   const paint = (v: Verdict) => `${COLOR[v]}${v.toUpperCase().padEnd(12)}${RESET}`
+  // Khi nhiều case chạy cùng lúc, dòng của các case xen nhau nên mỗi dòng ghi kèm mã case.
+  const running = new Set<string>()
+  let parallel = false
 
   ctx.on('case/start', async (scope) => {
+    running.add(scope.case.id)
+    if (running.size > 1) parallel = true
     out(`${DIM}▶ ${scope.case.id} ${scope.case.title}${RESET}`)
   })
 
   ctx.on('action/result', (call, outcome) => {
     const tag = outcome.status === 'ok' ? '' : ` [${outcome.status}: ${outcome.error}]`
     const evidence = outcome.annotations.evidenceId ? ` → ${outcome.annotations.evidenceId}` : ''
-    out(`${DIM}    · ${call.name}${evidence} (${outcome.durationMs} ms)${tag}${RESET}`)
+    const prefix = parallel && isCaseScope(call.scope) ? `[${call.scope.case.id}] ` : ''
+    out(`${DIM}    · ${prefix}${call.name}${evidence} (${outcome.durationMs} ms)${tag}${RESET}`)
     if (config.verbose) out(`${DIM}      ${JSON.stringify(call.args)}${RESET}`)
   })
 
   ctx.on('case/end', async (scope, decision) => {
+    running.delete(scope.case.id)
     out(`  ${paint(decision.verdict)} ${scope.case.id}`)
     for (const reason of decision.reasons) out(`    - ${reason}`)
   })
@@ -49,6 +56,7 @@ export function apply(ctx: Context, config: { verbose?: boolean } = {}) {
   })
 
   ctx.on('run/report', async (report) => {
+    parallel = false
     const t = report.totals
     out()
     out(`Run ${report.runId} — ${report.plan.name}`)

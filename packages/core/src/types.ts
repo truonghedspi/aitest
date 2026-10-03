@@ -129,6 +129,11 @@ export interface TestPlan {
   context?: string
   /** Tài liệu nghiệp vụ dùng chung (đường dẫn trong thư mục ngữ cảnh) đưa vào prompt của agent chạy test. */
   contextRefs?: string[]
+  /**
+   * Số case chạy cùng lúc khi các case độc lập với nhau (dữ liệu riêng, không dùng chung trình duyệt).
+   * Không khai báo thì chạy lần lượt.
+   */
+  concurrency?: number
   /** Chạy trước mỗi case, trước `case.setup`. */
   setup: FixtureStep[]
   /** Chạy sau mỗi case, sau `case.teardown`; luôn chạy kể cả khi case lỗi. */

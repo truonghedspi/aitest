@@ -156,6 +156,11 @@
       "items": { "type": "string" },
       "description": "Tài liệu nghiệp vụ dùng chung trong thư mục ngữ cảnh (ví dụ context/order/cancel.md); nội dung được đưa vào prompt của agent chạy test."
     },
+    "concurrency": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Số case chạy cùng lúc. Chỉ khai báo khi các case độc lập: mỗi case tự tạo dữ liệu riêng, không dùng chung trình duyệt hay bản ghi. Không khai báo thì chạy lần lượt."
+    },
     "cases": {
       "type": "array",
       "minItems": 1,

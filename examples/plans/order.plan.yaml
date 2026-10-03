@@ -10,6 +10,8 @@ vars:
 systems: [order-service]
 context: |
   Mỗi case dùng một mã chứng khoán riêng để đối chiếu DB không lẫn với case khác.
+# Các case độc lập (mỗi case một mã chứng khoán) nên chạy cùng lúc.
+concurrency: 3
 
 cases:
   - id: TC-01

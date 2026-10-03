@@ -752,34 +752,38 @@ function activities(c: CaseView): Activity[] {
 export function RunProgress({ runId, limit = 8 }: { runId: string; limit?: number }) {
   const { events } = useRun(runId)
   const cases = useMemo(() => deriveCases(events), [events])
-  const current = cases.find((c) => !c.end)
+  // Plan khai báo `concurrency` thì nhiều case chạy cùng lúc; mỗi case đang chạy có một khối hoạt động.
+  const running = cases.filter((c) => !c.end)
   const preparing = !cases.length && events.length > 0
-  const shown = current ? activities(current) : []
+  const perCase = running.length > 1 ? Math.max(3, Math.floor(limit / running.length)) : limit
   return (
     <div className="run-progress">
       {preparing && <div className="muted small">Đang chuẩn bị lượt chạy (đầu vào, kết nối agent)…</div>}
       <div className="cases">
         {cases.map((c) => (
-          <span key={c.id} className={`tag ${c === current ? 'active' : ''}`} title={c.title}>
+          <span key={c.id} className={`tag ${running.includes(c) ? 'active' : ''}`} title={c.title}>
             {ICON[c.end?.verdict ?? 'running']} {c.id}{c.events.some((e) => e.type === 'case/feedback') ? ' 💬' : ''}
           </span>
         ))}
       </div>
-      {current && (
-        <>
-          <div className="small"><b>{current.id}</b> {current.title}</div>
-          <ul className="activity">
-            {shown.slice(-limit).map((a) => (
-              <li key={a.key} className={a.pending ? 'pending' : ''}>
-                <span className="icon">{a.icon}</span> <code>{a.text}</code>
-                {a.detail && <span className="muted small"> — {a.detail.length > 300 ? `…${a.detail.slice(-300)}` : a.detail}</span>}
-              </li>
-            ))}
-            {!shown.length && <li className="muted small">Agent đang đọc kịch bản…</li>}
-          </ul>
-        </>
-      )}
-      <a className="small" href={`#/runs/${runId}${current ? `/${current.id}` : ''}`}>Xem chi tiết lượt chạy →</a>
+      {running.map((current) => {
+        const shown = activities(current)
+        return (
+          <div key={current.id} className="running-case">
+            <div className="small"><b>{current.id}</b> {current.title}</div>
+            <ul className="activity">
+              {shown.slice(-perCase).map((a) => (
+                <li key={a.key} className={a.pending ? 'pending' : ''}>
+                  <span className="icon">{a.icon}</span> <code>{a.text}</code>
+                  {a.detail && <span className="muted small"> — {a.detail.length > 300 ? `…${a.detail.slice(-300)}` : a.detail}</span>}
+                </li>
+              ))}
+              {!shown.length && <li className="muted small">Agent đang đọc kịch bản…</li>}
+            </ul>
+          </div>
+        )
+      })}
+      <a className="small" href={`#/runs/${runId}${running[0] ? `/${running[0].id}` : ''}`}>Xem chi tiết lượt chạy →</a>
     </div>
   )
 }

@@ -35,12 +35,15 @@ export interface RunOptions {
   signal?: AbortSignal
   /** Giới hạn thời gian của case không khai báo `timeout` trong plan, đơn vị giây; mặc định `caseTimeout` của runner. */
   caseTimeout?: number
+  /** Số case chạy cùng lúc; mặc định `concurrency` của plan, nếu không có thì 1. Bị giới hạn bởi `maxConcurrency` của runner. */
+  concurrency?: number
 }
 
 export interface RunnerConfig {
   agent: string
   model?: string
   caseTimeout: number
+  maxConcurrency: number
   cancelGrace: number
   cwd?: string
   permission: 'gateway-only' | 'allow-all' | 'deny-all'
@@ -58,6 +61,8 @@ export class Runner extends Service {
     agent: z.string().default('kiro').description('Agent driver mặc định.'),
     model: z.string().description('Model của agent chạy test; bỏ trống thì dùng mặc định của driver.'),
     caseTimeout: z.natural().default(300).description('Giới hạn thời gian mặc định của một case, đơn vị giây.'),
+    maxConcurrency: z.natural().min(1).default(4)
+      .description('Số case tối đa chạy cùng lúc trong một lượt chạy; mỗi case chạy song song dùng một process agent riêng.'),
     cancelGrace: z.natural().default(15).description('Thời gian chờ agent dừng sau khi huỷ, đơn vị giây.'),
     cwd: z.string().description('Thư mục làm việc truyền cho agent; mặc định là thư mục hiện tại.'),
     permission: z.union(['gateway-only', 'allow-all', 'deny-all'] as const).default('gateway-only')
@@ -82,8 +87,9 @@ export class Runner extends Service {
     const runId = options.runId ?? `${new Date().toISOString().replace(/[:.]/g, '-')}-${plan.id}`.replace(/[^\w.-]/g, '_')
     const log = await this.ctx.runlog.create(runId)
     const env = options.env || (this.ctx.get('envs') as { config?: { default?: string } } | undefined)?.config?.default
+    const concurrency = Math.max(1, Math.min(options.concurrency ?? plan.concurrency ?? 1, this.config.maxConcurrency, cases.length || 1))
     log.append('run/start', {
-      plan: { id: plan.id, name: plan.name, source: plan.source }, agent: agentName,
+      plan: { id: plan.id, name: plan.name, source: plan.source }, agent: agentName, ...(concurrency > 1 ? { concurrency } : {}),
       ...(env ? { env } : {}), ...(options.model || this.config.model ? { model: options.model || this.config.model } : {}),
     })
 
@@ -109,12 +115,31 @@ export class Runner extends Service {
 
     const cancelled = () => options.signal?.aborted ? `run cancelled: ${errorMessage(options.signal.reason ?? 'by the user')}` : undefined
     options.signal?.addEventListener('abort', () => log.append('run/cancelled', { reason: cancelled() }), { once: true })
-    for (const testCase of cases) {
-      const stop = cancelled()
-      if (stop) this.endCase(log, testCase, 'error', [stop])
-      else if (run.blocked.length) this.blockCase(log, testCase, run.blocked)
-      else await this.runCase(log, plan, testCase, connection, connectError, cwd, model, run.vars, env, options.signal, options.caseTimeout)
+    // Mỗi luồng lấy case kế tiếp trong hàng đợi. Luồng thứ hai trở đi mở kết nối agent riêng khi nhận case đầu tiên,
+    // để agent không phải xử lý nhiều prompt cùng lúc; không mở được thì dùng chung kết nối chính.
+    const queue = [...cases]
+    const extra: AgentConnection[] = []
+    const worker = async (slot: number) => {
+      let own: AgentConnection | undefined
+      for (let testCase = queue.shift(); testCase; testCase = queue.shift()) {
+        const stop = cancelled()
+        if (stop) { this.endCase(log, testCase, 'error', [stop]); continue }
+        if (run.blocked.length) { this.blockCase(log, testCase, run.blocked); continue }
+        if (slot > 0 && connection && !own) {
+          own = await this.ctx.agents.get(agentName).connect({ cwd }).then((c) => {
+            extra.push(c)
+            log.append('agent/connected', { ...c.info, slot })
+            return c
+          }, (error) => {
+            log.append('agent/connect-failed', { slot, error: errorMessage(error) })
+            return connection
+          })
+        }
+        await this.runCase(log, plan, testCase, own ?? connection, connectError, cwd, model, run.vars, env, options.signal, options.caseTimeout)
+      }
     }
+    await Promise.all(Array.from({ length: concurrency }, (_, slot) => worker(slot)))
+    await Promise.all(extra.map((c) => c.close().catch(() => {})))
 
     // Dọn dữ liệu của lượt chạy theo thứ tự ngược; lỗi được ghi lại, không đổi verdict của case.
     for (const { scope, step } of [...run.cleanup].reverse()) {
