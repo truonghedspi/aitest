@@ -58,10 +58,12 @@ Thiết kế này có ba hệ quả:
 Cơ chế xác định kết quả:
 
 1. Plugin `verdict` lưu kết quả mỗi action thành evidence, kèm mã `evN` trả về cho agent.
-2. Agent gọi `assert_expectation` với `expectId`, `evidenceId` và `path`.
+2. Agent gọi `assert_expectation` với `expectId`, `evidenceId` và `path`. Một lời gọi nhận nhiều expectation qua `assertions: [...]`; phần tử sai tham số trả lỗi riêng, không làm hỏng phần tử khác. Gộp như vậy giảm số lượt suy nghĩ của agent, vốn chiếm phần lớn thời gian chạy.
 3. Plugin tự đọc giá trị thật tại `path` trong evidence rồi so sánh. Agent không truyền giá trị thực tế.
 4. Khi plan khai báo `check`, toán tử và giá trị mong đợi lấy từ plan; agent không thay đổi được.
 5. Verdict của case được tính từ assertion của từng expectation.
+
+Gateway ghi `step` cho mọi lời gọi tool, nên hành trình theo bước không cần agent tự ghi. Agent chỉ gọi `note_step` khi một bước thất bại hoặc bị bỏ qua, kèm lý do.
 
 | Verdict | Điều kiện |
 |---|---|
@@ -907,6 +909,7 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Mở lại `oi-1`, chốt bằng nút phương án trên bảng "Việc còn mở" | Lượt kế tiếp của cuộc chat có dòng "đã chốt trên giao diện: 409 Conflict"; agent sửa plan theo kết luận mà không hỏi lại |
 | Cuộc chat với Kiro: `/api-input-validation soạn case kiểm tra ràng buộc price của createOrder` (chọn skill bằng gợi ý `/` trên giao diện) | Prompt có nội dung skill; agent không gọi `use_skill`, đọc thẳng plan mẫu kèm skill bằng `read_skill_file`, dùng `get_system_context` rồi làm theo quy trình của skill: lập bảng giá trị biên (1, 0, −1, thiếu trường) và hỏi xác nhận trước khi soạn |
 | Codex qua ACP (`@agentclientprotocol/codex-acp` 2.1.1, `gpt-5.6-terra[high]`, 03/10/2026): `order.plan.yaml --case TC-01` với `aitest.codex.yml` | Lần đầu Codex không thấy tool (Codex chỉ hiện tool MCP khi được tìm) và tự đọc skill cục bộ. Sau khi thêm `instructions`: Codex gọi `http_request` nhưng bị từ chối, vì yêu cầu xin phép chỉ có `toolCallId`; khắc phục bằng ghép thông tin `tool_call`. Sau hai khắc phục: TC-01 pass, 46,7 s; mọi lời gọi qua gateway, có `reason` và `step` |
+| Codex chạy `order.plan.yaml` sau khi gộp assertion (03/10/2026) | Mỗi case một lời gọi `assert_expectation` với `assertions`, không gọi `note_step`; tổng 10 lời gọi tool cho 3 case. TC-01 pass trong 28,6 s (trước đó 46,7 s), TC-02 pass 29,5 s, TC-03 fail đúng 26,1 s; tổng 85,7 s |
 | Cuộc chat soạn plan với Codex (`aitest.codex.web.yml`): "tra cứu lệnh không tồn tại phải trả 404" | Codex gọi `get_authoring_guide`, `list_systems`, `list_actions`, `get_system_context`, `read_plan`, `new_plan_skeleton`, `explore` (DB và HTTP), `validate_plan`; plan có bước `call:` đạt kiểm tra ngay; không có thẻ duyệt thừa |
 
 Phát hiện trong lần chạy đầu với Kiro: agent viết path `$.result.status` vì kết quả tool bọc giá trị trong trường `result`. Ba assertion đầu tiên không đạt, sau đó agent tự sửa path. Cách khắc phục đã áp dụng:

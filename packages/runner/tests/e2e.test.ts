@@ -25,9 +25,17 @@ const scripts: Record<string, Script> = {
     const id = created.result.body.id
     const cancelled = await call('http_request', { method: 'POST', url: `${BASE}/orders/${id}/cancel` })
     const row = await call('db_query', { sql: 'SELECT status, cancelled_at FROM orders WHERE id = ?', params: [id] })
-    await call('assert_expectation', { expectId: 'cancel-200', evidenceId: cancelled.evidenceId, path: '$.status' })
-    await call('assert_expectation', { expectId: 'db-cancelled', evidenceId: row.evidenceId, path: '$.rows[0].status' })
-    await call('assert_expectation', { expectId: 'db-cancelled-at', evidenceId: row.evidenceId, path: '$.rows[0].cancelled_at' })
+    // Gộp nhiều expectation vào một lời gọi; phần tử sai tham số không làm hỏng phần tử khác.
+    const batch = await call('assert_expectation', {
+      assertions: [
+        { expectId: 'cancel-200', evidenceId: cancelled.evidenceId, path: '$.status' },
+        { expectId: 'db-cancelled', evidenceId: row.evidenceId, path: '$.rows[0].status' },
+        { expectId: 'db-cancelled-at', evidenceId: 'ev99', path: '$.rows[0].cancelled_at' },
+      ],
+    })
+    expect(batch.result.results.map((r: { passed?: boolean; error?: string }) => r.error ? 'error' : r.passed)).toEqual([true, true, 'error'])
+    expect(batch.result.note).toMatch(/1 assertion/)
+    await call('assert_expectation', { assertions: [{ expectId: 'db-cancelled-at', evidenceId: row.evidenceId, path: '$.rows[0].cancelled_at' }] })
   },
   async 'TC-03'(call) {
     const created = await call('http_request', { method: 'POST', url: `${BASE}/orders`, body: { symbol: 'HPG', side: 'BUY', qty: 150, price: 25000 } })
