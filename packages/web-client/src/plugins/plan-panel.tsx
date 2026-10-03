@@ -79,7 +79,8 @@ function PlanPanel({ chatId }: PanelProps) {
     if (started?.status !== 'ok') return
     setBusy('Đang chạy thử…')
     try {
-      for (let i = 0; i < 20; i++) {
+      // Mỗi case chạy thử tối đa 10 phút, tối đa 3 case: chờ tới 40 phút (mỗi lần chờ 30 giây); bấm Dừng để bỏ.
+      for (let i = 0; i < 80; i++) {
         const result = await connection.call<Outcome>('chats.invoke', {
           chatId, tool: 'get_run_result', args: { runId: started.value.runId, waitSec: 30 },
         })

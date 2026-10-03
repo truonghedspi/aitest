@@ -14,6 +14,7 @@ import type {} from './index.ts'
 export interface Config {
   maxCases: number
   maxWait: number
+  caseTimeout: number
 }
 
 export const name = 'authoring-dry-run'
@@ -22,6 +23,7 @@ export const inject = ['actions', 'authoring', 'runner', 'runlog']
 export const Config = z.object({
   maxCases: z.natural().default(3).description('Số case tối đa trong một lượt chạy thử.'),
   maxWait: z.natural().default(45).description('Thời gian tối đa `get_run_result` chờ trong một lần gọi, đơn vị giây.'),
+  caseTimeout: z.natural().default(600).description('Giới hạn thời gian của mỗi case khi chạy thử (case không khai báo `timeout` trong plan), đơn vị giây. Quá giới hạn thì case ghi lỗi.'),
 })
 
 interface Tracked {
@@ -76,7 +78,7 @@ export function apply(ctx: Context, config: Config) {
         sessionId: scope.id,
         controller,
         startedAt: Date.now(),
-        promise: ctx.runner.run({ plan, cases, runId, inputs: args.inputs, env: scope.env, signal: controller.signal }),
+        promise: ctx.runner.run({ plan, cases, runId, inputs: args.inputs, env: scope.env, signal: controller.signal, caseTimeout: config.caseTimeout }),
       }
       tracked.promise.then(
         (report) => { tracked.report = report },
@@ -157,7 +159,7 @@ export function apply(ctx: Context, config: Config) {
     render: () => [
       '## Chạy thử',
       `- \`dry_run\` chạy tối đa ${config.maxCases} case trên môi trường kiểm thử, gồm cả fixture.`,
-      '- Gọi `get_run_result` tới khi `status` khác `running`.',
+      `- Mỗi case chạy thử tối đa ${config.caseTimeout % 60 ? `${config.caseTimeout} giây` : `${config.caseTimeout / 60} phút`} (trừ case khai báo \`timeout\`); gọi \`get_run_result\` tới khi \`status\` khác \`running\`, không bỏ dở khi lượt chạy còn \`running\`.`,
       '- Đọc `hints` và giá trị `actual` của từng expectation. Case không đạt có thể do plan viết chưa rõ,',
       '  hoặc do hệ thống có lỗi thật: phân biệt hai trường hợp và báo người dùng, không sửa plan để che lỗi thật.',
     ].join('\n'),

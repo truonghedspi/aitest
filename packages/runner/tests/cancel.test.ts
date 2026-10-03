@@ -9,7 +9,7 @@ import type { Context } from '@aitest/core'
 import type { AuthoringSession } from '@aitest/authoring'
 import { setupHarness, type Harness } from './support.ts'
 
-const PORT = 4183
+const PORT = 4179
 
 /** Chờ tới khi điều kiện đúng (tối đa 5 giây). */
 async function until(check: () => boolean) {
@@ -31,6 +31,8 @@ describe('cancelling tools and runs', () => {
       },
       rows: (dir) => [
         { id: 'authoring-save', name: '@aitest/authoring/save', config: { dir: join(dir, 'plans') } },
+        // Giới hạn thời gian của chạy thử đặt ngắn để kiểm tra; mặc định 600 giây.
+        { id: 'authoring-dry-run', name: '@aitest/authoring/dry-run', config: { caseTimeout: 2 } },
       ],
     })
     harness.kernel.ctx.runner.config.agent = 'scripted'
@@ -130,4 +132,22 @@ describe('cancelling tools and runs', () => {
     const result = (await actions.invoke(session.scope, 'get_run_result', { runId, waitSec: 10 })).value as { status: string }
     expect(result.status).toBe('done')
   })
+
+  it('applies the dry-run case timeout to cases without their own timeout', async () => {
+    const { actions } = harness.kernel.ctx
+    const content = [
+      'id: TP-DRY-TIMEOUT', 'name: Quá giờ', 'requires: [slow]',
+      'cases:',
+      '  - { id: CN-01, title: Chờ mãi, steps: [Chờ.], expect: [{ id: e1, desc: d, check: { op: eq, value: 1 } }] }', '',
+    ].join('\n')
+    const { runId } = (await actions.invoke(session.scope, 'dry_run', { content })).value as { runId: string }
+    let result: any
+    for (let i = 0; i < 20; i++) {
+      result = (await actions.invoke(session.scope, 'get_run_result', { runId, waitSec: 5 })).value
+      if (result.status !== 'running') break
+    }
+    expect(result.cases[0]).toMatchObject({ verdict: 'error', reasons: [expect.stringContaining('case timeout after 2000 ms')] })
+    const guide = ((await actions.invoke(session.scope, 'get_authoring_guide', {})).value as { guide: string }).guide
+    expect(guide).toContain('Mỗi case chạy thử tối đa 2 giây')
+  }, 60_000)
 })

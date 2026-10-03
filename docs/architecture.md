@@ -426,7 +426,7 @@ Mỗi nhóm tool là một plugin con của `@aitest/authoring`, đăng ký vào
 | `authoring/context-files` | — | Nguồn context từ file; nguồn khác (Confluence, OpenAPI) đăng ký qua `ctx.authoring.registerContextSource` |
 | `authoring/explore` | `explore` | Chỉ nhận lời gọi chỉ đọc (`readOnly` hoặc `isReadOnlyCall`), vẫn đi qua guard |
 | `authoring/validate` | `validate_plan` | Mỗi quy tắc là một listener `authoring/lint`, ví dụ namespace chỉ dành cho fixture không được nằm trong `requires` |
-| `authoring/dry-run` | `dry_run`, `get_run_result` | Chạy nền bằng runner thật; kết quả rút gọn kèm gợi ý sửa plan |
+| `authoring/dry-run` | `dry_run`, `get_run_result` | Chạy nền bằng runner thật; kết quả rút gọn kèm gợi ý sửa plan. Mỗi case tối đa `caseTimeout` giây (mặc định 600, truyền qua `RunOptions.caseTimeout`), trừ case khai báo `timeout` |
 | `authoring/save` | `save_plan` | Chỉ ghi `*.plan.yaml` trong thư mục cấu hình; plan phải hợp lệ |
 | `system-catalog/brief` | `get_system_context`, `new_plan_skeleton` | Gói ngữ cảnh một hệ thống trong một lời gọi; khung plan có bước gọi API có cấu trúc (mục 7.9) |
 | `system-catalog/propose` | `propose_system_knowledge` | Ghi quy tắc, mô tả bảng, cột vào catalog; người dùng duyệt kèm diff (mục 7.9) |

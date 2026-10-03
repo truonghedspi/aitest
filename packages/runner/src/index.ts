@@ -33,6 +33,8 @@ export interface RunOptions {
    * teardown; case chưa chạy ghi `error` "run cancelled"; dọn dữ liệu của lượt chạy vẫn chạy.
    */
   signal?: AbortSignal
+  /** Giới hạn thời gian của case không khai báo `timeout` trong plan, đơn vị giây; mặc định `caseTimeout` của runner. */
+  caseTimeout?: number
 }
 
 export interface RunnerConfig {
@@ -106,7 +108,7 @@ export class Runner extends Service {
       const stop = cancelled()
       if (stop) this.endCase(log, testCase, 'error', [stop])
       else if (run.blocked.length) this.blockCase(log, testCase, run.blocked)
-      else await this.runCase(log, plan, testCase, connection, connectError, cwd, model, run.vars, env, options.signal)
+      else await this.runCase(log, plan, testCase, connection, connectError, cwd, model, run.vars, env, options.signal, options.caseTimeout)
     }
 
     // Dọn dữ liệu của lượt chạy theo thứ tự ngược; lỗi được ghi lại, không đổi verdict của case.
@@ -209,7 +211,7 @@ export class Runner extends Service {
   private async runCase(
     log: RunLog, plan: TestPlan, testCase: TestCase,
     connection: AgentConnection | undefined, connectError: string | undefined, cwd: string, model: string | undefined,
-    runVariables: Record<string, unknown>, env?: string, runSignal?: AbortSignal,
+    runVariables: Record<string, unknown>, env?: string, runSignal?: AbortSignal, caseTimeout?: number,
   ) {
     const started = performance.now()
     const controller = new AbortController()
@@ -237,7 +239,7 @@ export class Runner extends Service {
     const transcript = createTranscript(scope)
     const exposure = await this.ctx.gateway.expose(scope)
     let session: AgentSession | undefined
-    const timeoutMs = testCase.timeoutMs ?? this.config.caseTimeout * 1000
+    const timeoutMs = testCase.timeoutMs ?? (caseTimeout ?? this.config.caseTimeout) * 1000
     const timer = setTimeout(() => controller.abort(new Error(`case timeout after ${timeoutMs} ms`)), timeoutMs)
 
     try {

@@ -333,7 +333,7 @@ Khi chạy thử phát hiện case không đạt, agent phân biệt plan viết
 1. Bấm "Mở plan có sẵn" ở cột phải, gõ để lọc theo tên, mã plan, mã hoặc tên case, đường dẫn, rồi chọn plan. Mỗi dòng ghi tên, mã, danh sách case; đường dẫn file ở cuối. Plan đang lỗi cú pháp vẫn mở được để sửa.
 2. Plan trở thành bản nháp và được kiểm tra ngay. Cuộc chat mới đổi tiêu đề thành "Plan <đường dẫn>".
 3. Nhờ agent sửa, ví dụ "Thêm case huỷ lệnh đã huỷ trả 409 rồi chạy thử riêng case mới". Agent nhận nguyên nội dung plan ở tin nhắn tiếp theo.
-4. Muốn tự chạy thử, bỏ chọn các case không cần ở dòng "Case chạy thử" rồi bấm "Chạy thử". Mỗi lần chạy thử có tối đa 3 case.
+4. Muốn tự chạy thử, bỏ chọn các case không cần ở dòng "Case chạy thử" rồi bấm "Chạy thử". Mỗi lần chạy thử có tối đa 3 case. Mỗi case chạy thử tối đa 10 phút; quá thời gian thì case ghi lỗi `case timeout`. Case khai báo `timeout` (giây) trong plan theo giá trị đó. Đổi giới hạn chung bằng `caseTimeout` (giây) trong row `authoring-dry-run` của `aitest.yml`.
 5. Plan nằm trong `plans/` được ghi đè tại chỗ khi bấm "Lưu". Plan ở nơi khác, ví dụ `examples/plans/`, được lưu thành bản mới trong `plans/`.
 
 Mở plan khác sẽ thay bản nháp hiện tại. Khi bản nháp có thay đổi chưa lưu, bộ chọn hiện cảnh báo trước.
