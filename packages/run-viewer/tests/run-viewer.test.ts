@@ -90,6 +90,18 @@ describe('run viewer', () => {
     expect(end.event.seq).toBe(3)
   })
 
+  it('follows a run subscribed before its log file exists (dry run just started)', async () => {
+    const runId = 'dryrun-not-yet-written'
+    const first = await ws.call('runs.subscribe', { runId })
+    expect(first.events).toEqual([])
+    await mkdir(join(runsDir, runId), { recursive: true })
+    const line = (seq: number, type: string, data: unknown) => JSON.stringify({ seq, ts: new Date().toISOString(), runId, type, data }) + '\n'
+    await writeFile(join(runsDir, runId, 'events.jsonl'), line(1, 'run/start', { plan: { id: 'P', name: 'Plan' }, agent: 'kiro' }) + line(2, 'run/end', {}))
+    const start = await ws.waitFor((m) => m.type === 'run-event' && m.runId === runId && m.event.type === 'run/start')
+    expect(start.event.seq).toBe(1)
+    await ws.waitFor((m) => m.type === 'run-event' && m.runId === runId && m.event.type === 'run/end')
+  })
+
   it('rejects run ids that could escape the runs directory', async () => {
     await expect(ws.call('runs.subscribe', { runId: '../../etc' })).rejects.toThrow(/invalid run id/)
   })

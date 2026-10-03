@@ -156,13 +156,14 @@ Event ghi vào run log mà plugin dùng chung: `case/annotation` (`{ key, value 
 - Tối đa `maxPerCase` góp ý mỗi case; góp ý trùng bị bỏ qua; `step` và `expectId` phải có trong case.
 - Góp ý không ảnh hưởng verdict.
 - Góp ý hiện ở:
-  - `get_run_result` của chạy thử, kèm hướng dẫn agent soạn plan sửa theo góp ý.
+  - `get_run_result` của chạy thử: trường `feedback` của từng case và `nextStep` dặn agent soạn plan trình bày đề xuất sửa, hỏi người dùng chọn rồi mới sửa.
+  - Lượt chạy thử người dùng bấm trên bảng plan: `Chat.invoke` không ghi chú cho kết quả `running`; kết quả cuối thành một ghi chú theo khoá `run:<runId>` (thay ghi chú cũ cùng khoá) gồm verdict từng case, mọi góp ý và chỉ dẫn đề xuất. Nút "Nhờ agent đề xuất sửa plan" gửi tin nhắn để agent đề xuất ngay.
   - Bảng Chạy thử trong cuộc chat.
   - Màn hình lượt chạy.
   - `RunSummary.feedback` của `runs.list`.
   - `report.md`.
 
-**Tiến trình chạy thử trực tiếp.** Mục "Chạy thử" của bảng plan nhúng `RunProgress` (web-client). Thành phần này theo dõi run log qua `runs.subscribe`, cùng nguồn với trang Lượt chạy. Mỗi case hiện các hoạt động theo thứ tự:
+**Tiến trình chạy thử trực tiếp.** `runs.subscribe` nhận theo dõi cả lượt chạy chưa tạo log (bảng plan đăng ký ngay khi `dry_run` trả `runId`): server chờ file log xuất hiện tối đa 60 giây rồi đẩy event như thường. Phần còn lại: Mục "Chạy thử" của bảng plan nhúng `RunProgress` (web-client). Thành phần này theo dõi run log qua `runs.subscribe`, cùng nguồn với trang Lượt chạy. Mỗi case hiện các hoạt động theo thứ tự:
 
 - `action/start` và `action/call` kèm lý do của agent.
 - `step/note`, `assert/result`, `case/feedback`.

@@ -73,6 +73,18 @@ function PlanPanel({ chatId }: PanelProps) {
   }
 
   const [stopping, setStopping] = useState(false)
+  /** Gửi yêu cầu cho agent: đề xuất sửa plan theo góp ý của lượt chạy thử vừa xong (agent đã có góp ý trong ngữ cảnh). */
+  const askAgentAboutFeedback = async () => {
+    setError(undefined)
+    try {
+      await connection.call('chats.send', {
+        chatId,
+        text: `Lượt chạy thử ${draft.run?.runId ?? ''} có góp ý của agent chạy test. Đề xuất cách sửa plan theo từng góp ý (chưa sửa); tôi sẽ chọn đề xuất muốn áp dụng.`,
+      })
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
   /** Dừng lượt chạy thử đang chạy (do bảng này hoặc agent khởi động). */
   const stopDryRun = async () => {
     if (!draft.run?.runId) return
@@ -231,7 +243,7 @@ function PlanPanel({ chatId }: PanelProps) {
                 {draft.run.runId && <RunProgress runId={draft.run.runId} />}
               </>
             )
-            : <RunCases value={draft.run.value} />}
+            : <RunCases value={draft.run.value} onAskAgent={askAgentAboutFeedback} />}
         </section>
       )}
     </div>

@@ -160,8 +160,10 @@ export function apply(ctx: Context, config: Config) {
       '## Chạy thử',
       `- \`dry_run\` chạy tối đa ${config.maxCases} case trên môi trường kiểm thử, gồm cả fixture.`,
       `- Mỗi case chạy thử tối đa ${config.caseTimeout % 60 ? `${config.caseTimeout} giây` : `${config.caseTimeout / 60} phút`} (trừ case khai báo \`timeout\`); gọi \`get_run_result\` tới khi \`status\` khác \`running\`, không bỏ dở khi lượt chạy còn \`running\`.`,
-      '- Đọc `feedback` của từng case: agent chạy test góp ý chỗ plan mơ hồ, thiếu dữ liệu, khó tìm giá trị. Sửa plan theo góp ý hợp lý',
-      '  rồi kiểm tra lại, kể cả khi case đã đạt; báo người dùng góp ý nào bạn không áp dụng và vì sao.',
+      '- Đọc `feedback` của từng case: agent chạy test góp ý chỗ plan mơ hồ, thiếu dữ liệu, khó tìm giá trị, kể cả khi case đã đạt.',
+      '  Trình bày cho người dùng danh sách đề xuất sửa plan theo từng góp ý (sửa gì, ở case và bước nào, viết lại ra sao), bỏ góp ý',
+      '  không hợp lý kèm lý do, hỏi người dùng chọn đề xuất rồi mới sửa. Người dùng đã nhờ sửa luôn thì sửa rồi kiểm tra lại.',
+      '- Người dùng có thể tự bấm Chạy thử trên giao diện; kết quả và góp ý được báo trong mục "Thao tác của người dùng trên giao diện".',
       '- Đọc `hints` và giá trị `actual` của từng expectation. Case không đạt có thể do plan viết chưa rõ,',
       '  hoặc do hệ thống có lỗi thật: phân biệt hai trường hợp và báo người dùng, không sửa plan để che lỗi thật.',
     ].join('\n'),
@@ -198,6 +200,12 @@ export function compact(report: RunReport) {
       ...(c.feedback.length ? { feedback: c.feedback } : {}),
       hints: hints(c),
     })),
+    // Góp ý của agent chạy test: đề xuất cho người dùng trước, sửa plan sau khi người dùng chọn.
+    ...(report.cases.some((c) => c.feedback.length) ? {
+      nextStep: `Có ${report.cases.reduce((n, c) => n + c.feedback.length, 0)} góp ý của agent chạy test (trường feedback của từng case). `
+        + 'Trình bày cho người dùng danh sách đề xuất sửa plan theo từng góp ý (sửa gì, ở case và bước nào); bỏ góp ý không hợp lý kèm lý do; '
+        + 'hỏi người dùng chọn đề xuất muốn áp dụng rồi mới sửa.',
+    } : {}),
   }
 }
 

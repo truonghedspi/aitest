@@ -67,7 +67,8 @@ function RunResultView({ view }: ToolViewProps) {
 
 const ICON: Record<string, string> = { pass: '✅', fail: '❌', error: '💥', inconclusive: '❔', skipped: '⏭️', blocked: '🚧' }
 
-export function RunCases({ value }: { value: any }) {
+export function RunCases({ value, onAskAgent }: { value: any; onAskAgent?: () => void }) {
+  const feedbackCount = (value.cases ?? []).reduce((n: number, c: any) => n + (c.feedback?.length ?? 0), 0)
   return (
     <div className="run">
       {value.runId && <a className="small" href={`#/runs/${value.runId}`}>Xem log chi tiết: agent đã làm gì và vì sao ra kết quả này →</a>}
@@ -91,6 +92,11 @@ export function RunCases({ value }: { value: any }) {
           {c.feedback?.length > 0 && <FeedbackList items={c.feedback} />}
         </details>
       ))}
+      {onAskAgent && feedbackCount > 0 && (
+        <div className="actions">
+          <button className="primary" onClick={onAskAgent}>💬 Nhờ agent đề xuất sửa plan theo {feedbackCount} góp ý</button>
+        </div>
+      )}
     </div>
   )
 }

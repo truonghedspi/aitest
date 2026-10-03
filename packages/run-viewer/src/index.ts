@@ -46,6 +46,8 @@ export interface RunSummary {
 }
 
 const RUN_ID = /^[\w.-]+$/
+/** Thời gian chờ log của một lượt chạy vừa khởi động xuất hiện. */
+const MISSING_LOG_MS = 60_000
 
 export function apply(ctx: Context, config: Config) {
   // Mọi luồng theo dõi đang mở; dừng hết khi plugin bị gỡ.
@@ -83,7 +85,11 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.web.method('runs.subscribe', async (params: { runId: string; afterSeq?: number }, connection: WebConnection) => {
     const file = fileOf(params.runId)
-    const { events, offset } = await readFrom(file, 0)
+    // Lượt chạy vừa khởi động (chạy thử từ bảng plan) có thể chưa kịp tạo log: theo dõi từ đầu, chờ file xuất hiện.
+    const { events, offset } = await readFrom(file, 0).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return { events: [] as RunEvent[], offset: 0 }
+      throw error
+    })
     const snapshot = events.filter((e) => e.seq > (params.afterSeq ?? 0))
     if (!events.some((e) => e.type === 'run/end')) follow(connection, params.runId, file, offset)
     return { summary: summarize(params.runId, events), events: snapshot }
@@ -93,10 +99,17 @@ export function apply(ctx: Context, config: Config) {
   function follow(connection: WebConnection, runId: string, file: string, start: number) {
     let offset = start
     let stopped = false
+    const startedAt = Date.now()
+    let seen = start > 0
     const timer = setInterval(async () => {
       if (stopped) return
       const next = await readFrom(file, offset).catch(() => undefined)
-      if (!next) return
+      if (!next) {
+        // Log không xuất hiện sau một thời gian: lượt chạy không tồn tại, thôi theo dõi.
+        if (!seen && Date.now() - startedAt > MISSING_LOG_MS) stop()
+        return
+      }
+      seen = true
       offset = next.offset
       for (const event of next.events) connection.push({ type: 'run-event', runId, event })
       if (next.events.some((e) => e.type === 'run/end')) stop()

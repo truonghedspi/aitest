@@ -89,6 +89,7 @@ describe('plan feedback from the test agent', () => {
       if (result.status !== 'running') break
     }
     expect(result.cases[0].feedback).toHaveLength(2)
+    expect(result.nextStep).toMatch(/^Có 2 góp ý của agent chạy test.*hỏi người dùng chọn đề xuất muốn áp dụng rồi mới sửa\.$/)
     const guide = ((await actions.invoke(session.scope, 'get_authoring_guide', {})).value as { guide: string }).guide
     expect(guide).toContain('Đọc `feedback` của từng case')
   })

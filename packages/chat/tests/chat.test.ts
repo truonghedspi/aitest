@@ -92,7 +92,13 @@ describe('chat host over WebSocket', () => {
       port: 4195,
       config: 'aitest.web.yml',
       // Case của lượt chạy thử gọi tool chạy mãi, để kiểm tra dừng chạy thử.
-      scripts: { async 'SL-01'(call) { await call('slow_wait', {}) } },
+      scripts: {
+        async 'SL-01'(call) { await call('slow_wait', {}) },
+        // Case chạy thử có góp ý cải thiện plan.
+        async 'FB-01'(call) {
+          await call('feedback_submit', { kind: 'step', step: 1, message: 'Bước 1 không ghi URL', suggestion: 'Ghi rõ GET {{order-service.url}}/orders' })
+        },
+      },
       rows: (dir) => [
         { id: 'web', name: '@aitest/web-host', config: { port: 0, staticDir: join(dir, 'static') } },
         { id: 'chat', name: '@aitest/chat', config: { agent: 'fake-chat', dir: join(dir, 'chats') } },
@@ -215,7 +221,7 @@ describe('chat host over WebSocket', () => {
     const lastSeq = restored.events().at(-1)!.seq
     const turn = restored.send('Lưu lại giúp tôi')
     await ws.call('chats.subscribe', { chatId: summary.id, afterSeq: lastSeq })
-    const request = await ws.waitFor((m) => m.type === 'event' && m.event.seq > lastSeq && m.event.type === 'permission/request')
+    const request = await ws.waitFor((m) => m.type === 'event' && m.chatId === summary.id && m.event.seq > lastSeq && m.event.type === 'permission/request')
     restored.decide(request.event.data.requestId, false)
     await turn
 
@@ -445,5 +451,35 @@ describe('chat host over WebSocket', () => {
     await ws.call('chats.decide', { chatId: chat.id, requestId: request.event.data.requestId, allowed: false })
     await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'turn/end')
     expect(prompts.at(-1)).toContain(`Người dùng đã dừng lượt chạy thử \`${runId}\``)
+  }, 60_000)
+
+  it('reports the final result of a dry run started from the plan panel to the agent once, with feedback to propose', async () => {
+    harness.kernel.ctx.runner.config.agent = 'scripted'
+    const chat = await ws.call('chats.create', { title: 'Góp ý chạy thử' })
+    await ws.call('chats.subscribe', { chatId: chat.id })
+    const content = [
+      'id: TP-FB', 'name: Góp ý', 'requires: [http]',
+      'cases:', '  - { id: FB-01, title: Liệt kê, steps: [Gọi danh sách lệnh.], expect: [{ id: e1, desc: d, check: { op: eq, value: 1 } }] }', '',
+    ].join('\n')
+    const { value: { runId } } = await ws.call('chats.invoke', { chatId: chat.id, tool: 'dry_run', args: { content } })
+    // Bảng plan hỏi kết quả nhiều lần như giao diện thật.
+    let result: any
+    for (let i = 0; i < 20; i++) {
+      result = (await ws.call('chats.invoke', { chatId: chat.id, tool: 'get_run_result', args: { runId, waitSec: 2 } })).value
+      if (result.status !== 'running') break
+    }
+    expect(result.cases[0].feedback).toHaveLength(1)
+    const pushedBefore = ws.pushed.length
+    await ws.call('chats.send', { chatId: chat.id, text: 'Đề xuất sửa theo góp ý' })
+    const request = await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'permission/request')
+    await ws.call('chats.decide', { chatId: chat.id, requestId: request.event.data.requestId, allowed: false })
+    await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'turn/end')
+    const prompt = prompts.at(-1)!
+    expect(prompt).toContain(`Lượt chạy thử \`${runId}\` người dùng bấm trên giao diện đã xong.\n- FB-01: inconclusive`)
+    expect(prompt).toContain('- [FB-01, bước 1] Bước 1 không ghi URL — đề xuất: Ghi rõ GET {{order-service.url}}/orders')
+    expect(prompt).toContain('Hỏi người dùng chọn đề xuất muốn áp dụng rồi mới sửa plan.')
+    // Không còn ghi chú "đã tự chạy get_run_result" lặp lại cho mỗi lần hỏi kết quả.
+    expect(prompt.match(/get_run_result/g) ?? []).toHaveLength(0)
+    expect(prompt.match(/đã tự chạy `dry_run`/g) ?? []).toHaveLength(1)
   }, 60_000)
 })

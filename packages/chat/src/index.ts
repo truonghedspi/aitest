@@ -79,6 +79,16 @@ function chatTitle(events: RunEvent[]) {
   return (renamed?.data as { title?: string } | undefined)?.title ?? DEFAULT_TITLE
 }
 
+interface RunResultValue {
+  runId?: string
+  status?: string
+  cases?: Array<{ id: string; verdict: string; reasons?: string[]; feedback?: Array<{ kind: string; message: string; suggestion?: string; step?: number; expectId?: string }> }>
+}
+
+/** Chỉ dẫn khi lượt chạy thử có góp ý: đề xuất trước, sửa sau khi người dùng chọn. */
+const FEEDBACK_INSTRUCTION = 'Trình bày cho người dùng danh sách đề xuất sửa plan theo từng góp ý (sửa gì, ở case và bước nào, '
+  + 'viết lại câu bước hoặc expectation ra sao); bỏ góp ý không hợp lý kèm lý do. Hỏi người dùng chọn đề xuất muốn áp dụng rồi mới sửa plan.'
+
 /** Tool soạn plan mà người dùng được bấm chạy trực tiếp trên giao diện, không qua agent. */
 const DEFAULT_USER_TOOLS = ['validate_plan', 'dry_run', 'get_run_result', 'save_plan']
 
@@ -253,6 +263,8 @@ export class Chat {
   private readonly pending = new Map<string, PendingPermission>()
   /** Ghi chú cho agent về thao tác người dùng làm trực tiếp, gửi kèm lượt tiếp theo. */
   private notes: string[] = []
+  /** Ghi chú theo khoá (ví dụ kết quả của một lượt chạy thử): ghi chú mới thay ghi chú cũ cùng khoá. */
+  private keyedNotes = new Map<string, string>()
 
   constructor(
     private readonly ctx: Context,
@@ -351,6 +363,7 @@ export class Chat {
     for (let i = 0; i < 3 && outcome.status === 'ok' && (outcome.value as { status?: string }).status === 'running'; i++) {
       outcome = await this.ctx.actions.invoke(scope, 'get_run_result', { runId, waitSec: 45 })
     }
+    if (outcome.status === 'ok') this.noteRunResult(outcome.value as RunResultValue)
     return { status: outcome.status, value: outcome.value, error: outcome.error }
   }
 
@@ -419,9 +432,36 @@ export class Chat {
     const session = await this.ensureAuthoring()
     const scope: ActionScope = { ...session.scope, phase: 'user' }
     const outcome = await this.ctx.actions.invoke(scope, tool, args)
+    if (tool === 'get_run_result' && outcome.status === 'ok') {
+      // Bảng plan hỏi kết quả nhiều lần trong lúc chờ: chỉ kết quả cuối được báo cho agent, một ghi chú cho mỗi lượt chạy.
+      this.noteRunResult(outcome.value as RunResultValue)
+      return outcome
+    }
     const summary = outcome.status === 'ok' ? JSON.stringify(outcome.value).slice(0, 1500) : outcome.error
     this.notes.push(`Người dùng đã tự chạy \`${tool}\` trên giao diện. Kết quả (${outcome.status}): ${summary}`)
     return outcome
+  }
+
+  /**
+   * Kết quả cuối của lượt chạy thử người dùng bấm: tổng kết từng case và góp ý của agent chạy test, kèm chỉ dẫn trình bày
+   * đề xuất sửa plan cho người dùng. Kết quả `running` không tạo ghi chú.
+   */
+  private noteRunResult(value: RunResultValue) {
+    if (!value?.runId || value.status === 'running') return
+    const lines = [`Lượt chạy thử \`${value.runId}\` người dùng bấm trên giao diện đã xong.`]
+    for (const c of value.cases ?? []) {
+      lines.push(`- ${c.id}: ${c.verdict}${c.reasons?.length ? ` (${c.reasons.slice(0, 3).join('; ')})` : ''}`)
+    }
+    const feedback = (value.cases ?? []).flatMap((c) => (c.feedback ?? []).map((f) => ({ ...f, caseId: c.id })))
+    if (feedback.length) {
+      lines.push('', `Agent chạy test có ${feedback.length} góp ý để cải thiện plan:`)
+      for (const f of feedback) {
+        const where = [f.caseId, f.step && `bước ${f.step}`, f.expectId].filter(Boolean).join(', ')
+        lines.push(`- [${where}] ${f.message}${f.suggestion ? ` — đề xuất: ${f.suggestion}` : ''}`)
+      }
+      lines.push('', FEEDBACK_INSTRUCTION)
+    }
+    this.keyedNotes.set(`run:${value.runId}`, lines.join('\n'))
   }
 
   async dispose() {
@@ -603,7 +643,9 @@ export class Chat {
         if (state) parts.push(`## Trạng thái hiện tại\n\n${state}`)
       }
     }
-    if (this.notes.length) parts.push(`## Thao tác của người dùng trên giao diện\n\n${this.notes.splice(0).join('\n\n')}`)
+    const notes = [...this.notes.splice(0), ...this.keyedNotes.values()]
+    this.keyedNotes.clear()
+    if (notes.length) parts.push(`## Thao tác của người dùng trên giao diện\n\n${notes.join('\n\n')}`)
     if (this.contextChanged && !isFirstTurn) {
       parts.push([
         '## Nền tảng đã cập nhật',
