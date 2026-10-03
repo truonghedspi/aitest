@@ -24,7 +24,7 @@ export interface PlanDoc {
     calls?: Array<{ call: string; desc?: string; path?: unknown; query?: unknown; body?: unknown } | null>
     setup?: string[]
     teardown?: string[]
-    expect: Array<{ id: string; desc: string; op?: string; value?: unknown; expr?: string }>
+    expect: Array<{ id: string; desc: string; op?: string; value?: unknown; expr?: string; fromRun?: string[]; fromEvidence?: string[] }>
   }>
 }
 
@@ -128,6 +128,13 @@ export function PlanDocument({ plan, caseBadge, compact = false }: {
                   <li key={e.id}>
                     {e.desc}
                     <div className="muted small">Đạt khi giá trị thực tế {criterion(e)}</div>
+                    {(e.fromRun?.length || e.fromEvidence?.length) ? (
+                      <div className="muted small">
+                        {e.fromRun?.length ? <>Lấy từ dữ liệu của lượt chạy: {e.fromRun.map((v) => <code key={v}>{v} </code>)}</> : null}
+                        {e.fromRun?.length && e.fromEvidence?.length ? ' · ' : ''}
+                        {e.fromEvidence?.length ? <>Agent đọc từ hệ thống: {e.fromEvidence.map((v) => <code key={v}>{v} </code>)}</> : null}
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>

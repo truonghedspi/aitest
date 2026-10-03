@@ -376,6 +376,8 @@ export interface AssertionRecord {
   expr?: string
   /** Giá trị thật của từng biến trong công thức, kèm nơi lấy. */
   inputs?: Record<string, EvidenceRef & { value: unknown }>
+  /** Biến của lượt chạy (vars của plan, đầu vào, save của fixture) mà công thức đã dùng, kèm giá trị. */
+  runVars?: Record<string, unknown>
   /** Giá trị từng bước `let` của công thức. */
   steps?: Record<string, unknown>
 }

@@ -1,4 +1,4 @@
-import { compare, evaluateFormula, isCaseScope, readPath, valuesEqual, variablesOf, z, type EvidenceRef, type EvidenceReader, type AssertionRecord, type AssertOp, type ActionScope, type CaseScope, type Context, type StepNote, type VerdictDecision } from '@aitest/core'
+import { coerceJson, compare, evaluateFormula, isCaseScope, readPath, valuesEqual, variablesOf, z, type EvidenceRef, type EvidenceReader, type AssertionRecord, type AssertOp, type ActionScope, type CaseScope, type Context, type StepNote, type VerdictDecision } from '@aitest/core'
 
 /**
  * Plugin verdict.
@@ -80,7 +80,8 @@ export function apply(ctx: Context, config: Config) {
       'Đối chiếu một expectation của test case với evidence đã thu thập.',
       'Nền tảng tự đọc giá trị thật tại `path` trong evidence và so sánh; không tự báo giá trị.',
       'Nếu expectation đã có tiêu chí cố định trong plan, `op` và `expected` của bạn bị bỏ qua.',
-      'Nếu tiêu chí là công thức, truyền `inputs`: mỗi biến của công thức trỏ tới evidence và path chứa giá trị thật.',
+      'Nếu tiêu chí là công thức, truyền `inputs` CHỈ cho các biến mà mục "Kết quả mong đợi" ghi cần gắn: mỗi biến trỏ tới evidence và path chứa giá trị thật.',
+      'Biến của lượt chạy (vars của plan, đầu vào, giá trị lưu từ bước chuẩn bị) nền tảng tự gắn; không truyền chúng, không tìm evidence cho chúng.',
       'Biến dạng danh sách trỏ path tới cả danh sách (`$.rows`, mỗi phần tử là một bản ghi) hoặc một cột (`$.rows[*].qty`).',
       'Giá trị mong đợi dạng danh sách (ví dụ số dư cộng dồn) được so từng phần tử với `path` trỏ tới cột tương ứng, ví dụ `$.rows[*].balance`.',
     ].join(' '),
@@ -97,7 +98,7 @@ export function apply(ctx: Context, config: Config) {
         expected: { description: 'Giá trị mong đợi; chỉ dùng khi plan không khai báo tiêu chí.' },
         inputs: {
           type: 'object',
-          description: 'Chỉ dùng khi tiêu chí là công thức: tên biến → { evidenceId, path } chứa giá trị thật của biến đó.',
+          description: 'Chỉ dùng khi tiêu chí là công thức: tên biến → { evidenceId, path } chứa giá trị thật của biến đó. Bỏ qua biến của lượt chạy (nền tảng tự gắn).',
           additionalProperties: {
             type: 'object',
             properties: { evidenceId: { type: 'string' }, path: { type: 'string' } },
@@ -132,18 +133,28 @@ export function apply(ctx: Context, config: Config) {
       const lets = expectation.check?.let
       let inputs: AssertionRecord['inputs']
       let steps: AssertionRecord['steps']
+      /** Giá trị biến của lượt chạy đã dùng trong công thức, ghi vào báo cáo để người đọc thấy đủ đầu vào. */
+      let runVars: AssertionRecord['runVars']
       if (expr) {
         const formulas = await ctx.formulas.for(scope.plan)
-        const names = variablesOf(expr, { let: lets }).filter((n) => !(n in scope.vars) || args.inputs?.[n])
+        const all = variablesOf(expr, { let: lets })
+        const names = all.filter((n) => !(n in scope.vars) || args.inputs?.[n])
+        const fromRun = all.filter((n) => n in scope.vars && !args.inputs?.[n])
         const missing = names.filter((n) => !args.inputs?.[n])
-        if (missing.length) throw new Error(`expectation ${expectation.id} uses formula ${expr}; provide inputs for: ${missing.join(', ')}`)
+        if (missing.length) {
+          throw new Error(`expectation ${expectation.id} uses formula ${expr}; provide inputs (evidenceId and path) for: ${missing.join(', ')}`
+            + (fromRun.length ? `; ${fromRun.join(', ')} come from the run's variables automatically, do not pass them` : ''))
+        }
         inputs = Object.fromEntries(names.map((n) => {
           const value = reader.read(scope, args.inputs![n])
           if (value === undefined) throw new Error(`input ${n}: path ${args.inputs![n].path} has no value in ${args.inputs![n].evidenceId}`)
           return [n, { ...args.inputs![n], value }]
         }))
-        // Biến của lượt chạy (đầu vào, biến dựng sẵn) dùng được trong công thức mà agent không phải chỉ ra.
-        const values = { ...scope.vars, ...Object.fromEntries(Object.entries(inputs).map(([n, i]) => [n, i.value])) }
+        // Biến của lượt chạy (vars của plan, đầu vào, save của fixture) dùng được trong công thức mà agent không phải chỉ ra.
+        // Biến dạng chuỗi JSON được đọc thành object để công thức truy cập trường.
+        const runValues = Object.fromEntries(fromRun.map((n) => [n, coerceJson(scope.vars[n])]))
+        if (fromRun.length) runVars = runValues
+        const values = { ...scope.vars, ...runValues, ...Object.fromEntries(Object.entries(inputs).map(([n, i]) => [n, coerceJson(i.value)])) }
         try {
           const result = evaluateFormula(expr, values, { let: lets, formulas })
           expected = result.value
@@ -157,7 +168,7 @@ export function apply(ctx: Context, config: Config) {
       const { passed, message } = Array.isArray(expected) ? compareLists(op, actual, expected) : compare(op, actual, expected)
       const record: AssertionRecord = {
         expectId: expectation.id, evidenceId: evidence.id, path: args.path, op, expected, actual, passed, message, criteria,
-        ...(expr ? { expr, inputs, ...(steps ? { steps } : {}) } : {}),
+        ...(expr ? { expr, inputs, ...(runVars ? { runVars } : {}), ...(steps ? { steps } : {}) } : {}),
       }
       state.assertions.set(expectation.id, record)
       scope.log('assert/result', record)
@@ -201,7 +212,7 @@ export function apply(ctx: Context, config: Config) {
       '## Quy trình xác nhận kết quả',
       '- Mỗi kết quả action có trường `evidenceId` (ví dụ `ev3`).',
       '- Với MỖI expectation, gọi `assert_expectation` kèm `expectId`, `evidenceId` và `path` trỏ đúng vào giá trị cần kiểm tra.',
-      '- Expectation có tiêu chí là công thức: truyền thêm `inputs`, mỗi biến của công thức trỏ tới evidence và path chứa giá trị thật. Không tự tính giá trị mong đợi.',
+      '- Expectation có tiêu chí là công thức: mục "Kết quả mong đợi" ghi biến nào nền tảng tự gắn (từ dữ liệu lượt chạy) và biến nào bạn gắn bằng `inputs` (evidence và path chứa giá trị thật). Chỉ truyền `inputs` cho nhóm sau. Không tự tính giá trị mong đợi.',
       '- Cần tính toán (tổng, phần trăm, làm tròn): dùng tool `calc`, không tự tính nhẩm.',
       '- Không tự kết luận pass/fail bằng lời; chỉ assertion được tính.',
       '- Nếu một bước không thực hiện được, vẫn gọi `note_step` với `status: failed` và giải thích.',

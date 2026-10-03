@@ -1,5 +1,5 @@
 import {
-  evaluateFormula, FUNCTIONS, ROUNDING_MODE_DESC, ROUNDING_MODES, roundDecimal,
+  coerceJson, evaluateFormula, FUNCTIONS, ROUNDING_MODE_DESC, ROUNDING_MODES, roundDecimal, variablesOf,
   type ActionScope, type Context, type EvidenceRef, type RoundingModeName, type TestPlan,
 } from '@aitest/core'
 
@@ -52,6 +52,7 @@ export function apply(ctx: Context) {
       'Biểu thức còn có: chuỗi, true/false, null, danh sách `[a, b]`, trường `r.qty`, chỉ số `xs[0]`, so sánh `== != < <= > >=`,',
       '`and`/`or`/`not`, `c ? a : b`, hàm ẩn danh `r -> r.qty * r.price`; công thức nghiệp vụ của plan và service gọi như hàm.',
       'Biến: số, chuỗi số, hoặc { evidenceId, path }; path trỏ được tới cả danh sách (`$.rows`) hoặc một cột (`$.rows[*].qty`).',
+      'Biến của lượt chạy (vars của plan, đầu vào, giá trị lưu từ bước chuẩn bị) không cần truyền: dùng thẳng tên trong biểu thức.',
       '`let`: các bước có tên, tính lần lượt; kết quả trả về giá trị từng bước.',
       'Kết quả: `result` (số giữ đầy đủ phần thập phân; hoặc danh sách, chuỗi…), `normalized`, `scale` khi kết quả là số.',
     ].join(' '),
@@ -67,14 +68,19 @@ export function apply(ctx: Context) {
     },
     async execute(args: { expression: string; variables?: Record<string, Input>; let?: Record<string, string> }, { scope }) {
       const sources: Record<string, EvidenceRef> = {}
-      const inputs = Object.fromEntries(Object.entries(args.variables ?? {}).map(([n, raw]) => [n, resolve(scope, n, raw, sources)]))
+      const inputs: Record<string, unknown> = Object.fromEntries(Object.entries(args.variables ?? {}).map(([n, raw]) => [n, coerceJson(resolve(scope, n, raw, sources))]))
+      // Biến không truyền mà có trong dữ liệu của lượt chạy (vars của plan, đầu vào, save của fixture): lấy giá trị đó,
+      // giống cách nền tảng gắn biến cho `check.expr`.
+      const runVars = (scope as ActionScope & { vars?: Record<string, unknown> }).vars ?? {}
+      const fromRun = variablesOf(args.expression, { let: args.let }).filter((n) => !(n in inputs) && n in runVars)
+      for (const n of fromRun) inputs[n] = coerceJson(runVars[n])
       // Công thức của plan và của service mà plan dùng (chỉ có trong case, nơi có plan).
       const plan = (scope as ActionScope & { plan?: TestPlan }).plan
       const formulas = plan ? await ctx.formulas.for(plan) : {}
       const { value, steps } = evaluateFormula(args.expression, inputs, { let: args.let, formulas })
       const numeric = typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value)
       return {
-        expression: args.expression, inputs, sources, result: value,
+        expression: args.expression, inputs, sources, ...(fromRun.length ? { fromRun } : {}), result: value,
         ...(numeric ? { normalized: normalize(value as string), scale: (value as string).split('.')[1]?.length ?? 0, value: Number(value) } : {}),
         ...(args.let ? { steps } : {}),
       }

@@ -184,7 +184,20 @@ Có hai cách khai báo:
   check: { op: eq, expr: "round(qty * price / 1000 * 0.0015, 2, HALF_UP)" }
 ```
 
-Khi chạy, agent chỉ ra nơi chứa giá trị thật của từng biến (`qty`, `price`); nền tảng tính trên **BigDecimal** (cùng cách tính với `java.math.BigDecimal`) rồi so sánh. Báo cáo ghi công thức, giá trị từng biến và kết quả tính. `op` của công thức phải là `eq`, `ne`, `gt`, `gte`, `lt`, `lte`.
+Nền tảng tính trên **BigDecimal** (cùng cách tính với `java.math.BigDecimal`) rồi so sánh. `op` của công thức phải là `eq`, `ne`, `gt`, `gte`, `lt`, `lte`. Biến của công thức lấy giá trị từ hai nguồn:
+
+| Biến là | Giá trị lấy từ đâu |
+|---|---|
+| `vars` của plan, đầu vào của lượt chạy (`inputs`), giá trị `save` của bước chuẩn bị | Nền tảng tự gắn; dùng thẳng tên, kể cả trường lồng: `account_data.balance`. Đầu vào điền dạng JSON (`--input account_data='{"balance": 100}'`) được đọc thành object |
+| Tên khác (`qty`, `price`) | Agent chạy test chỉ ra evidence và path chứa giá trị thật; plan cần có bước lấy dữ liệu chứa biến đó |
+
+Trong bước và tham số của fixture, `{{account_data.id}}` lấy trường lồng của biến dạng object. Báo cáo ghi công thức, giá trị từng biến (cả biến của lượt chạy) và kết quả tính.
+
+Kiểm tra plan (`aitest validate`, `validate_plan`) phát hiện trước khi chạy:
+
+- Sai tên trường của biến có giá trị trong plan, ví dụ `account_data.balanse` khi mặc định của đầu vào không có trường đó.
+- Công thức tính lỗi với giá trị có sẵn trong plan (`vars`, mặc định của đầu vào).
+- Biến phải lấy từ evidence mà không bước nào nhắc tới (cảnh báo).
 
 **Quy tắc tính:**
 

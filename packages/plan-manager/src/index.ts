@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import type {} from '@aitest/authoring'
 import type {} from '@aitest/runner'
 import type {} from '@aitest/web-host'
-import { errorMessage, z, type ActionScope, type Context, type TestPlan } from '@aitest/core'
+import { errorMessage, formulaVariables, z, type ActionScope, type Context, type TestPlan } from '@aitest/core'
 
 /**
  * Quản lý plan trên giao diện: danh sách, chi tiết và chạy plan.
@@ -55,7 +55,7 @@ export interface PlanDetail {
       setup: string[]
       teardown: string[]
       /** Kết quả mong đợi kèm tiêu chí: toán tử, giá trị hoặc công thức. */
-      expect: Array<{ id: string; desc: string; op?: string; value?: unknown; expr?: string }>
+      expect: Array<{ id: string; desc: string; op?: string; value?: unknown; expr?: string; fromRun?: string[]; fromEvidence?: string[] }>
     }>
   }
 }
@@ -207,10 +207,14 @@ export function describePlan(plan: TestPlan): PlanDetail['plan'] {
       }),
       setup: c.setup.map(fixtureText),
       teardown: c.teardown.map(fixtureText),
-      expect: c.expect.map((e) => ({
-        id: e.id, desc: e.desc,
-        ...(e.check ? { op: e.check.op, ...(e.check.expr ? { expr: e.check.expr } : { value: e.check.value }) } : {}),
-      })),
+      expect: c.expect.map((e) => {
+        const vars = e.check?.expr ? formulaVariables(plan, c, e.check) : undefined
+        return {
+          id: e.id, desc: e.desc,
+          ...(e.check ? { op: e.check.op, ...(e.check.expr ? { expr: e.check.expr } : { value: e.check.value }) } : {}),
+          ...(vars ? { fromRun: vars.fromRun.map((v) => v.name), fromEvidence: vars.fromEvidence } : {}),
+        }
+      }),
     })),
   }
 }

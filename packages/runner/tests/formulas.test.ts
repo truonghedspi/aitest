@@ -65,7 +65,7 @@ describe('formula expectations on real data', () => {
     expect(positions.assertion!.expected).toEqual(['300', '200', '400', '250', '550', '450', '650', '500'])
 
     // Prompt nêu công thức, các bước và biến cần gắn; đầu vào `symbol` nền tảng tự gắn.
-    expect(prompts['FML-01']).toContain('công thức `gross - fees` (các bước: `s`, `gross`, `fees`); khi assert, gắn `inputs` cho biến: `orders`')
+    expect(prompts['FML-01']).toContain('công thức `gross - fees` (các bước: `s`, `gross`, `fees`); bạn gắn `inputs` cho: `orders`')
     expect(prompts['FML-01']).toContain('`summary(orders)`')
   })
 

@@ -89,7 +89,7 @@ describe('exact calculation', () => {
       expectId: 'fee-correct', evidenceId: ev.annotations.evidenceId, path: '$.value',
       inputs: { qty: { evidenceId: ev.annotations.evidenceId, path: '$.value' } },
     })
-    expect(outcome.error).toMatch(/provide inputs for: price/)
+    expect(outcome.error).toMatch(/provide inputs \(evidenceId and path\) for: price/)
   })
 
   it('validates formula checks in plans', () => {

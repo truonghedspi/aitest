@@ -76,10 +76,14 @@ function criteria(e: Expectation, vars: Record<string, unknown>) {
   if (!e.check) return ''
   if (e.check.expr) {
     // Biến của lượt chạy (đầu vào, `$run.*`) nền tảng tự gắn; agent chỉ chỉ ra evidence cho biến còn lại.
-    const needed = variablesOf(e.check.expr, { let: e.check.let }).filter((v) => !(v in vars))
+    const all = variablesOf(e.check.expr, { let: e.check.let })
+    const needed = all.filter((v) => !(v in vars))
+    const auto = all.filter((v) => v in vars)
     const steps = e.check.let ? ` (các bước: ${Object.keys(e.check.let).map((s) => `\`${s}\``).join(', ')})` : ''
-    return ` — tiêu chí cố định: \`${e.check.op}\` công thức \`${e.check.expr}\`${steps}; khi assert, gắn \`inputs\` cho biến: `
-      + (needed.length ? needed.map((v) => `\`${v}\``).join(', ') : '(không cần)')
+    const list = (names: string[]) => names.map((v) => `\`${v}\``).join(', ')
+    return ` — tiêu chí cố định: \`${e.check.op}\` công thức \`${e.check.expr}\`${steps}`
+      + (auto.length ? `; nền tảng tự gắn ${list(auto)} từ dữ liệu của lượt chạy (không truyền trong \`inputs\`)` : '')
+      + `; bạn gắn \`inputs\` cho: ${needed.length ? list(needed) : '(không biến nào; chỉ cần evidenceId và path của giá trị thực tế)'}`
   }
   return ` — tiêu chí cố định: \`${e.check.op}\`${e.check.value !== undefined ? ` \`${JSON.stringify(e.check.value)}\`` : ''}`
 }

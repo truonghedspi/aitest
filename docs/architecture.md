@@ -342,6 +342,29 @@ Giá trị mong đợi phức tạp được tính bởi nền tảng, không b�
 
 Công thức tự định nghĩa là hàm thuần: chỉ thấy tham số và bước của chính nó, gọi được công thức khác, không gọi vòng. Nhờ vậy, một công thức có `examples` đúng thì cho cùng kết quả ở mọi plan.
 
+**Nguồn biến của công thức.** `formulaVariables(plan, case, check)` (core) chia biến của `check.expr` thành hai nhóm:
+
+- `fromRun`: `vars` của plan, đầu vào, `save` của fixture. Verdict tự gắn từ `scope.vars` và ghi vào `AssertionRecord.runVars`.
+- `fromEvidence`: agent chạy test truyền bằng `inputs`.
+
+Mọi nơi dùng chung cách chia này:
+
+- Prompt chạy test ghi "nền tảng tự gắn …; bạn gắn `inputs` cho …".
+- Mô tả `assert_expectation` và lỗi thiếu `inputs` nêu rõ biến nào đã có sẵn.
+- `calc` lấy biến của lượt chạy khi không được truyền.
+- `validate_plan` trả `summary.formulas`.
+- Bản xem trước plan hiện nguồn của từng biến.
+
+Biến dạng chuỗi JSON được đọc thành object bằng `coerceJson` (giữ chữ số). `{{biến.trường}}` trong template đọc trường lồng qua `lookupVar`; khoá phẳng như `{{order-service.url}}` được ưu tiên.
+
+Biến của lượt chạy không vi phạm bất biến "agent không tự báo giá trị", vì chúng đến từ plan, người chạy, fixture hoặc `provide_input` đọc từ evidence.
+
+`authoring/validate` kiểm tra khi soạn:
+
+- Tên trường của biến có giá trị object trong plan (`vars`, mặc định của đầu vào).
+- Tính thử công thức khi mọi biến có giá trị trong plan.
+- Cảnh báo khi biến `fromEvidence` không xuất hiện trong bước nào.
+
 ### 6.3. E2E qua trình duyệt
 
 File `aitest.e2e.yml` kế thừa `aitest.yml` qua khoá `extends`, rồi thêm row Playwright MCP:
@@ -560,6 +583,8 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | `packages/authoring/tests/authoring.test.ts` | Giới hạn tool theo scope, hướng dẫn, nguồn context, explore chỉ đọc, quy tắc kiểm tra, chạy thử, lưu |
 | `packages/chat/tests/restore.test.ts` | Khôi phục phiên agent sau khi Host khởi động lại; agent mất phiên thì gửi lại lịch sử, bản nháp, môi trường; agent không hỗ trợ `loadSession` |
 | `packages/system-catalog/tests/knowledge.test.ts` | Bảng, cột, giá trị, quy tắc và tài liệu `contextRefs` vào prompt chạy test; cảnh báo `context` chép lại catalog, nhắc bảng chưa khai báo hệ thống; `propose_system_knowledge` giữ comment, gộp giá trị, đổi bảng viết gọn, chặn quy tắc trùng; `propose_context_doc` chỉ ghi trong thư mục ngữ cảnh; lỗi dấu phẩy trong map một dòng |
+| `packages/action-math/tests/run-vars.test.ts` | Công thức dùng đầu vào dạng chuỗi JSON, đầu vào object tạo bằng `fill`, `vars` của plan, `{{biến.trường}}` trong fixture; agent assert không truyền `inputs`; báo cáo ghi `runVars`; `validate_plan` trả nguồn biến, bắt sai tên trường, tính thử công thức, cảnh báo biến không có bước thu thập |
+| `packages/core/tests/formula-vars.test.ts` | Chia biến của công thức theo nguồn, đọc chuỗi JSON giữ chữ số, `lookupVar` ưu tiên khoá phẳng |
 | `packages/runner/tests/cancel.test.ts` | Dừng một lời gọi tool (action không tự dừng), dừng lượt chạy giữa case (teardown vẫn chạy, case sau ghi lỗi), dừng chạy thử khi dừng lời gọi chờ kết quả hoặc khi nhận `authoring/stop` |
 | `packages/plan-manager/tests/plan-manager.test.ts` | Danh sách, chi tiết, bản xem trước của bản nháp (bước chuẩn bị, bước có cấu trúc, tiêu chí), chạy plan, lọc lượt chạy |
 | `packages/agent-acp/tests/error.test.ts` | Lỗi JSON-RPC của agent hiện lý do trong `data` (ví dụ hết hạn mức) thay vì chỉ "Internal error" |

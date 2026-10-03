@@ -84,7 +84,35 @@ Khi giá trị mong đợi phụ thuộc dữ liệu lúc chạy (phí, tổng t
   check: { op: eq, expr: "round(qty * price / 1000 * 0.0015, 2, HALF_UP)" }
 ```
 
-- Plan cố định công thức; agent chạy test chỉ chỉ ra evidence chứa từng biến; nền tảng tính trên BigDecimal.
+- Plan cố định công thức; nền tảng tính trên BigDecimal từ giá trị thật. Biến của công thức có hai nguồn:
+
+| Biến là | Ai gắn giá trị | Viết trong công thức |
+|---|---|---|
+| `vars` của plan, đầu vào (`inputs`), giá trị `save` của bước chuẩn bị | Nền tảng tự gắn lúc assert | Dùng thẳng tên, kể cả trường lồng: `account_data.balance`; trong bước dùng `{{account_data.id}}` |
+| Giá trị agent chạy test đọc được (response API, dòng DB) | Agent chỉ ra evidence và path khi assert | Tên tự đặt, ví dụ `qty`; phải có bước lấy dữ liệu nêu rõ bảng hoặc trường chứa nó |
+
+```yaml
+inputs:
+  account_data:
+    desc: Tài khoản tạo riêng cho lượt chạy
+    fill:
+      - action: http_request
+        args: { method: POST, url: "{{core.url}}/accounts", body: { type: NORMAL } }
+        save: { account_data: $.body }        # giá trị là object; công thức đọc được account_data.balance
+cases:
+  - steps:
+      - Gọi GET {{core.url}}/accounts/{{account_data.id}}/balance; lấy available từ response.
+    expect:
+      - id: available
+        desc: Số dư khả dụng trong response bằng số dư trừ phần phong toả của tài khoản
+        # Giá trị thực tế: agent assert bằng evidenceId + path của trường available ở bước trên.
+        # Giá trị mong đợi: công thức chỉ dùng account_data, nền tảng tự gắn; không cần `inputs`.
+        check: { op: eq, expr: "account_data.balance - account_data.blocked" }
+```
+
+- Không đặt giá trị cần đối chiếu vào biến chỉ để công thức "thấy" được; giá trị thực tế luôn do agent chạy test lấy từ hệ thống.
+- `validate_plan` trả `summary.formulas`: biến nền tảng tự gắn (`fromRun`) và biến cần evidence (`fromEvidence`) của từng công thức;
+  công thức chỉ dùng biến có sẵn trong plan được tính thử ngay. Đọc phần này trước khi chạy thử.
 - `op` phải là `eq`, `ne`, `gt`, `gte`, `lt`, `lte`. Không dùng cùng lúc `value` và `expr`.
 - `+ - * %` chính xác, giữ đủ phần thập phân. `/` chỉ dùng khi chia hết; chia không hết dùng `div(a, b, scale, MODE)`.
 - **Không có làm tròn mặc định.** Làm tròn ghi rõ cách làm tròn theo đặc tả của tính năng:
