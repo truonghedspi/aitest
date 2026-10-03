@@ -139,6 +139,7 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 - Các file test chạy song song. Mỗi file dùng cổng riêng (4199, 4198, 4197...) và thư mục tạm riêng, dọn trong `afterAll`. Không dùng cổng 4190: fetch của Node chặn cổng này.
 - Test cần hạ tầng ngoài (Kafka, RabbitMQ) bỏ qua khi thiếu biến môi trường (`KAFKA_BROKERS`, `RABBITMQ_URL`); CI chạy chúng trong job `brokers` với service container.
 - Thay đổi nội dung agent nhìn thấy cần thêm một lần chạy Kiro thật; ghi số liệu vào mục kết quả kiểm chứng của tài liệu kiến trúc khi số liệu thay đổi.
+- Đổi điều agent nhìn thấy (mô tả tool, hướng dẫn, prompt) thì rà cùng lúc mọi nơi dạy agent cùng điều đó: `skills/`, `context/`, `kb/` mẫu, plan mẫu. Phiên agent đang mở được nhắc đọc lại hướng dẫn nhờ dấu vân tay (`authoring.fingerprint`), nhưng skill và tài liệu lỗi thời thì vẫn dạy sai.
 
 ## Tài liệu
 

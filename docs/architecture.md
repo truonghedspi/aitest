@@ -516,6 +516,8 @@ Người dùng thao tác trực tiếp trên bảng "Plan đang soạn": mở pl
 2. Khi mở lại cuộc chat, hoặc sau khi process agent chết, chat gọi `AgentConnection.loadSession(sessionId)` với endpoint MCP mới của Host. Agent khôi phục toàn bộ ngữ cảnh: tin nhắn, kết quả tool, lập luận. Lịch sử agent phát lại khi khôi phục không được ghi lặp vào log. Lượt kế tiếp chỉ gửi tin nhắn mới.
 3. Agent không hỗ trợ `loadSession` (`agentCapabilities.loadSession`), hoặc không còn phiên đó: chat mở phiên mới, gửi chỉ dẫn vai trò, lịch sử hội thoại (tối đa `historyChars`) và "Trạng thái hiện tại" (môi trường, plan đang mở, bản nháp mới nhất). `agent/session` ghi `restored`, `previous`, `restoreError`; giao diện hiện một dòng ghi chú tương ứng.
 
+Phiên khôi phục giữ hướng dẫn và mô tả tool của lúc mở phiên. Khi nền tảng cập nhật, hoặc skill, tài liệu, quy ước thay đổi, agent vẫn làm theo nội dung cũ. `authoring.fingerprint()` băm hướng dẫn soạn plan cùng tool của scope `authoring` (tên, mô tả, schema); chat ghi giá trị này vào `agent/session` (`contextHash`). Khôi phục phiên mà dấu vân tay khác lần ghi trước của cùng phiên (hoặc phiên cũ chưa có dấu vân tay) thì `agent/session` ghi `contextChanged: true`, và lượt kế tiếp có mục "Nền tảng đã cập nhật" yêu cầu agent gọi lại `get_authoring_guide`. Mục này chỉ gửi một lần.
+
 Lượt chạy test không cần khôi phục: mỗi case chạy trong một phiên mới, độc lập.
 
 ### 7.4. Kênh Kiro chat
@@ -599,7 +601,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | File | Nội dung |
 |---|---|
 | `packages/authoring/tests/authoring.test.ts` | Giới hạn tool theo scope, hướng dẫn, nguồn context, explore chỉ đọc, quy tắc kiểm tra, chạy thử, lưu |
-| `packages/chat/tests/restore.test.ts` | Khôi phục phiên agent sau khi Host khởi động lại; agent mất phiên thì gửi lại lịch sử, bản nháp, môi trường; agent không hỗ trợ `loadSession` |
+| `packages/chat/tests/restore.test.ts` | Khôi phục phiên agent sau khi Host khởi động lại; nhắc đọc lại hướng dẫn khi dấu vân tay đổi, chỉ một lần; agent mất phiên thì gửi lại lịch sử, bản nháp, môi trường; agent không hỗ trợ `loadSession` |
 | `packages/system-catalog/tests/knowledge.test.ts` | Bảng, cột, giá trị, quy tắc và tài liệu `contextRefs` vào prompt chạy test; cảnh báo `context` chép lại catalog, nhắc bảng chưa khai báo hệ thống; `propose_system_knowledge` giữ comment, gộp giá trị, đổi bảng viết gọn, chặn quy tắc trùng; `propose_context_doc` chỉ ghi trong thư mục ngữ cảnh; lỗi dấu phẩy trong map một dòng |
 | `packages/action-math/tests/run-vars.test.ts` | Công thức dùng đầu vào dạng chuỗi JSON, đầu vào object tạo bằng `fill`, `vars` của plan, `{{biến.trường}}` trong fixture; agent assert không truyền `inputs`; báo cáo ghi `runVars`; `validate_plan` trả nguồn biến, bắt sai tên trường, tính thử công thức, cảnh báo biến không có bước thu thập |
 | `packages/core/tests/formula-vars.test.ts` | Chia biến của công thức theo nguồn, đọc chuỗi JSON giữ chữ số, `lookupVar` ưu tiên khoá phẳng |

@@ -523,6 +523,8 @@ export class Chat {
   }
 
   private opening?: Promise<AgentSession>
+  /** Phiên khôi phục được mở khi hướng dẫn hoặc tool khác hiện tại; lượt kế tiếp nhắc agent đọc lại hướng dẫn. */
+  private contextChanged = false
   /** Phiên agent hiện tại là phiên mới (không khôi phục được), lượt kế tiếp phải gửi chỉ dẫn vai trò và lịch sử. */
   private needsIntro = false
 
@@ -546,7 +548,7 @@ export class Chat {
       model: this.preferredModel(),
     }
     // Phiên agent trước của cuộc chat (ví dụ trước khi Host khởi động lại): khôi phục để agent giữ nguyên ngữ cảnh.
-    const previous = this.log.events.findLast((e) => e.type === 'agent/session')?.data as { sessionId?: string; agent?: string } | undefined
+    const previous = this.log.events.findLast((e) => e.type === 'agent/session')?.data as { sessionId?: string; agent?: string; contextHash?: string } | undefined
     let session: AgentSession | undefined
     let restoreError: string | undefined
     if (previous?.sessionId && previous.agent === connection.info.name && connection.loadSession) {
@@ -560,8 +562,15 @@ export class Chat {
     session ??= await connection.newSession(options)
     this.agentSession = session
     this.needsIntro = !restored
+    // Phiên khôi phục giữ hướng dẫn và mô tả tool của lúc mở phiên; nội dung đó đã đổi (cập nhật nền tảng, sửa skill,
+    // tài liệu, quy ước) thì lượt kế tiếp nhắc agent đọc lại.
+    const contextHash = await this.ctx.authoring.fingerprint().catch(() => undefined)
+    const seenHash = restored ? this.log.events.filter((e) => e.type === 'agent/session' && e.data && (e.data as { sessionId?: string }).sessionId === session.id)
+      .map((e) => (e.data as { contextHash?: string }).contextHash).filter(Boolean).at(-1) : undefined
+    this.contextChanged = restored && !!contextHash && seenHash !== contextHash
     this.log.append('agent/session', {
-      sessionId: session.id, agent: connection.info.name, model: session.models?.current, restored,
+      sessionId: session.id, agent: connection.info.name, model: session.models?.current, restored, ...(contextHash ? { contextHash } : {}),
+      ...(this.contextChanged ? { contextChanged: true } : {}),
       ...(previous?.sessionId && !restored ? { previous: previous.sessionId, ...(restoreError ? { restoreError } : {}) } : {}),
     })
     return session
@@ -595,6 +604,14 @@ export class Chat {
       }
     }
     if (this.notes.length) parts.push(`## Thao tác của người dùng trên giao diện\n\n${this.notes.splice(0).join('\n\n')}`)
+    if (this.contextChanged && !isFirstTurn) {
+      parts.push([
+        '## Nền tảng đã cập nhật',
+        'Hướng dẫn soạn plan, mô tả tool hoặc ngữ cảnh dùng chung đã thay đổi kể từ khi phiên này bắt đầu.',
+        'Gọi lại `get_authoring_guide` và làm theo hướng dẫn mới; điều bạn đã biết từ trước (cách dùng tool, quy tắc) có thể đã lỗi thời.',
+      ].join('\n'))
+      this.contextChanged = false
+    }
     // Ghi chú theo lượt do plugin đóng góp: việc còn mở, bộ nhớ vừa đổi, lời nhắc ghi nhớ.
     const authoring = await this.ensureAuthoring()
     parts.push(...await this.ctx.authoring.turnNotes({ sessionId: authoring.id, text, firstTurn: isFirstTurn }))

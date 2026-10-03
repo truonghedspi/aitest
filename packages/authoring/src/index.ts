@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import {
   PlanError, Service, errorMessage, z,
@@ -175,6 +175,18 @@ export class AuthoringService extends Service {
   }
 
   /** Hướng dẫn đầy đủ: các section của plugin cộng hướng dẫn của từng định dạng plan. */
+  /**
+   * Dấu vân tay của những gì agent soạn plan nhìn thấy: hướng dẫn và tool (tên, mô tả, schema) của scope `authoring`.
+   * Chat ghi lại khi mở phiên agent; khôi phục phiên cũ mà dấu vân tay đã khác thì báo agent đọc lại hướng dẫn.
+   */
+  async fingerprint(): Promise<string> {
+    const scope = { kind: 'authoring' as const, namespaces: new Set(['authoring']), phase: 'agent' as const }
+    const tools = this.ctx.actions.list(scope)
+      .map((a) => ({ name: a.name, description: a.description, inputSchema: a.inputSchema }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return createHash('sha256').update(await this.guide()).update(JSON.stringify(tools)).digest('hex').slice(0, 16)
+  }
+
   async guide() {
     const formats = this.ctx.plans.listFormats()
       .filter((f) => f.guide)

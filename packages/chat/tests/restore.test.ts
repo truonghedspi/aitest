@@ -104,6 +104,33 @@ describe('chat agent session restore', () => {
     expect(memory.get(first)).toHaveLength(2)
   })
 
+  it('tells a restored session to re-read the guide when what the agent sees has changed', async () => {
+    const { id } = await ws.call('chats.create', { title: 'Hướng dẫn đổi' })
+    let sessions = await send(id, 'Soạn plan')
+    const hash = sessions[0].contextHash
+    expect(hash).toMatch(/^[0-9a-f]{16}$/)
+
+    // Nền tảng cập nhật: thêm một phần hướng dẫn mới trong lúc Host dừng.
+    const fiber = harness.kernel.ctx.plugin({
+      name: 'guide-change',
+      inject: ['authoring'],
+      apply(ctx: any) { ctx.authoring.guideSection({ id: 'test/new-rule', order: 99, render: () => '## Quy tắc mới\nBiến của lượt chạy được tự gắn.' }) },
+    })
+    await restart(id)
+    sessions = await send(id, 'Làm tiếp')
+    expect(sessions.at(-1)).toMatchObject({ restored: true, contextChanged: true })
+    expect(sessions.at(-1).contextHash).not.toBe(hash)
+    expect(prompts.at(-1)).toContain('## Nền tảng đã cập nhật')
+    expect(prompts.at(-1)).toContain('Gọi lại `get_authoring_guide`')
+    // Chỉ nhắc một lần; khôi phục lại khi không đổi gì thì không nhắc.
+    expect(await send(id, 'Tiếp nữa').then(() => prompts.at(-1))).toBe('Tiếp nữa')
+    await restart(id)
+    sessions = await send(id, 'Sau khi khởi động lại')
+    expect(sessions.at(-1)).not.toHaveProperty('contextChanged')
+    expect(prompts.at(-1)).toBe('Sau khi khởi động lại')
+    fiber.dispose()
+  })
+
   it('opens a new session with history, draft and environment when the agent lost the session', async () => {
     const { id } = await ws.call('chats.create', { env: 'local' })
     await send(id, 'Bắt đầu')
