@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import type { AgentDriver } from '@aitest/core'
+import type { AgentDriver, Context } from '@aitest/core'
 import type {} from '@aitest/chat'
 import { setupHarness, WsClient, type Harness } from '../../runner/tests/support.ts'
 
@@ -91,7 +91,8 @@ describe('chat host over WebSocket', () => {
     harness = await setupHarness({
       port: 4195,
       config: 'aitest.web.yml',
-      scripts: {},
+      // Case của lượt chạy thử gọi tool chạy mãi, để kiểm tra dừng chạy thử.
+      scripts: { async 'SL-01'(call) { await call('slow_wait', {}) } },
       rows: (dir) => [
         { id: 'web', name: '@aitest/web-host', config: { port: 0, staticDir: join(dir, 'static') } },
         { id: 'chat', name: '@aitest/chat', config: { agent: 'fake-chat', dir: join(dir, 'chats') } },
@@ -102,6 +103,17 @@ describe('chat host over WebSocket', () => {
       ],
     })
     harness.kernel.ctx.agents.register(fakeAgent(prompts))
+    harness.kernel.ctx.plugin({
+      name: 'slow-test',
+      inject: ['actions'],
+      apply(ctx: Context) {
+        ctx.actions.register({
+          name: 'slow_wait', namespace: 'slow', scopes: ['case'], always: true, evidence: false,
+          description: 'Chờ mãi.', inputSchema: { type: 'object', properties: {} },
+          execute: () => new Promise(() => {}),
+        })
+      },
+    })
     const url = await harness.kernel.ctx.web.ready()
     ws = await WsClient.open(url.replace('http', 'ws') + '/ws')
   })
@@ -399,4 +411,31 @@ describe('chat host over WebSocket', () => {
     const got = await ws.call('memory.get', { name: 'order-status-names', scope: 'personal' })
     expect(got).toMatchObject({ memory: { version: 1, source: 'ui' }, history: [] })
   })
+
+  it('stops a dry run from the plan panel without stopping the agent, and logs the final result', async () => {
+    harness.kernel.ctx.runner.config.agent = 'scripted'
+    const chat = await ws.call('chats.create', { title: 'Dừng chạy thử' })
+    await ws.call('chats.subscribe', { chatId: chat.id })
+    const content = [
+      'id: TP-SLOW', 'name: Chậm', 'requires: [slow]',
+      'cases:', '  - { id: SL-01, title: Chờ mãi, steps: [Chờ.], expect: [{ id: e1, desc: d, check: { op: eq, value: 1 } }] }', '',
+    ].join('\n')
+    const started = await ws.call('chats.invoke', { chatId: chat.id, tool: 'dry_run', args: { content } })
+    const { runId } = started.value
+    const { actions } = harness.kernel.ctx
+    for (let i = 0; i < 100 && !actions.running().some((c) => c.name === 'slow_wait'); i++) await new Promise((r) => setTimeout(r, 50))
+    const stopped = await ws.call('chats.stopDryRun', { chatId: chat.id, runId })
+    expect(stopped).toMatchObject({ status: 'ok', value: { status: 'done', totals: { error: 1 } } })
+    expect(stopped.value.cases[0].reasons[0]).toMatch(/run cancelled/)
+    const events = (await ws.call('chats.subscribe', { chatId: chat.id })).events
+    const last = events.filter((e: any) => e.type === 'action/call' && e.data.name === 'get_run_result').at(-1)
+    expect(last.data).toMatchObject({ phase: 'user', value: { runId, status: 'done' } })
+    // Agent được báo ở lượt kế tiếp.
+    const pushedBefore = ws.pushed.length
+    await ws.call('chats.send', { chatId: chat.id, text: 'Tiếp' })
+    const request = await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'permission/request')
+    await ws.call('chats.decide', { chatId: chat.id, requestId: request.event.data.requestId, allowed: false })
+    await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'turn/end')
+    expect(prompts.at(-1)).toContain(`Người dùng đã dừng lượt chạy thử \`${runId}\``)
+  }, 60_000)
 })

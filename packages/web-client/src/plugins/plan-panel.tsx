@@ -71,6 +71,21 @@ function PlanPanel({ chatId }: PanelProps) {
     }
   }
 
+  const [stopping, setStopping] = useState(false)
+  /** Dừng lượt chạy thử đang chạy (do bảng này hoặc agent khởi động). */
+  const stopDryRun = async () => {
+    if (!draft.run?.runId) return
+    setStopping(true)
+    setError(undefined)
+    try {
+      await connection.call('chats.stopDryRun', { chatId, runId: draft.run.runId })
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setStopping(false)
+    }
+  }
+
   const dryRun = async () => {
     const inputs = Object.fromEntries(Object.entries(inputValues).filter(([, v]) => v.trim() !== '').map(([k, v]) => [k, v.trim()]))
     const started = await invoke('Đang chạy thử…', 'dry_run', {
@@ -205,7 +220,14 @@ function PlanPanel({ chatId }: PanelProps) {
       {draft.run && (
         <section>
           <h4>Chạy thử</h4>
-          {draft.run.pending ? <div className="muted">Đang chạy…</div> : <RunCases value={draft.run.value} />}
+          {draft.run.pending
+            ? (
+              <div className="row">
+                <span className="muted">{stopping ? 'Đang dừng… (case đang chạy dọn dẹp xong mới kết thúc)' : 'Đang chạy…'}</span>
+                {!stopping && <button onClick={stopDryRun} title="Dừng lượt chạy thử; case đang chạy vẫn chạy bước dọn dẹp">⏹ Dừng chạy thử</button>}
+              </div>
+            )
+            : <RunCases value={draft.run.value} />}
         </section>
       )}
     </div>

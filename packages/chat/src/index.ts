@@ -328,6 +328,27 @@ export class Chat {
     this.ctx.emit('authoring/stop', this.authoring.id)
   }
 
+  /**
+   * Dừng lượt chạy thử của cuộc chat (nút Dừng trên bảng plan), không dừng lượt của agent.
+   * Case đang chạy vẫn dọn dẹp; sau đó đọc kết quả cuối (pha `user`, có ghi log) để bảng plan và agent thấy lượt đã dừng.
+   */
+  async stopDryRun(runId: string) {
+    this.assertActive()
+    const authoring = await this.ensureAuthoring()
+    for (const call of this.ctx.actions.running(authoring.id)) {
+      if (call.name === 'get_run_result') this.ctx.actions.cancel(call.callId)
+    }
+    this.ctx.emit('authoring/stop', authoring.id)
+    this.notes.push(`Người dùng đã dừng lượt chạy thử \`${runId}\`. Case chưa chạy ghi lỗi "run cancelled"; không chạy lại trừ khi người dùng yêu cầu.`)
+    const scope: ActionScope = { ...authoring.scope, phase: 'user' }
+    // Chờ lượt chạy kết thúc (agent dừng, teardown chạy xong); mỗi lần đọc chờ tối đa theo giới hạn của tool.
+    let outcome = await this.ctx.actions.invoke(scope, 'get_run_result', { runId, waitSec: 45 })
+    for (let i = 0; i < 3 && outcome.status === 'ok' && (outcome.value as { status?: string }).status === 'running'; i++) {
+      outcome = await this.ctx.actions.invoke(scope, 'get_run_result', { runId, waitSec: 45 })
+    }
+    return { status: outcome.status, value: outcome.value, error: outcome.error }
+  }
+
   /** Dừng một lời gọi tool đang chạy của cuộc chat (nút Dừng trên thẻ tool). */
   cancelTool(callId: string) {
     const call = this.authoring && this.ctx.actions.running(this.authoring.id).find((c) => c.callId === callId)

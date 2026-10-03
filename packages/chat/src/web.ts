@@ -65,6 +65,8 @@ export function registerWebMethods(ctx: Context, chats: ChatService) {
     return { cancelled: true }
   })
 
+  ctx.web.method('chats.stopDryRun', async (params: { chatId: string; runId: string }) => (await chats.get(params.chatId)).stopDryRun(params.runId))
+
   ctx.web.method('chats.cancelTool', async (params: { chatId: string; callId: string }) => (await chats.get(params.chatId)).cancelTool(params.callId))
 
   ctx.web.method('chats.decide', async (params: { chatId: string; requestId: string; allowed: boolean }) => {

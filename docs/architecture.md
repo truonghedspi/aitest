@@ -160,6 +160,7 @@ Event ghi vào run log mà plugin dùng chung: `case/annotation` (`{ key, value 
   - Runner ghi `run/cancelled`; `deriveReport` đưa lý do vào `report.cancelled`.
 - Trong cuộc chat:
   - Nút Dừng trên thẻ tool gọi `chats.cancelTool`.
+  - Nút "Dừng chạy thử" trên bảng plan gọi `chats.stopDryRun(runId)`: huỷ lời gọi `get_run_result` đang chờ, phát `authoring/stop` (không dừng lượt của agent), rồi đọc kết quả cuối với pha `user` để log có trạng thái đã dừng và agent được báo ở lượt sau.
   - Nút Dừng của cả lượt huỷ lượt của agent, các lời gọi đang chạy và phát `authoring/stop`.
   - Plugin `authoring/dry-run` dừng lượt chạy thử khi lời gọi `get_run_result` đang chờ bị dừng, hoặc khi nhận `authoring/stop`.
 - Trang Plan dừng lượt chạy do chính Host đó khởi động qua `plans.cancel`.
@@ -588,7 +589,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | `packages/runner/tests/cancel.test.ts` | Dừng một lời gọi tool (action không tự dừng), dừng lượt chạy giữa case (teardown vẫn chạy, case sau ghi lỗi), dừng chạy thử khi dừng lời gọi chờ kết quả hoặc khi nhận `authoring/stop` |
 | `packages/plan-manager/tests/plan-manager.test.ts` | Danh sách, chi tiết, bản xem trước của bản nháp (bước chuẩn bị, bước có cấu trúc, tiêu chí), chạy plan, lọc lượt chạy |
 | `packages/agent-acp/tests/error.test.ts` | Lỗi JSON-RPC của agent hiện lý do trong `data` (ví dụ hết hạn mức) thay vì chỉ "Internal error" |
-| `packages/chat/tests/chat.test.ts` | Giao thức WebSocket thật với agent giả lập: chế độ tự duyệt, `alwaysAsk`, bật tự duyệt khi đang chờ, stream, tool call kèm `view`, duyệt quyền, thao tác của người dùng, mở plan có sẵn, follow theo `seq`, khôi phục từ log, mục lục bộ nhớ ở lượt đầu, báo bộ nhớ đổi, nhắc ghi nhớ, việc còn mở trong prompt và khi đóng trên giao diện |
+| `packages/chat/tests/chat.test.ts` | Giao thức WebSocket thật với agent giả lập: dừng chạy thử từ bảng plan, chế độ tự duyệt, `alwaysAsk`, bật tự duyệt khi đang chờ, stream, tool call kèm `view`, duyệt quyền, thao tác của người dùng, mở plan có sẵn, follow theo `seq`, khôi phục từ log, mục lục bộ nhớ ở lượt đầu, báo bộ nhớ đổi, nhắc ghi nhớ, việc còn mở trong prompt và khi đóng trên giao diện |
 | `packages/web-client/tests/derive.test.ts` | Trạng thái bản nháp khi mở plan trong và ngoài thư mục lưu, sửa sau khi mở |
 | `packages/core/tests/calc.test.ts` | BigDecimal: chính xác với số lớn, giữ phần thập phân, chia không hết phải chọn cách làm tròn, đủ 8 cách làm tròn, so sánh không qua số thực, từ chối biểu thức không hợp lệ |
 | `packages/action-math/tests/json.test.ts` | Parse JSON không mất chữ số |
