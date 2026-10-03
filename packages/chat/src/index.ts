@@ -104,6 +104,11 @@ export class ChatService extends Service {
     alwaysAsk: z.array(z.string()).default(['propose_tool']).description('Tool luôn phải hỏi người dùng, kể cả ở chế độ tự duyệt.'),
   })
 
+  /** Tên MCP server của gateway mà agent nhìn thấy; dùng để nhận diện tool của aitest trong yêu cầu xin phép. */
+  gatewayName(): string {
+    return this.ctx.gateway.config.serverName
+  }
+
   private readonly chats = new Map<string, Chat>()
   private connection?: Promise<AgentConnection>
   /** Tóm tắt cuộc chat đang không mở, theo thời điểm sửa file log: không đọc lại log khi file không đổi. */
@@ -576,6 +581,8 @@ export class Chat {
   private async buildPrompt(text: string, isFirstTurn: boolean) {
     const parts: string[] = []
     if (isFirstTurn) {
+      // Chỉ dẫn riêng của agent (ví dụ cách Codex tìm tool MCP) đặt trước chỉ dẫn vai trò.
+      if (this.agentSession?.instructions) parts.push(this.agentSession.instructions)
       parts.push(AGENT_PROMPT.trim())
       // Ngữ cảnh đầu phiên do plugin đóng góp, ví dụ mục lục bộ nhớ giữa các phiên.
       const intro = await this.ctx.authoring.intro()
@@ -655,8 +662,9 @@ export class Chat {
    */
   private async onPermission(request: { title: string; raw: unknown }): Promise<boolean> {
     this.flush()
-    const raw = request.raw as { rawInput?: unknown; toolCallId?: string }
-    const tool = /@[\w-]+\/(\w+)/.exec(request.title)?.[1]
+    const raw = request.raw as { rawInput?: unknown; toolCallId?: string; input?: { server?: string; tool?: string; arguments?: unknown } }
+    // Codex đặt tham số trong `rawInput.arguments`; Kiro đặt thẳng trong `rawInput`.
+    const tool = gatewayTool(request.title, raw, this.service.gatewayName())
     const definition = tool ? this.ctx.actions.get(tool) : undefined
     const requestId = raw.toolCallId ?? randomUUID()
     // Tool tự xin duyệt (`selfConfirm`) hiện thẻ duyệt riêng kèm bản xem trước khi chạy, nên không hỏi ở đây.
@@ -664,7 +672,7 @@ export class Chat {
       this.log.append('permission/decision', { requestId, tool, title: request.title, allowed: true, by: 'policy' })
       return true
     }
-    return this.ask({ requestId, tool, title: request.title, args: raw.rawInput })
+    return this.ask({ requestId, tool, title: request.title || (tool ? `Running: ${tool}` : 'tool'), args: (raw.rawInput as { arguments?: unknown } | undefined)?.arguments ?? raw.rawInput ?? raw.input?.arguments })
   }
 
   /**
@@ -695,4 +703,19 @@ export class Chat {
   private live(frame: LiveFrame) {
     this.ctx.emit('chat/live', this.id, frame)
   }
+}
+
+/**
+ * Tên tool của gateway trong yêu cầu xin phép, theo cách từng agent đặt tên:
+ * Kiro `Running: @aitest/validate_plan`; Codex `mcp.aitest.validate_plan` hoặc `input: { server, tool }`.
+ * Tool của server khác (tool riêng của agent) trả `undefined`.
+ */
+export function gatewayTool(title: string, raw: { input?: { server?: string; tool?: string }; rawInput?: unknown }, server: string): string | undefined {
+  const kiro = /@([\w-]+)\/(\w+)/.exec(title)
+  if (kiro) return kiro[1] === server ? kiro[2] : undefined
+  const codex = /^mcp\.([\w-]+)\.(\w+)$/.exec(title.trim())
+  if (codex) return codex[1] === server ? codex[2] : undefined
+  const input = (raw.rawInput ?? raw.input) as { server?: string; tool?: string } | undefined
+  if (input?.server === server && input.tool) return input.tool
+  return undefined
 }

@@ -1,0 +1,8 @@
+# Giao diện web với Codex cho cả cuộc chat soạn plan và lượt chạy test.
+# Chạy: pnpm web:build && pnpm aitest -c aitest.codex.web.yml serve
+extends: [./aitest.web.yml, ./aitest.codex.yml]
+plugins:
+  - id: chat
+    name: '@aitest/chat'
+    config:
+      agent: codex

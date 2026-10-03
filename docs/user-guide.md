@@ -42,6 +42,17 @@ pnpm test        # khoảng 10 giây, không gọi AI; mọi bài test phải đ
 |---|---|
 | `aitest.yml` | Test API, DB và integration |
 | `aitest.e2e.yml` | Test giao diện web; kế thừa `aitest.yml` và thêm trình duyệt |
+| `aitest.codex.yml` | Dùng Codex (OpenAI) làm agent chạy test thay cho Kiro |
+| `aitest.codex.web.yml` | Giao diện web với Codex cho cả cuộc chat soạn plan và lượt chạy |
+
+**Dùng Codex thay cho Kiro.** aitest điều khiển agent qua ACP, nên mọi agent có adapter ACP đều dùng được. Codex dùng adapter `@agentclientprotocol/codex-acp` (tự tải bằng `npx`):
+
+1. Đăng nhập Codex: `codex login` (tài khoản ChatGPT), hoặc đặt biến `CODEX_API_KEY`.
+2. Không khai báo MCP server riêng trong `~/.codex/config.toml`: agent chạy test chỉ được dùng tool của aitest.
+3. Chạy test: `pnpm aitest -c aitest.codex.yml run <plan>`. Giao diện: `pnpm web:build && pnpm aitest -c aitest.codex.web.yml serve`.
+4. Chọn model bằng `AITEST_CODEX_MODEL`, ví dụ `gpt-5.6-terra[high]`; bỏ trống thì dùng mặc định của Codex. Trong cuộc chat, đổi model ở ô Model như với Kiro.
+
+Codex chạy ở chế độ `read-only`: muốn sửa file hay truy cập mạng thì phải xin phép, và aitest từ chối mọi tool ngoài gateway. Codex chỉ hiện tool MCP khi được tìm, nên `aitest.codex.yml` có đoạn `instructions` dặn Codex tìm tool của aitest theo tên trước khi kết luận thiếu tool.
 
 Hai file đọc địa chỉ hệ thống từ biến môi trường:
 

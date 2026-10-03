@@ -66,6 +66,7 @@ tool-catalog/        danh mục tool đã kiểm duyệt: plugin, tham số, m�
 aitest.yml           cấu hình plugin mặc định
 aitest.e2e.yml       kế thừa aitest.yml, thêm Playwright MCP
 aitest.events.yml    kế thừa aitest.yml, thêm Kafka và RabbitMQ
+aitest.codex.yml     kế thừa aitest.yml, Codex (codex-acp) làm agent chạy test; aitest.codex.web.yml: giao diện với Codex
 aitest.web.yml       kế thừa aitest.yml, thêm web host, chat, plugin-manager và agent Kiro cho chat
 aitest.*.patch.yml   patch layer do giao diện ghi (bị git bỏ qua)
 .kiro/agents/        profile Kiro: aitest-author (Kiro chat + aitest mcp), aitest-chat (agent cho giao diện)

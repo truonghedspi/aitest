@@ -362,15 +362,19 @@ async function readPatch(file: string): Promise<PluginRow[]> {
 /**
  * Đọc row từ file cấu hình, gồm cả các file trong `extends` (xếp lớp như patch layer của dsh).
  * File sau ghi đè row cùng `id` của file trước; `name` tương đối được phân giải theo file khai báo nó.
+ * `extends` nhận danh sách; file chung của nhiều nhánh (ví dụ `aitest.yml` của cả bản web và bản Codex) chỉ được nạp
+ * một lần, ở lần gặp đầu, để không ghi đè thay đổi của nhánh trước. Chỉ file kế thừa lại tổ tiên của nó là vòng lặp.
  */
-async function loadRows(file: string, seen: Set<string>): Promise<PluginRow[]> {
-  if (seen.has(file)) throw new Error(`circular extends: ${file}`)
-  seen.add(file)
+async function loadRows(file: string, ancestors: Set<string> = new Set(), loaded: Set<string> = new Set()): Promise<PluginRow[]> {
+  if (ancestors.has(file)) throw new Error(`circular extends: ${file}`)
+  if (loaded.has(file)) return []
+  loaded.add(file)
   const raw = parseYaml(await readFile(file, 'utf8')) ?? {}
   const parents = raw.extends === undefined ? [] : [raw.extends].flat()
   const entries: Array<{ row: PluginRow; layer: RowLayer }> = []
+  const chain = new Set([...ancestors, file])
   for (const parent of parents) {
-    for (const row of await loadRows(resolve(dirname(file), String(parent)), seen)) upsert(entries, { row, layer: 'config' })
+    for (const row of await loadRows(resolve(dirname(file), String(parent)), chain, loaded)) upsert(entries, { row, layer: 'config' })
   }
   for (const row of raw.plugins ?? []) upsert(entries, { row: { ...row, baseDir: row.baseDir ?? dirname(file) }, layer: 'config' })
   return entries.map((e) => e.row)

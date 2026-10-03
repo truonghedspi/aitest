@@ -606,6 +606,8 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | `packages/verdict/tests/feedback.test.ts` | Góp ý qua `feedback_submit`: chặn trùng, bước không tồn tại, không đổi verdict; có trong báo cáo dựng từ log, `report.md`, `runs.list`, kết quả chạy thử cho agent soạn plan |
 | `packages/runner/tests/cancel.test.ts` | Dừng một lời gọi tool (action không tự dừng), dừng lượt chạy giữa case (teardown vẫn chạy, case sau ghi lỗi), dừng chạy thử khi dừng lời gọi chờ kết quả hoặc khi nhận `authoring/stop` |
 | `packages/plan-manager/tests/plan-manager.test.ts` | Danh sách, chi tiết, bản xem trước của bản nháp (bước chuẩn bị, bước có cấu trúc, tiêu chí), chạy plan, lọc lượt chạy |
+| `packages/agent-acp/tests/permission.test.ts` | Agent ACP giả xin phép chỉ với `toolCallId` (như Codex): driver ghép tiêu đề và tham số từ update `tool_call` |
+| `packages/chat/tests/gateway-tool.test.ts` | Nhận diện tool của gateway theo cách đặt tên của Kiro và Codex; bỏ qua server khác và tool riêng của agent |
 | `packages/agent-acp/tests/error.test.ts` | Lỗi JSON-RPC của agent hiện lý do trong `data` (ví dụ hết hạn mức) thay vì chỉ "Internal error" |
 | `packages/chat/tests/chat.test.ts` | Giao thức WebSocket thật với agent giả lập: dừng chạy thử từ bảng plan, chế độ tự duyệt, `alwaysAsk`, bật tự duyệt khi đang chờ, stream, tool call kèm `view`, duyệt quyền, thao tác của người dùng, mở plan có sẵn, follow theo `seq`, khôi phục từ log, mục lục bộ nhớ ở lượt đầu, báo bộ nhớ đổi, nhắc ghi nhớ, việc còn mở trong prompt và khi đóng trên giao diện |
 | `packages/web-client/tests/derive.test.ts` | Trạng thái bản nháp khi mở plan trong và ngoài thư mục lưu, sửa sau khi mở |
@@ -825,7 +827,11 @@ Lắng nghe `action/before`, trả `{ type: 'deny', reason }` để chặn, ho�
 
 ### 8.4. Thêm agent
 
-- Agent hỗ trợ ACP: thêm row `@aitest/agent-acp` với `name`, `command`, `args` khác.
+- Agent hỗ trợ ACP: thêm row `@aitest/agent-acp` với `name`, `command`, `args` khác. Ví dụ Codex: `aitest.codex.yml` (`npx -y @agentclientprotocol/codex-acp`).
+  - `mode`: session mode đặt ngay sau khi mở phiên. Codex mặc định tự chạy lệnh shell; đặt `read-only` để mọi thao tác ngoài gateway phải xin phép và bị chính sách từ chối.
+  - `instructions`: chỉ dẫn riêng của agent, đặt đầu lượt đầu tiên (runner, chuẩn bị dữ liệu, chat) và có trong `agent/prompt`. Codex chỉ hiện tool MCP khi được tìm (không tắt được bằng cấu hình), nên chỉ dẫn dặn tìm tool của aitest theo tên.
+  - Yêu cầu xin phép: Kiro gửi tiêu đề `Running: @aitest/<tool>`; Codex chỉ gửi `toolCallId`, tên tool (`mcp.aitest.<tool>`) và tham số nằm ở update `tool_call` trước đó. Driver ghép hai phần theo `toolCallId`; `gatewayTool` của chat đọc cả hai cách đặt tên. Event `agent/permission` bị từ chối ghi kèm yêu cầu gốc để chẩn đoán.
+  - Cấu hình kết hợp dùng `extends` dạng danh sách (`aitest.codex.web.yml` kế thừa bản web và bản Codex). File chung của nhiều nhánh chỉ được nạp một lần, ở lần gặp đầu.
 - Agent không hỗ trợ ACP: viết plugin gọi `ctx.agents.register(driver)` theo interface `AgentDriver`. Ví dụ tham khảo là driver kịch bản trong `packages/runner/tests/support.ts`.
 
 ### 8.5. Thêm reporter
@@ -882,6 +888,8 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Cuộc chat mới: "tiếp tục với plan huỷ lệnh đã khớp hôm trước" | Câu trả lời đầu tiên của agent nhắc `oi-1` kèm hai phương án và hỏi người dùng chọn. Người dùng trả lời "BA chốt 409": agent gọi `open_item_resolve` kèm kết luận rồi soạn tiếp |
 | Mở lại `oi-1`, chốt bằng nút phương án trên bảng "Việc còn mở" | Lượt kế tiếp của cuộc chat có dòng "đã chốt trên giao diện: 409 Conflict"; agent sửa plan theo kết luận mà không hỏi lại |
 | Cuộc chat với Kiro: `/api-input-validation soạn case kiểm tra ràng buộc price của createOrder` (chọn skill bằng gợi ý `/` trên giao diện) | Prompt có nội dung skill; agent không gọi `use_skill`, đọc thẳng plan mẫu kèm skill bằng `read_skill_file`, dùng `get_system_context` rồi làm theo quy trình của skill: lập bảng giá trị biên (1, 0, −1, thiếu trường) và hỏi xác nhận trước khi soạn |
+| Codex qua ACP (`@agentclientprotocol/codex-acp` 2.1.1, `gpt-5.6-terra[high]`, 03/10/2026): `order.plan.yaml --case TC-01` với `aitest.codex.yml` | Lần đầu Codex không thấy tool (Codex chỉ hiện tool MCP khi được tìm) và tự đọc skill cục bộ. Sau khi thêm `instructions`: Codex gọi `http_request` nhưng bị từ chối, vì yêu cầu xin phép chỉ có `toolCallId`; khắc phục bằng ghép thông tin `tool_call`. Sau hai khắc phục: TC-01 pass, 46,7 s; mọi lời gọi qua gateway, có `reason` và `step` |
+| Cuộc chat soạn plan với Codex (`aitest.codex.web.yml`): "tra cứu lệnh không tồn tại phải trả 404" | Codex gọi `get_authoring_guide`, `list_systems`, `list_actions`, `get_system_context`, `read_plan`, `new_plan_skeleton`, `explore` (DB và HTTP), `validate_plan`; plan có bước `call:` đạt kiểm tra ngay; không có thẻ duyệt thừa |
 
 Phát hiện trong lần chạy đầu với Kiro: agent viết path `$.result.status` vì kết quả tool bọc giá trị trong trường `result`. Ba assertion đầu tiên không đạt, sau đó agent tự sửa path. Cách khắc phục đã áp dụng:
 

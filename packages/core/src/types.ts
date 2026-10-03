@@ -317,6 +317,11 @@ export interface AgentSessionOptions {
 
 export interface AgentSession {
   id: string
+  /**
+   * Chỉ dẫn riêng của agent (cấu hình driver), đặt ở đầu lượt đầu tiên: ví dụ Codex chỉ hiện tool MCP khi được tìm,
+   * nên cần dặn tìm tool của aitest theo tên. Runner và chat chèn vào prompt trước khi ghi `agent/prompt`.
+   */
+  instructions?: string
   /** Model hiện tại và danh sách model chọn được, nếu agent công bố. */
   /** `fallbackFrom`: model mặc định đã cấu hình nhưng agent không có, nên session dùng `current`. */
   models?: { current?: string; available: AgentModel[]; fallbackFrom?: string }

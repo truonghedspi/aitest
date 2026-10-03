@@ -20,6 +20,7 @@ export interface Config {
   env: Record<string, string>
   mode?: string
   model?: string
+  instructions?: string
   stderrLines: number
 }
 
@@ -35,6 +36,10 @@ export const Config = z.object({
   model: z.string().description(
     'Model mặc định cho mọi session (chạy test, chuẩn bị dữ liệu, chat). Agent không có model này thì dùng model của agent '
     + 'và ghi cảnh báo; bỏ trống thì dùng mặc định của agent. Model chọn riêng (runner, cuộc chat) được ưu tiên.',
+  ),
+  instructions: z.string().description(
+    'Chỉ dẫn riêng cho agent này, đặt ở đầu lượt đầu tiên của mỗi phiên (chạy test, chuẩn bị dữ liệu, chat). '
+    + 'Dùng cho khác biệt của agent, ví dụ cách tìm tool MCP.',
   ),
   stderrLines: z.natural().default(50).description('Số dòng stderr cuối cùng giữ lại để chẩn đoán lỗi.'),
 })
@@ -70,14 +75,28 @@ async function connect(config: Config, cwd: string, logger: ReturnType<Context['
   exited.catch(() => {})
 
   const sessions = new Map<string, AgentSessionOptions>()
+  /**
+   * Thông tin tool call đã báo qua `session/update`, theo `toolCallId`. Một số agent (Codex) chỉ gửi `toolCallId` trong yêu cầu
+   * xin phép; tên tool, server và tham số nằm ở update `tool_call` trước đó. Ghép lại để chính sách duyệt nhận diện đúng tool.
+   */
+  const toolCalls = new Map<string, Record<string, unknown>>()
   const conn = new acp.ClientSideConnection(() => ({
     async sessionUpdate(params) {
+      const update = params.update as { sessionUpdate: string; toolCallId?: string }
+      if ((update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') && update.toolCallId) {
+        const { sessionUpdate: _, ...info } = update as Record<string, unknown>
+        toolCalls.set(update.toolCallId, { ...toolCalls.get(update.toolCallId), ...Object.fromEntries(Object.entries(info).filter(([, v]) => v != null)) })
+        // Giữ tối đa 500 tool call gần nhất.
+        if (toolCalls.size > 500) toolCalls.delete(toolCalls.keys().next().value!)
+      }
       sessions.get(params.sessionId)?.onUpdate(toUpdate(params.update))
     },
     async requestPermission(params) {
       const options = sessions.get(params.sessionId)
-      const title = params.toolCall.title ?? ''
-      const allowed = (await options?.onPermission?.({ title, raw: params.toolCall })) ?? false
+      const known = toolCalls.get(params.toolCall.toolCallId) ?? {}
+      const raw = { ...known, ...Object.fromEntries(Object.entries(params.toolCall).filter(([, v]) => v != null)) }
+      const title = params.toolCall.title || (typeof known.title === 'string' ? known.title : '')
+      const allowed = (await options?.onPermission?.({ title, raw })) ?? false
       const pick = params.options.find((o) => o.kind === (allowed ? 'allow_once' : 'reject_once'))
         ?? params.options.find((o) => o.kind.startsWith(allowed ? 'allow' : 'reject'))
       if (!pick) return { outcome: { outcome: 'cancelled' } }
@@ -164,6 +183,7 @@ async function connect(config: Config, cwd: string, logger: ReturnType<Context['
 
     return {
       id: sessionId,
+      ...(config.instructions?.trim() ? { instructions: config.instructions.trim() } : {}),
       models,
       setModel,
       async prompt(text, signal) {

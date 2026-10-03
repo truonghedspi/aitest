@@ -1,0 +1,26 @@
+# Dùng Codex (OpenAI) làm agent chạy test, qua adapter ACP @agentclientprotocol/codex-acp.
+# Cần: Codex đã đăng nhập (`codex login`, hoặc biến CODEX_API_KEY). Chạy: pnpm aitest -c aitest.codex.yml run <plan>
+# Không khai báo MCP server riêng trong ~/.codex/config.toml: agent chạy test chỉ được dùng tool của gateway aitest.
+extends: ./aitest.yml
+plugins:
+  - id: runner
+    name: '@aitest/runner'
+    config:
+      agent: codex
+      caseTimeout: 300
+  - id: agent-codex
+    name: '@aitest/agent-acp'
+    config:
+      name: codex
+      command: npx
+      args: [-y, '@agentclientprotocol/codex-acp']
+      # read-only: Codex phải xin phép trước khi sửa file hoặc truy cập mạng; aitest từ chối mọi tool ngoài gateway.
+      mode: read-only
+      # Model của Codex, ví dụ gpt-5.6-terra[high]; bỏ trống thì dùng mặc định của Codex.
+      model: ${env.AITEST_CODEX_MODEL:-}
+      # Codex chỉ hiện tool MCP khi được tìm: dặn tìm tool của aitest theo tên trước khi kết luận thiếu tool.
+      instructions: |
+        ## Tool trong phiên này
+        Mọi tool bạn được dùng nằm ở MCP server `aitest`. Tool có thể chưa hiện sẵn trong danh sách của bạn:
+        trước khi kết luận thiếu tool, tìm tool của MCP server `aitest` theo đúng tên nêu bên dưới (ví dụ `http_request`,
+        `db_query`, `assert_expectation`) rồi gọi. Không đọc file, không chạy lệnh shell, không dùng skill cục bộ.

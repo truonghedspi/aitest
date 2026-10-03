@@ -182,8 +182,9 @@ export class Runner extends Service {
         model,
       })
       scope.log('agent/session', { sessionId: session.id, model: session.models?.current ?? model, scope: scope.kind, ...fallbackOf(session) })
-      scope.log('agent/prompt', { sessionId: session.id, text: prompt, scope: scope.kind })
-      const result = await withGrace(session.prompt(prompt, controller.signal), controller.signal, this.config.cancelGrace * 1000)
+      const text = withInstructions(session, prompt)
+      scope.log('agent/prompt', { sessionId: session.id, text, scope: scope.kind })
+      const result = await withGrace(session.prompt(text, controller.signal), controller.signal, this.config.cancelGrace * 1000)
       if (controller.signal.aborted) throw controller.signal.reason
       return { stopReason: result.stopReason }
     } finally {
@@ -260,7 +261,7 @@ export class Runner extends Service {
       })
       // Ghi model thật sự dùng, để người xem log biết kết quả đến từ model nào.
       scope.log('agent/session', { sessionId: session.id, model: session.models?.current ?? model, ...fallbackOf(session) })
-      const prompt = this.ctx.prompt.build(scope, this.ctx.actions.list(scope))
+      const prompt = withInstructions(session, this.ctx.prompt.build(scope, this.ctx.actions.list(scope)))
       scope.log('agent/prompt', { sessionId: session.id, text: prompt })
       const result = await withGrace(session.prompt(prompt, controller.signal), controller.signal, this.config.cancelGrace * 1000)
       stopReason = result.stopReason
@@ -326,7 +327,8 @@ export class Runner extends Service {
     const text = `${request.title} ${JSON.stringify(request.raw)}`
     const allowed = policy === 'allow-all'
       || (policy === 'gateway-only' && (text.includes(serverName) || names.some((n) => text.includes(n))))
-    scope.log('agent/permission', { title: request.title, allowed })
+    // Ghi kèm yêu cầu gốc (rút gọn) để chẩn đoán khi agent đặt tên tool theo cách khác.
+    scope.log('agent/permission', { title: request.title, allowed, ...(allowed ? {} : { raw: text.slice(0, 2000) }) })
     return allowed
   }
 }
@@ -379,6 +381,11 @@ function fallbackOf(session: AgentSession) {
 }
 
 /** Chờ promise; nếu đã huỷ mà agent không dừng sau `graceMs` thì bỏ qua. */
+/** Chỉ dẫn riêng của agent (cấu hình driver) đặt trước prompt của nền tảng. */
+function withInstructions(session: AgentSession, prompt: string) {
+  return session.instructions ? `${session.instructions}\n\n${prompt}` : prompt
+}
+
 function withGrace<T>(promise: Promise<T>, signal: AbortSignal, graceMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     promise.then(resolve, reject)
