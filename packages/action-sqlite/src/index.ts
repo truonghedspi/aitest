@@ -13,6 +13,7 @@ export interface Config {
   file: string
   readonly: boolean
   maxRows: number
+  busyTimeout: number
 }
 
 export const name = 'action-sqlite'
@@ -23,12 +24,15 @@ export const Config = z.object({
   file: z.string().required().description('Đường dẫn file SQLite.'),
   readonly: z.boolean().default(true).description('Mở kết nối chỉ đọc.'),
   maxRows: z.natural().default(200),
+  busyTimeout: z.natural().default(5000)
+    .description('Thời gian chờ khi ứng dụng đang ghi và khoá DB, đơn vị ms; hết thời gian thì lời gọi lỗi "database is locked".'),
 })
 
 export function apply(ctx: Context, config: Config) {
   const file = resolve(config.file)
   let db: DatabaseSync | undefined
-  const open = () => db ??= new DatabaseSync(file, { readOnly: config.readonly })
+  // Ứng dụng dưới kiểm thử ghi cùng file; chờ khoá thay vì lỗi ngay, nhất là khi nhiều case chạy song song.
+  const open = () => db ??= new DatabaseSync(file, { readOnly: config.readonly, timeout: config.busyTimeout })
   ctx.effect(() => () => { db?.close(); db = undefined }, `sqlite(${file})`)
 
   ctx.actions.register({

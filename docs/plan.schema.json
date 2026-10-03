@@ -201,7 +201,7 @@
                 },
                 {
                   "type": "object",
-                  "description": "Bước gọi một operation của hệ thống trong catalog; được kiểm tra theo OpenAPI khi validate.",
+                  "description": "Bước gọi một operation của hệ thống trong catalog; được kiểm tra theo OpenAPI khi validate. Các bước call liền nhau ở đầu case do nền tảng chạy, không qua agent.",
                   "required": [
                     "call"
                   ],
@@ -232,6 +232,11 @@
                     "desc": {
                       "type": "string",
                       "description": "Mục đích của bước."
+                    },
+                    "save": {
+                      "type": "object",
+                      "additionalProperties": { "type": "string" },
+                      "description": "Lưu giá trị từ kết quả thành biến cho bước sau, ví dụ { order_id: '$.body.id' }. Chỉ dùng ở bước call đầu case (nền tảng chạy)."
                     }
                   }
                 }
@@ -293,6 +298,16 @@
                       "value",
                       "expr"
                     ]
+                  }
+                },
+                "from": {
+                  "type": "object",
+                  "required": ["step", "path"],
+                  "additionalProperties": false,
+                  "description": "Nền tảng tự đối chiếu từ kết quả của một bước call đầu case, agent không assert. Cần check.",
+                  "properties": {
+                    "step": { "type": "integer", "minimum": 1, "description": "Số thứ tự bước (từ 1); phải là bước call đầu case." },
+                    "path": { "type": "string", "description": "Path trong kết quả của bước, ví dụ $.status, $.body.id." }
                   }
                 }
               }

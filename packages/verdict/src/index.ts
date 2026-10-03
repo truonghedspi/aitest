@@ -1,4 +1,4 @@
-import { coerceJson, compare, evaluateFormula, isCaseScope, readPath, valuesEqual, variablesOf, z, type EvidenceRef, type EvidenceReader, type AssertionRecord, type AssertOp, type ActionScope, type CaseScope, type Context, type StepNote, type VerdictDecision } from '@aitest/core'
+import { coerceJson, compare, evaluateFormula, isCaseScope, readPath, valuesEqual, variablesOf, z, type EvidenceRef, type EvidenceReader, type AssertionRecord, type AssertOp, type ActionScope, type CaseScope, type Context, type StepNote, type VerdictDecision, type Expectation } from '@aitest/core'
 
 /**
  * Plugin verdict.
@@ -95,12 +95,35 @@ export function apply(ctx: Context, config: Config) {
     return { ...outcome, annotations: { ...outcome.annotations, evidenceId: id } }
   })
 
+  // Bước do nền tảng chạy đã xong: đối chiếu các expectation lấy giá trị từ bước này (`from`).
+  ctx.on('case/step-done', async (scope, step, outcome) => {
+    const evidenceId = outcome.annotations.evidenceId as string | undefined
+    if (!evidenceId) return
+    for (const e of scope.case.expect.filter((x) => x.from?.step === step)) await autoAssert(scope, e, evidenceId)
+  })
+
+  /** Đối chiếu expectation có `from`; lỗi (path, công thức) được ghi thành assertion không đạt kèm lý do, không làm hỏng bước. */
+  async function autoAssert(scope: CaseScope, e: Expectation, evidenceId: string) {
+    try {
+      await assertOne(scope, { expectId: e.id, evidenceId, path: e.from!.path }, true)
+    } catch (error) {
+      const record: AssertionRecord = {
+        expectId: e.id, evidenceId, path: e.from!.path, op: e.check?.op ?? 'eq', passed: false, criteria: 'plan', auto: true,
+        message: `the platform could not assert from step ${e.from!.step}: ${(error as Error).message}`,
+      }
+      stateOf(scope).assertions.set(e.id, record)
+      scope.log('assert/result', record)
+    }
+  }
+
   type AssertArgs = { expectId: string; evidenceId: string; path: string; op?: AssertOp; expected?: unknown; inputs?: Record<string, EvidenceRef> }
 
   /** Đối chiếu một expectation; ném lỗi khi tham số sai (expectation, evidence không tồn tại, thiếu biến của công thức). */
-  async function assertOne(scope: CaseScope, args: AssertArgs) {
+  async function assertOne(scope: CaseScope, args: AssertArgs, auto = false) {
     const expectation = scope.case.expect.find((e) => e.id === args.expectId)
     if (!expectation) throw new Error(`unknown expectId ${args.expectId}; valid: ${scope.case.expect.map((e) => e.id).join(', ')}`)
+    // Expectation có `from` chỉ nền tảng đối chiếu, từ đúng bước plan chỉ định.
+    if (expectation.from && !auto) throw new Error(`expectation ${expectation.id} is asserted by the platform from step ${expectation.from.step}; do not assert it`)
     const state = stateOf(scope)
     const evidence = state.evidence.get(args.evidenceId)
     if (!evidence) throw new Error(`unknown evidenceId ${args.evidenceId}; collected: ${[...state.evidence.keys()].join(', ') || '(none)'}`)
@@ -153,7 +176,7 @@ export function apply(ctx: Context, config: Config) {
     const actual = readPath(evidence.value, args.path)
     const { passed, message } = Array.isArray(expected) ? compareLists(op, actual, expected) : compare(op, actual, expected)
     const record: AssertionRecord = {
-      expectId: expectation.id, evidenceId: evidence.id, path: args.path, op, expected, actual, passed, message, criteria,
+      expectId: expectation.id, evidenceId: evidence.id, path: args.path, op, expected, actual, passed, message, criteria, ...(auto ? { auto } : {}),
       ...(expr ? { expr, inputs, ...(runVars ? { runVars } : {}), ...(steps ? { steps } : {}) } : {}),
     }
     state.assertions.set(expectation.id, record)

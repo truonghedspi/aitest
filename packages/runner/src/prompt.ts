@@ -49,9 +49,16 @@ export function registerDefaultSections(ctx: Context) {
     order: 30,
     render: ({ case: c, vars }) => {
       if (!c.expect.length) return undefined
+      const own = c.expect.filter((e) => !e.from)
+      const auto = c.expect.filter((e) => e.from)
       return [
         '### Kết quả mong đợi',
-        ...c.expect.map((e) => `- \`${e.id}\`: ${e.desc}${criteria(e, vars)}`),
+        ...own.map((e) => `- \`${e.id}\`: ${e.desc}${criteria(e, vars)}`),
+        ...(auto.length ? [
+          '',
+          'Nền tảng đã tự đối chiếu các expectation sau từ kết quả bước nó chạy; không assert chúng:',
+          ...auto.map((e) => `- \`${e.id}\`: ${e.desc} (bước ${e.from!.step}, \`${e.from!.path}\`)`),
+        ] : []),
       ].join('\n')
     },
   })

@@ -1,4 +1,5 @@
 import { Context, Service, z, type CaseScope } from '@aitest/core'
+import { registerStepRunner } from './steps.ts'
 import { channelIn, describeKnowledge, loadEnv, loadSystems, systemVars, type Catalog, type EventChannel, type SystemSpec } from './model.ts'
 
 export * from './model.ts'
@@ -24,7 +25,7 @@ export interface Config {
  * Catalog được đọc lại ở đầu mỗi case, nên sửa file có hiệu lực ngay ở case kế tiếp.
  */
 export class SystemCatalogService extends Service {
-  static inject = ['prompt', 'formulas']
+  static inject = ['prompt', 'formulas', 'actions']
   static Config = z.object({
     dirs: z.array(z.string()).default(['systems']).description('Thư mục chứa `<id>/service.yml`, tương đối với thư mục làm việc.'),
     envDir: z.string().default('envs').description('Thư mục chứa `<tên môi trường>.yml`.'),
@@ -56,6 +57,9 @@ export class SystemCatalogService extends Service {
       for (const [key, value] of Object.entries(vars)) if (!(key in scope.vars)) scope.vars[key] = value
       scope.log('systems/resolved', { env: catalog.env.name, systems: ids, vars, ...(missing.length ? { missing } : {}) })
     })
+
+    // Bước `call:` đầu case do nền tảng chạy, dùng catalog đã nạp ở `case/start`.
+    registerStepRunner(ctx, async (scope) => this.resolved.get(scope) ?? this.load(scope.env))
 
     // Công thức của các service mà plan khai báo trong `systems`.
     ctx.formulas.provide(async (plan) => {

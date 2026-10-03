@@ -65,6 +65,27 @@ steps:
   - Đọc bảng orders theo id {{order_id}}.  # bước dạng câu vẫn dùng được, trộn trong cùng danh sách
 ```
 
+#### Bước nền tảng chạy và expectation `from`
+
+- Các bước `call:` liền nhau ở **đầu** case do nền tảng chạy, không qua agent: nhanh, không tốn lượt suy nghĩ, kết quả không phụ thuộc model.
+  Bước `call:` nằm sau một bước dạng câu thì agent làm.
+- `save: { order_id: '$.body.id' }` ở bước nền tảng chạy lưu giá trị thành biến cho bước sau; chỉ dùng ở các bước đầu này.
+- Expectation đọc giá trị từ kết quả của bước nền tảng chạy khai báo `from: { step: <số bước>, path: <path> }` kèm `check`.
+  Nền tảng tự đối chiếu; agent không assert expectation này.
+- Case chỉ có bước `call:` và mọi expectation đều có `from` thì không cần agent. Đây là dạng nhanh và ổn định nhất cho test API.
+- Expectation cần đối chiếu DB, sự kiện, giao diện hoặc cần suy luận vẫn để agent assert (không có `from`).
+
+```yaml
+steps:
+  - call: order-service.createOrder
+    body: { symbol: QTA, side: BUY, qty: 100, price: 10000 }
+    save: { order_id: '$.body.id' }
+  - Đếm số bản ghi trong bảng orders có symbol QTA.    # agent làm tiếp từ bước 2
+expect:
+  - { id: http-201, desc: API nhận lệnh, check: { op: eq, value: 201 }, from: { step: 1, path: $.status } }
+  - { id: db-one, desc: Lưu đúng một bản ghi, check: { op: eq, value: 1 } }    # agent assert
+```
+
 ### Quy tắc viết expectation
 
 - Mỗi expectation kiểm tra **một** giá trị; `id` ngắn, dạng `http-201`, `db-status`.

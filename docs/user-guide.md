@@ -170,7 +170,28 @@ steps:
   - Truy vấn bảng orders theo id {{order_id}}.
 ```
 
-Khi chạy, nền tảng chuyển bước có cấu trúc thành câu chỉ dẫn cho agent, ví dụ `Gọi order-service.cancelOrder với path {"id":"…"} — huỷ lệnh vừa đặt.`
+Các bước `call:` liền nhau ở **đầu** case do nền tảng chạy, không qua agent. Bước `call:` nằm sau một bước dạng câu thì agent làm, theo câu chỉ dẫn nền tảng dựng từ bước đó, ví dụ `Gọi order-service.cancelOrder với path {"id":"…"} — huỷ lệnh vừa đặt.`
+
+Bước nền tảng chạy nhanh và cho kết quả như nhau giữa các lần chạy, không phụ thuộc model:
+
+| Khai báo | Tác dụng |
+|---|---|
+| `save: { order_id: '$.body.id' }` trên bước `call:` đầu case | Lưu giá trị từ kết quả thành biến cho bước sau và cho agent |
+| `from: { step: 1, path: $.status }` trên expectation, kèm `check` | Nền tảng tự đối chiếu với kết quả bước 1; agent không assert |
+| Mọi bước là `call:` và mọi expectation có `from` | Case chạy xong mà không cần agent; dòng thời gian ghi "Không cần agent" |
+
+```yaml
+steps:
+  - call: order-service.createOrder
+    body: { symbol: QTA, side: BUY, qty: 100, price: 10000 }
+    save: { order_id: '$.body.id' }
+  - Đếm số bản ghi trong bảng orders có symbol QTA.
+expect:
+  - { id: http-201, desc: API nhận lệnh, check: { op: eq, value: 201 }, from: { step: 1, path: $.status } }
+  - { id: db-one, desc: Lưu đúng một bản ghi, check: { op: eq, value: 1 } }
+```
+
+`validate` báo lỗi khi `from` thiếu `check`, khi `from` trỏ tới bước nền tảng không chạy, hoặc khi `save` nằm ở bước agent làm.
 
 ### 5.4. Viết expectation
 

@@ -27,6 +27,16 @@ declare module '@deepseek-ai/cordis' {
     'run/prepare'(run: RunContext): Promise<void>
     /** Bắt đầu một case, trước khi mở session agent. @mode parallel */
     'case/start'(scope: CaseScope): Promise<void>
+    /**
+     * Sau fixture `setup`, trước agent: plugin chạy các bước đầu case thực thi được không qua agent (bước `call:`),
+     * trả số bước đã hoàn tất tính từ bước 1. Ném lỗi khi một bước thất bại; case nhận verdict `error`. @mode waterfall
+     */
+    'case/steps'(scope: CaseScope, next: () => Promise<number>): Promise<number>
+    /**
+     * Một bước do nền tảng chạy (pha `step`) đã xong và lời gọi đã ghi `action/call`; `step` đánh số từ 1.
+     * Plugin `verdict` đối chiếu expectation có `from` trỏ tới bước này. @mode parallel
+     */
+    'case/step-done'(scope: CaseScope, step: number, outcome: ActionOutcome): Promise<void>
     /** Cập nhật thô từ agent (tin nhắn, tool call). @mode emit */
     'case/agent-update'(scope: CaseScope, update: AgentUpdate): void
     /** Tính verdict cho case. Plugin verdict quyết định; mặc định giữ `base`. @mode waterfall */

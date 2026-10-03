@@ -6,7 +6,7 @@ aitest là nền tảng cho AI agent tự đọc test plan, tự thực thi các
 
 aitest không chạy agent loop. aitest vừa là **ACP client** điều khiển agent bên ngoài (mặc định `kiro-cli acp`), vừa là **MCP host** cung cấp công cụ cho agent.
 
-1. Runner nạp plan, chạy fixture `setup` một cách xác định.
+1. Runner nạp plan, chạy fixture `setup` và các bước `call:` đầu case (`case/steps`) một cách xác định; không còn việc cho agent thì bỏ qua agent.
 2. Runner mở một endpoint MCP riêng cho case (`ctx.gateway.expose`) rồi truyền endpoint vào `session/new` của ACP.
 3. Agent gọi tool qua endpoint; gateway chuyển mọi lời gọi vào `ctx.actions.invoke`, đi qua pipeline `action/before` → `execute` → `action/after`.
 4. Agent gọi `assert_expectation`; plugin `verdict` tự đọc giá trị thật trong evidence và so sánh.
@@ -106,7 +106,7 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 - **Run log là nguồn sự thật.** Mọi thông tin xuất hiện trong báo cáo phải dựng lại được từ `events.jsonl` qua `deriveReport`. Thông tin mới trong báo cáo đòi hỏi một loại event mới, ghi qua `scope.log`.
 - **Mọi thao tác của agent đi qua gateway.** Không cấp cho agent MCP server nào khác ngoài endpoint của gateway. Tích hợp MCP server ngoài phải qua `action-mcp-proxy` để giữ guard, evidence và log.
 - **Thực thi quyết định tại nơi thực thi.** Giới hạn `requires` và guard được kiểm tra trong `ActionRegistry.invoke`, không chỉ ở danh sách tool hay prompt. Kiểm thử từ chối phải gọi qua `invoke`.
-- **Fixture không qua AI.** `setup`/`teardown` và `fill` của input do runner chạy; lỗi setup cho verdict `error` và không gọi agent; teardown luôn chạy. Agent chỉ chuẩn bị dữ liệu trong scope `prepare` (input có `prepare`): giá trị phải đọc từ evidence qua `provide_input`, dữ liệu tạo ra được dọn qua `register_cleanup`.
+- **Fixture không qua AI.** `setup`/`teardown`, `fill` của input và bước `call:` đầu case do runner chạy; expectation có `from` do `verdict` tự đối chiếu, agent không assert; lỗi setup cho verdict `error` và không gọi agent; teardown luôn chạy. Agent chỉ chuẩn bị dữ liệu trong scope `prepare` (input có `prepare`): giá trị phải đọc từ evidence qua `provide_input`, dữ liệu tạo ra được dọn qua `register_cleanup`.
 - **Plan không gắn với một môi trường.** Mọi thứ khác nhau giữa môi trường nằm trong `envs/<tên>.yml`; tool theo môi trường là row `<row>@<env>` do `ctx.envs` nạp, registry chọn theo `scope.env`. Không đọc `AITEST_ENV` trực tiếp trong plugin; dùng `scope.env` hoặc `ctx.envs.config.default`.
 - **Môi trường chưa đủ điều kiện là `blocked`, không phải `fail`.** Input thiếu hoặc không thoả `require` chặn cả lượt chạy; case không được chạy.
 - **Giao diện dựng từ log.** Mọi thứ giao diện hiển thị lâu dài phải là event trong log của cuộc chat; chỉ token đang stream đi qua `chat/live`. Thông tin hiển thị mới đòi hỏi event mới hoặc trường mới trong `view`.

@@ -318,7 +318,8 @@ export function skeleton(system: SystemSpec, ops: HttpOperation[], id?: string, 
           ...(Object.keys(query).length ? { query } : {}),
           ...(op.requestBody ? { body: sampleValue(op.requestBody) } : {}),
         }],
-        expect: [{ id: `http-${success}`, desc: `API trả HTTP ${success}`, check: { op: 'eq', value: Number(success) } }],
+        // Mã HTTP đọc từ kết quả bước 1 do nền tảng chạy, không cần agent assert.
+        expect: [{ id: `http-${success}`, desc: `API trả HTTP ${success}`, check: { op: 'eq', value: Number(success) }, from: { step: 1, path: '$.status' } }],
       }
     }),
   }

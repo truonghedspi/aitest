@@ -277,28 +277,40 @@ export class Runner extends Service {
       await this.runFixtures(scope, [...plan.setup, ...testCase.setup])
       // Thay `{{biến}}` còn lại trong case bằng giá trị lưu từ fixture.
       scope.case = fillTemplate(testCase, scope.vars)
-      scope.phase = 'agent'
-      if (!connection) throw new Error(`agent connection failed: ${connectError}`)
-      session = await connection.newSession({
-        cwd,
-        mcpServers: [exposure.endpoint],
-        onUpdate: (update) => {
-          transcript.push(update)
-          this.ctx.emit('case/agent-update', scope, update)
-        },
-        onPermission: (request) => this.decidePermission(scope, exposure.endpoint.name, request),
-        model,
-      })
-      // Ghi model thật sự dùng, để người xem log biết kết quả đến từ model nào.
-      scope.log('agent/session', { sessionId: session.id, model: session.models?.current ?? model, ...fallbackOf(session) })
-      const prompt = withInstructions(session, this.ctx.prompt.build(scope, this.ctx.actions.list(scope)))
-      scope.log('agent/prompt', { sessionId: session.id, text: prompt })
-      const result = await withGrace(session.prompt(prompt, controller.signal), controller.signal, this.config.cancelGrace * 1000)
-      stopReason = result.stopReason
-      if (controller.signal.aborted) {
-        base = { verdict: 'error', reasons: [errorMessage(controller.signal.reason)] }
-      } else if (stopReason !== 'end_turn') {
-        base.reasons.push(`agent stopped with reason: ${stopReason}`)
+      // Bước `call:` đầu case do plugin chạy không qua agent; giá trị `save` của bước được thay vào phần còn lại.
+      scope.phase = 'step'
+      const completed = await this.ctx.waterfall('case/steps', scope, async () => 0)
+      if (completed) scope.case = fillTemplate(testCase, scope.vars)
+      // Mọi bước đã chạy và mọi expectation do nền tảng tự đối chiếu: không cần agent.
+      const agentNeeded = completed < testCase.steps.length || testCase.expect.some((e) => !e.from)
+      if (!agentNeeded) {
+        scope.log('case/no-agent', { completedSteps: completed })
+        stopReason = 'no_agent'
+      }
+      if (agentNeeded) {
+        scope.phase = 'agent'
+        if (!connection) throw new Error(`agent connection failed: ${connectError}`)
+        session = await connection.newSession({
+          cwd,
+          mcpServers: [exposure.endpoint],
+          onUpdate: (update) => {
+            transcript.push(update)
+            this.ctx.emit('case/agent-update', scope, update)
+          },
+          onPermission: (request) => this.decidePermission(scope, exposure.endpoint.name, request),
+          model,
+        })
+        // Ghi model thật sự dùng, để người xem log biết kết quả đến từ model nào.
+        scope.log('agent/session', { sessionId: session.id, model: session.models?.current ?? model, ...fallbackOf(session) })
+        const prompt = withInstructions(session, this.ctx.prompt.build(scope, this.ctx.actions.list(scope)))
+        scope.log('agent/prompt', { sessionId: session.id, text: prompt })
+        const result = await withGrace(session.prompt(prompt, controller.signal), controller.signal, this.config.cancelGrace * 1000)
+        stopReason = result.stopReason
+        if (controller.signal.aborted) {
+          base = { verdict: 'error', reasons: [errorMessage(controller.signal.reason)] }
+        } else if (stopReason !== 'end_turn') {
+          base.reasons.push(`agent stopped with reason: ${stopReason}`)
+        }
       }
     } catch (error) {
       base = { verdict: 'error', reasons: [errorMessage(error)] }

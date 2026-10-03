@@ -17,6 +17,8 @@ const ExpectationSchema = z.object({
   // `op` không đánh dấu required ở đây vì schemastery điền object rỗng khi thiếu `check`;
   // trường hợp có `check` mà thiếu `op` được kiểm tra riêng trong `parsePlan`.
   check: z.object({ op: AssertOp, value: z.any(), expr: z.string(), let: z.dict(z.string()) }),
+  // Như `check`: trường bắt buộc của `from` kiểm tra riêng trong `parsePlan`.
+  from: z.object({ step: z.natural(), path: z.string() }),
 })
 
 const FormulaSchema = z.object({
@@ -62,6 +64,7 @@ const CaseSchema = z.object({
       headers: z.dict(z.string()),
       body: z.any(),
       desc: z.string(),
+      save: z.dict(z.string()).description('Lưu giá trị từ kết quả thành biến cho bước sau, khi runner chạy bước.'),
     }),
   ])).required(),
   expect: z.array(ExpectationSchema).default([]),
@@ -145,6 +148,29 @@ export function parsePlan(text: string, source: string): TestPlan {
     for (const [step, expr] of Object.entries(check.let ?? {})) verify(String(expr), `${where}.let.${step}`)
     verify(String(check.expr), `${where}.expr`)
   }))
+  // `from`: nền tảng tự đối chiếu từ kết quả bước `call:` mà runner chạy, tức các bước `call:` liền nhau ở đầu case.
+  rawCases.forEach((c, i) => {
+    const steps = ((c as { steps?: unknown[] }).steps ?? [])
+    const leading = steps.findIndex((s) => typeof s !== 'object' || s === null || !('call' in s))
+    const runnable = leading < 0 ? steps.length : leading
+    steps.forEach((s, k) => {
+      if (k >= runnable && typeof s === 'object' && s !== null && 'save' in s) {
+        issues.push(`cases[${i}].steps[${k}].save: only the leading call steps run by the platform can save variables; the agent runs this step`)
+      }
+    })
+    c?.expect?.forEach((e, j) => {
+      const from = (e as { from?: { step?: unknown; path?: unknown } })?.from
+      if (from === undefined) return
+      const where = `cases[${i}].expect[${j}].from`
+      if (!e.check) issues.push(`${where}: requires check (the platform compares against the plan's criteria)`)
+      if (typeof from?.path !== 'string' || !from.path) issues.push(`${where}: missing path`)
+      const step = Number(from?.step)
+      if (!Number.isInteger(step) || step < 1) issues.push(`${where}: step must be a step number from 1`)
+      else if (step > runnable) {
+        issues.push(`${where}: step ${step} is not run by the platform; only the leading call steps (1..${runnable || 0}) are. Remove from and let the agent assert, or move the call before text steps`)
+      }
+    })
+  })
   for (const [name, f] of Object.entries(data.formulas)) {
     for (const [step, expr] of Object.entries({ ...(f.let ?? {}), expr: f.expr })) {
       try {
@@ -222,12 +248,13 @@ export function parsePlan(text: string, source: string): TestPlan {
           ...(e.check.expr ? { expr: e.check.expr } : {}),
           ...(e.check.let && Object.keys(e.check.let).length ? { let: e.check.let } : {}),
         } : undefined,
+        ...(e.from?.step && e.from.path ? { from: { step: e.from.step, path: e.from.path } } : {}),
       })),
     })),
   }
 }
 
-type RawStep = string | { call: string; path?: Record<string, unknown>; query?: Record<string, unknown>; headers?: Record<string, string>; body?: unknown; desc?: string }
+type RawStep = string | { call: string; path?: Record<string, unknown>; query?: Record<string, unknown>; headers?: Record<string, string>; body?: unknown; desc?: string; save?: Record<string, string> }
 
 /**
  * Bước có cấu trúc thành câu chỉ dẫn cho agent; giữ lời gọi gốc trong `calls` (cùng chỉ số) để kiểm tra và hiển thị.

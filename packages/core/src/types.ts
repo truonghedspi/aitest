@@ -41,6 +41,17 @@ export interface Expectation {
   id: string
   desc: string
   check?: ExpectationCheck
+  /**
+   * Nền tảng tự đối chiếu expectation này từ kết quả của một bước `call:` do runner chạy, tại `path`;
+   * agent không assert. Bước phải nằm trong chuỗi bước `call:` đầu case, và expectation phải có `check`.
+   */
+  from?: ExpectationSource
+}
+
+/** Nguồn giá trị thật của expectation do nền tảng tự đối chiếu: bước (đánh số từ 1) và path trong kết quả. */
+export interface ExpectationSource {
+  step: number
+  path: string
 }
 
 /**
@@ -87,6 +98,8 @@ export interface StepCall {
   body?: unknown
   /** Ghi chú bằng lời, ví dụ "lấy id lệnh". */
   desc?: string
+  /** Lưu giá trị từ kết quả thành biến cho bước sau, ví dụ `{ order_id: '$.body.id' }`; chỉ khi runner chạy bước. */
+  save?: Record<string, string>
 }
 
 export interface TestCase {
@@ -150,7 +163,8 @@ export interface JsonSchemaObject {
   [key: string]: unknown
 }
 
-export type CasePhase = 'setup' | 'agent' | 'teardown'
+/** Pha của case: `step` là bước `call:` đầu case do runner chạy, không qua agent. */
+export type CasePhase = 'setup' | 'step' | 'agent' | 'teardown'
 
 /**
  * Loại phạm vi thực thi action.
@@ -382,6 +396,8 @@ export interface AssertionRecord {
   message: string
   /** `plan`: tiêu chí lấy từ `check` của plan. `agent`: agent tự chọn tiêu chí vì plan không khai báo. */
   criteria: 'plan' | 'agent'
+  /** Nền tảng tự đối chiếu theo `from` của expectation, từ kết quả bước runner chạy; agent không tham gia. */
+  auto?: boolean
   /** Công thức tính giá trị mong đợi, khi plan dùng `check.expr`. */
   expr?: string
   /** Giá trị thật của từng biến trong công thức, kèm nơi lấy. */

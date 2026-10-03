@@ -14,6 +14,7 @@ metadata:
    Đưa bảng này cho người dùng xác nhận trước khi viết plan.
 3. Mỗi dòng vi phạm là một case riêng: một bước `call:` với body chỉ sai đúng một trường, các trường khác hợp lệ.
 4. Expectation của case vi phạm: mã lỗi (thường 400) **và** dữ liệu không được lưu (đếm bản ghi trong DB bằng 0).
+   Mã HTTP khai báo `from: { step: 1, path: $.status }` để nền tảng tự đối chiếu; phần đếm DB để agent assert.
    Lọc bản ghi theo giá trị riêng của case (ví dụ mã chứng khoán riêng) để không lẫn dữ liệu khác.
 5. `validate_plan` cảnh báo giá trị sai schema trong case vi phạm; cảnh báo này là chủ đích, không cần sửa.
 

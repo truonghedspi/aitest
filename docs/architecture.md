@@ -141,6 +141,8 @@ Action chạy trong một **scope** có loại `case` (test case), `authoring` (
 | `action/after` | waterfall | Bổ sung annotation, ví dụ `evidenceId` |
 | `action/result` | emit | Quan sát kết quả cuối |
 | `case/start` | parallel | Chuẩn bị dữ liệu trước case |
+| `case/steps` | waterfall | Chạy bước đầu case không qua agent (bước `call:`); trả số bước đã xong |
+| `case/step-done` | parallel | Một bước nền tảng chạy đã xong; `verdict` đối chiếu expectation `from` |
 | `case/agent-update` | emit | Theo dõi luồng tin nhắn của agent |
 | `case/verdict` | waterfall | Quyết định verdict |
 | `case/end` | parallel | Dọn dẹp, thông báo |
@@ -220,7 +222,7 @@ sequenceDiagram
 
 Mỗi case dùng một session ACP mới, nên ngữ cảnh của case trước không ảnh hưởng case sau. Lượt chạy tuần tự dùng chung một process agent.
 
-**Chạy song song.** Plan khai báo `concurrency: N` khi các case độc lập; `RunOptions.concurrency` (CLI `--parallel N`) thắng giá trị của plan. Số luồng bị giới hạn bởi `maxConcurrency` của runner (mặc định 4) và số case. Mỗi luồng lấy case kế tiếp trong hàng đợi. Luồng thứ hai trở đi mở kết nối agent riêng ở case đầu tiên và ghi `agent/connected` kèm `slot`; không mở được thì ghi `agent/connect-failed` rồi dùng chung kết nối chính. Event của các case xen kẽ trong run log nhưng mỗi event mang `caseId`, nên `deriveReport` dựng đúng từng case. Bước chuẩn bị (`run/prepare`) chạy trước mọi case; dọn dữ liệu của lượt chạy chạy sau khi mọi luồng kết thúc.
+**Chạy song song.** Plan khai báo `concurrency: N` khi các case độc lập; `RunOptions.concurrency` (CLI `--parallel N`) thắng giá trị của plan. Số luồng bị giới hạn bởi `maxConcurrency` của runner (mặc định 4) và số case. Mỗi luồng lấy case kế tiếp trong hàng đợi. Luồng thứ hai trở đi mở kết nối agent riêng ở case đầu tiên và ghi `agent/connected` kèm `slot`; không mở được thì ghi `agent/connect-failed` rồi dùng chung kết nối chính. Event của các case xen kẽ trong run log nhưng mỗi event mang `caseId`, nên `deriveReport` dựng đúng từng case. Bước chuẩn bị (`run/prepare`) chạy trước mọi case; dọn dữ liệu của lượt chạy chạy sau khi mọi luồng kết thúc. Khi chạy song song, ứng dụng dưới kiểm thử ghi DB cùng lúc với tool đọc. Vì vậy, `action-sqlite` chờ khoá tối đa `busyTimeout` (mặc định 5000 ms) thay vì trả lỗi "database is locked" ngay.
 
 ## 5. Định dạng test plan
 
@@ -593,7 +595,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 |---|---|
 | Danh sách lượt chạy | `run/start`, `run/end`, `deriveReport`; gồm lượt chạy từ CLI và lượt chạy thử (`dryrun-*`) |
 | Giải thích kết quả | `case/start` (expectation, tiêu chí), mọi `assert/result` (path, giá trị thật, công thức, `inputs`, các lần thử), `action/call` có `evidenceId` (nguyên văn evidence) |
-| Dòng thời gian | `fixture/vars`, `agent/prompt`, `agent/update` (tin nhắn, suy nghĩ, tool riêng của agent kèm tham số và kết quả), `agent/permission`, `action/call`, `step/note`, `case/annotation`, `case/end` |
+| Dòng thời gian | `fixture/vars`, `case/no-agent`, `agent/prompt`, `agent/update` (tin nhắn, suy nghĩ, tool riêng của agent kèm tham số và kết quả), `agent/permission`, `action/call`, `step/note`, `case/annotation`, `case/end` |
 | Dữ liệu thô | Mọi event của case, lọc theo loại |
 
 **Tin nhắn của agent.** Runner gộp các mẩu tin nhắn, suy nghĩ liền nhau thành một event `agent/update`. Đoạn đang đệm được ghi khi có cập nhật loại khác, ngay trước mỗi lời gọi tool của gateway (listener `action/before`), hoặc sau 1 s agent ngừng gửi. Nhờ đó, tin nhắn nằm đúng vị trí trên dòng thời gian, và lượt chạy đang diễn ra hiện tin nhắn mà không chờ tới cuối case. Giao diện gắn tin nhắn vào lời gọi tool ngay sau nó trong tab Hành trình; tin nhắn sau lời gọi cuối cùng là "Tóm tắt của agent". Tin nhắn chỉ để tham khảo, không ảnh hưởng verdict.
@@ -726,7 +728,19 @@ steps:
 
 - `plan-yaml` chuyển bước có cấu trúc thành câu chỉ dẫn cho agent chạy test và giữ lời gọi gốc trong `TestCase.calls`.
 - `validate_plan` đối chiếu lời gọi với OpenAPI. Lỗi: operation không tồn tại, thiếu tham số path hoặc tham số query bắt buộc. Cảnh báo: body sai schema, vì case kiểm tra API từ chối dữ liệu sai cố ý gửi body vi phạm.
-- `new_plan_skeleton(system, operations)` sinh khung plan với bước có cấu trúc, body mẫu hợp lệ và expectation mã trả về thành công. Agent sửa khung thay vì viết từ đầu.
+- `new_plan_skeleton(system, operations)` sinh khung plan với bước có cấu trúc, body mẫu hợp lệ và expectation mã trả về thành công (có `from`). Agent sửa khung thay vì viết từ đầu.
+
+#### Bước nền tảng chạy
+
+Thời gian chạy case chủ yếu là lượt suy nghĩ của agent, nên lời gọi API đã viết đủ trong plan không cần qua agent.
+
+- Sau fixture `setup`, runner chuyển case sang pha `step` và gọi waterfall `case/steps`. Listener của `@aitest/system-catalog` chạy các bước `call:` liền nhau ở đầu case qua `http_request`. URL lấy từ biến `{{<system>.url}}` của môi trường, tham số path được thay vào đường dẫn của operation.
+- Mỗi lời gọi mang `step` và `reason` (từ `desc`), nên evidence, hành trình theo bước và báo cáo giống lời gọi của agent. `save` của bước ghi biến cho bước sau; runner thay biến vào phần còn lại của case.
+- Sau mỗi bước, listener phát `case/step-done`; plugin `verdict` đối chiếu ngay các expectation có `from: {step, path}` trỏ tới bước đó, nên `assert/result` nằm sau `action/call` trong log. Assertion ghi `auto: true`. Agent gọi `assert_expectation` cho expectation này bị từ chối.
+- `plan-yaml` từ chối `from` thiếu `check`, `from` trỏ tới bước nền tảng không chạy, và `save` ở bước agent làm.
+- Còn bước dạng câu hoặc expectation không có `from` thì runner mở phiên agent. Section `systems/steps-done` (thứ tự 25) liệt kê bước đã xong kèm evidence và biến đã lưu; section `runner/expect` tách expectation nền tảng đã đối chiếu.
+- Không còn việc cho agent thì runner không mở phiên agent, ghi `case/no-agent` và `stopReason: no_agent`.
+- Bước lỗi (lỗi mạng, thiếu biến, operation không có) cho case verdict `error`, giống fixture lỗi.
 
 #### Skill
 
@@ -915,6 +929,7 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Codex qua ACP (`@agentclientprotocol/codex-acp` 2.1.1, `gpt-5.6-terra[high]`, 03/10/2026): `order.plan.yaml --case TC-01` với `aitest.codex.yml` | Lần đầu Codex không thấy tool (Codex chỉ hiện tool MCP khi được tìm) và tự đọc skill cục bộ. Sau khi thêm `instructions`: Codex gọi `http_request` nhưng bị từ chối, vì yêu cầu xin phép chỉ có `toolCallId`; khắc phục bằng ghép thông tin `tool_call`. Sau hai khắc phục: TC-01 pass, 46,7 s; mọi lời gọi qua gateway, có `reason` và `step` |
 | Codex chạy `order.plan.yaml` sau khi gộp assertion (03/10/2026) | Mỗi case một lời gọi `assert_expectation` với `assertions`, không gọi `note_step`; tổng 10 lời gọi tool cho 3 case. TC-01 pass trong 28,6 s (trước đó 46,7 s), TC-02 pass 29,5 s, TC-03 fail đúng 26,1 s; tổng 85,7 s |
 | Codex chạy `order.plan.yaml` với `concurrency: 3` (03/10/2026) | Ba luồng, mỗi luồng một process `codex-acp` (`agent/connected` slot 0, 1, 2); TC-01 pass 25,2 s, TC-02 pass 27,6 s, TC-03 fail đúng 29,4 s; tổng 31,6 s so với 85,7 s khi chạy tuần tự. Console ghi mã case trước mỗi dòng tool |
+| Codex chạy `skills/api-input-validation/examples/order-qty.plan.yaml` sau khi thêm bước nền tảng chạy (03/10/2026) | QTY-01 (một bước `call:`, expectation `from`) pass trong 28 ms, không mở phiên agent. QTY-02: nền tảng chạy bước 1 và tự đối chiếu `http-400` (fail đúng do lỗi lô lẻ); agent bắt đầu từ bước 2, gọi `db_query` rồi assert `db-none`, không gọi lại API; 22,9 s. Khi chạy song song, `db_query` đôi khi lỗi "database is locked"; khắc phục bằng `busyTimeout` của `action-sqlite` |
 | Cuộc chat soạn plan với Codex (`aitest.codex.web.yml`): "tra cứu lệnh không tồn tại phải trả 404" | Codex gọi `get_authoring_guide`, `list_systems`, `list_actions`, `get_system_context`, `read_plan`, `new_plan_skeleton`, `explore` (DB và HTTP), `validate_plan`; plan có bước `call:` đạt kiểm tra ngay; không có thẻ duyệt thừa |
 
 Phát hiện trong lần chạy đầu với Kiro: agent viết path `$.result.status` vì kết quả tool bọc giá trị trong trường `result`. Ba assertion đầu tiên không đạt, sau đó agent tự sửa path. Cách khắc phục đã áp dụng:
