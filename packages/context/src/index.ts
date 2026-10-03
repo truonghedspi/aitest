@@ -55,6 +55,8 @@ export interface LibraryIssue {
 
 const TEXT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.yaml', '.yml', '.json', '.sql', '.csv', '.tsv', '.feature', '.graphql', '.proto', '.xml', '.html', '.ts', '.js', '.java', '.py'])
 const MAX_FILE_BYTES = 2_000_000
+/** Độ dài tối đa của một skill nạp theo lời gọi `/tên-skill`. */
+const MAX_INVOKED_CHARS = 20_000
 const MAX_FILES = 2000
 const SKILL_NAME = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
 
@@ -89,6 +91,43 @@ export class ContextLibrary extends Service {
       order: 12,
       render: () => this.guide(),
     })
+    // Người dùng gọi skill chủ động bằng `/tên-skill` ở đầu tin nhắn: nạp nội dung skill vào chính lượt đó.
+    ctx.authoring.turnSection({ id: 'context/skill-invoke', order: 15, render: (turn) => this.invocation(turn.text) })
+  }
+
+  /**
+   * Skill người dùng gọi ở đầu tin nhắn, như lệnh `/` của Claude Code và Kiro: `/api-input-validation soạn case cho qty`.
+   * Gọi được nhiều skill liên tiếp (`/a /b …`). Tên không phải skill thì bỏ qua (có thể là đường dẫn API).
+   */
+  async invokedSkills(text: string): Promise<string[]> {
+    const names: string[] = []
+    let rest = text.trimStart()
+    for (let m = /^\/([a-z0-9][a-z0-9-]*)(?=\s|$)/.exec(rest); m; m = /^\/([a-z0-9][a-z0-9-]*)(?=\s|$)/.exec(rest)) {
+      names.push(m[1])
+      rest = rest.slice(m[0].length).trimStart()
+    }
+    if (!names.length) return []
+    const { skills } = await this.skills()
+    return [...new Set(names)].filter((n) => skills.some((s) => s.name === n))
+  }
+
+  /** Nội dung các skill người dùng gọi, đặt trước tin nhắn của lượt đó. */
+  async invocation(text: string): Promise<string | undefined> {
+    const names = await this.invokedSkills(text)
+    if (!names.length) return undefined
+    const blocks: string[] = []
+    for (const name of names) {
+      const { skill, body } = await this.skillBody(name)
+      const shown = body.length > MAX_INVOKED_CHARS ? `${body.slice(0, MAX_INVOKED_CHARS)}\n…(còn tiếp; đọc phần còn lại bằng \`use_skill\`)` : body
+      blocks.push([
+        `## Skill người dùng chọn: \`${skill.name}\``,
+        `Người dùng gọi skill này cho tin nhắn dưới đây; làm theo hướng dẫn của skill, không cần gọi \`use_skill\` lại.`,
+        ...(skill.files.length ? [`File kèm theo (đọc bằng \`read_skill_file\`): ${skill.files.map((f) => `\`${f}\``).join(', ')}`] : []),
+        '',
+        shown,
+      ].join('\n'))
+    }
+    return blocks.join('\n\n')
   }
 
   /** Phần hướng dẫn: danh sách skill (tầng 1) và tài liệu `inclusion: always`. Đọc lại thư mục mỗi lần. */
@@ -99,7 +138,7 @@ export class ContextLibrary extends Service {
       parts.push(
         '## Skill',
         'Skill là hướng dẫn cách làm một loại việc. Khi yêu cầu khớp mô tả của skill, gọi `use_skill` để nạp hướng dẫn đầy đủ trước khi soạn,',
-        'rồi đọc file kèm theo (ví dụ plan mẫu) bằng `read_skill_file` khi cần.',
+        'rồi đọc file kèm theo (ví dụ plan mẫu) bằng `read_skill_file` khi cần. Người dùng có thể gọi skill bằng `/tên-skill`; khi đó nội dung skill có sẵn trong tin nhắn.',
         ...skills.map((s) => `- \`${s.name}\`: ${s.description}`),
       )
     }

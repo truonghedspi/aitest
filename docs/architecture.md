@@ -545,7 +545,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | `packages/plugin-manager/tests/plugin-manager.test.ts` | Tool theo plugin sở hữu, bật/tắt, cấu hình lỗi được quay lui, thêm/gỡ từ danh mục, thêm MCP server, tắt tool, khôi phục từ patch layer |
 | `packages/inputs/tests/inputs.test.ts` | Đủ bốn nguồn đầu vào, một phiên agent chuẩn bị, giá trị chỉ từ evidence, dọn sau mọi case, `blocked` khi không thoả `require` hoặc thiếu giá trị, kiểm tra khi soạn, `--input` |
 | `packages/system-catalog/tests/system-catalog.test.ts` | Nạp OpenAPI và `$ref`, file lỗi không làm hỏng catalog, môi trường, quy tắc kiểm tra plan, biến cho fixture và bước, section prompt, tool soạn plan, gói ngữ cảnh hệ thống, khung plan, kiểm tra bước có cấu trúc theo API |
-| `packages/context/tests/context.test.ts` | Mục lục thư mục ngữ cảnh (frontmatter, mô tả tự suy, OpenAPI), tài liệu `always` trong hướng dẫn, skill ba tầng, skill sai chuẩn, chặn đường dẫn ra ngoài |
+| `packages/context/tests/context.test.ts` | Mục lục thư mục ngữ cảnh (frontmatter, mô tả tự suy, OpenAPI), tài liệu `always` trong hướng dẫn, skill ba tầng, skill sai chuẩn, chặn đường dẫn ra ngoài, người dùng gọi skill bằng `/tên` |
 | `packages/memory/tests/memory.test.ts` | Ghi không cần duyệt, mục lục đầu phiên, chặn tên sai, bí mật, ký ức gần trùng, ghi đè bản cũ; bộ nhớ nhóm cần duyệt; xoá, lịch sử, khôi phục; rà soát liên kết; agent chạy test không thấy tool bộ nhớ |
 | `packages/open-items/tests/open-items.test.ts` | Ghi, chặn trùng, nhắc mỗi lượt chỉ trong cuộc chat của việc, nhắc đầu phiên mới, báo việc đóng trên giao diện, không báo việc agent tự đóng, việc quá hạn, gỡ plugin thì section biến mất |
 | `packages/tool-catalog/tests/tool-catalog.test.ts` | Mẫu cấu hình, từ chối giá trị bí mật, từ chối khi không có người duyệt, từ chối và duyệt, quyền ghi tường minh, explore tool mới, khôi phục từ patch layer, log kiểm toán |
@@ -603,6 +603,13 @@ steps:
 #### Skill
 
 Skill theo đúng chuẩn Agent Skills: thư mục `<tên>/SKILL.md`, frontmatter `name` (chữ thường, số, gạch nối, trùng tên thư mục) và `description` (tối đa 1024 ký tự), `metadata.systems` tuỳ chọn. Skill sai chuẩn không được nạp và hiện cảnh báo trên trang Ngữ cảnh. Skill viết cho Claude Code hoặc Kiro dùng lại được không cần sửa.
+
+Skill được dùng theo hai cách:
+
+- **Agent tự chọn:** tên và mô tả nằm trong hướng dẫn; khi yêu cầu khớp mô tả, agent gọi `use_skill`.
+- **Người dùng gọi:** tin nhắn mở đầu bằng `/tên-skill` (gọi được nhiều skill: `/a /b …`), giống lệnh `/` của Claude Code và Kiro. `turnSection` `context/skill-invoke` đưa nội dung `SKILL.md` (tối đa 20.000 ký tự) và danh sách file kèm vào chính lượt đó, nên agent không phải tự quyết định. Tên không phải skill được bỏ qua, để đường dẫn như `/orders/{id}` không bị hiểu nhầm. Ô nhập của cuộc chat gợi ý skill khi gõ `/`.
+
+Thư mục `skills/` tách khỏi `.kiro/skills/` và `.claude/skills/`. Skill trong hai thư mục đó được Kiro hoặc Claude Code tự nạp cho mọi phiên, kể cả agent chạy test, trong khi skill soạn plan chỉ dành cho agent soạn plan. Muốn dùng chung skill có sẵn, thêm thư mục đó vào `skillDirs`.
 
 #### Bộ nhớ giữa các phiên
 
@@ -772,6 +779,7 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Cuộc chat với Kiro (03/10/2026): "soạn plan huỷ lệnh đã khớp… chưa chắc trả 409 hay 400, để tôi hỏi BA rồi chốt sau" | Agent gọi `open_item_add` (loại `decision`, hai phương án, bối cảnh từ đặc tả), soạn plan tạm theo 409 và báo đã ghi việc `oi-1` |
 | Cuộc chat mới: "tiếp tục với plan huỷ lệnh đã khớp hôm trước" | Câu trả lời đầu tiên của agent nhắc `oi-1` kèm hai phương án và hỏi người dùng chọn. Người dùng trả lời "BA chốt 409": agent gọi `open_item_resolve` kèm kết luận rồi soạn tiếp |
 | Mở lại `oi-1`, chốt bằng nút phương án trên bảng "Việc còn mở" | Lượt kế tiếp của cuộc chat có dòng "đã chốt trên giao diện: 409 Conflict"; agent sửa plan theo kết luận mà không hỏi lại |
+| Cuộc chat với Kiro: `/api-input-validation soạn case kiểm tra ràng buộc price của createOrder` (chọn skill bằng gợi ý `/` trên giao diện) | Prompt có nội dung skill; agent không gọi `use_skill`, đọc thẳng plan mẫu kèm skill bằng `read_skill_file`, dùng `get_system_context` rồi làm theo quy trình của skill: lập bảng giá trị biên (1, 0, −1, thiếu trường) và hỏi xác nhận trước khi soạn |
 
 Phát hiện trong lần chạy đầu với Kiro: agent viết path `$.result.status` vì kết quả tool bọc giá trị trong trường `result`. Ba assertion đầu tiên không đạt, sau đó agent tự sửa path. Cách khắc phục đã áp dụng:
 

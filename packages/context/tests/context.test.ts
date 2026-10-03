@@ -79,4 +79,19 @@ describe('context library', () => {
     expect(issues).toEqual([{ path: `${rel('sk/bad-skill')}/SKILL.md`, error: expect.stringMatching(/name must be lowercase/) }])
     expect((await kernel.ctx.library.relatedTo('order-service')).skills.map((s) => s.name)).toEqual(['cancel-order'])
   })
+
+  it('loads a skill the user invokes with /name into that turn only', async () => {
+    const notes = (text: string) => kernel.ctx.authoring.turnNotes({ sessionId: session.id, text, firstTurn: false }).then((n) => n.join('\n\n'))
+    const invoked = await notes('/cancel-order soạn case huỷ lệnh đã khớp')
+    expect(invoked).toContain('## Skill người dùng chọn: `cancel-order`')
+    expect(invoked).toContain('File kèm theo (đọc bằng `read_skill_file`): `examples/a.plan.yaml`')
+    expect(invoked).toContain('# Huỷ lệnh\n\nBước 1.')
+    expect(await kernel.ctx.library.invokedSkills('/cancel-order /cancel-order /nope x')).toEqual(['cancel-order'])
+    // Không phải lời gọi skill: đường dẫn API, skill ở giữa câu, tên không tồn tại, skill sai chuẩn.
+    for (const text of ['/orders/{id} trả 409', 'dùng /cancel-order nhé', '/nope làm gì đó', '/bad-skill x', 'soạn plan']) {
+      expect(await notes(text)).not.toContain('Skill người dùng chọn')
+    }
+    const guide = ((await call('get_authoring_guide')).value as { guide: string }).guide
+    expect(guide).toContain('Người dùng có thể gọi skill bằng `/tên-skill`')
+  })
 })

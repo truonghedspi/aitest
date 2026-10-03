@@ -635,6 +635,16 @@ Plan mẫu: examples/cancel.plan.yaml (đọc bằng read_skill_file).
 
 `description` quyết định khi nào agent dùng skill: nêu skill làm gì và khi nào dùng. Một plan mẫu tốt trong skill có tác dụng hơn nhiều đoạn hướng dẫn.
 
+Agent tự chọn skill khi yêu cầu khớp `description`. Muốn chắc chắn agent dùng một skill, gọi skill ở đầu tin nhắn như trong Claude Code hoặc Kiro:
+
+```
+/api-input-validation soạn case kiểm tra ràng buộc price của createOrder
+```
+
+Gõ `/` trong ô nhập để thấy danh sách skill; dùng phím mũi tên và Tab (hoặc Enter) để chọn. Gọi được nhiều skill liên tiếp: `/api-input-validation /shared-env-test-data …`.
+
+Skill của aitest dùng đúng định dạng Agent Skills của Claude Code và Kiro, nên chép qua lại được. aitest đọc thư mục `skills/`, không đọc `.kiro/skills/` hay `.claude/skills/`, vì skill trong hai thư mục đó được Kiro hoặc Claude Code tự nạp cho mọi phiên, kể cả agent chạy test. Muốn dùng chung, thêm thư mục đó bằng "Đổi thư mục" trên tab Skill.
+
 #### Thư mục ngữ cảnh
 
 Đặt tài liệu vào `context/` (thêm thư mục khác bằng "Đổi thư mục" trên tab). Nền tảng nhận file văn bản: Markdown, YAML, JSON, SQL, CSV, `.feature`, OpenAPI. Frontmatter tuỳ chọn:

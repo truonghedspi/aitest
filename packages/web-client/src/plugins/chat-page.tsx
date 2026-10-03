@@ -313,27 +313,76 @@ function ToolProposal({ preview }: { preview: any }) {
   )
 }
 
+interface SkillOption { name: string; description: string }
+
+/** Danh sách skill cho gợi ý `/`, nạp lại mỗi khi mở cuộc chat; rỗng khi Host không có plugin thư viện ngữ cảnh. */
+const loadSkills = () => connection.call<{ skills: SkillOption[] }>('library.list')
+  .then((r) => r.skills.map((x) => ({ name: x.name, description: x.description })), () => [] as SkillOption[])
+
 function Composer({ chatId, status }: { chatId: string; status: string }) {
   const [text, setText] = useState('')
   const [error, setError] = useState<string>()
+  const [skills, setSkills] = useState<SkillOption[]>([])
+  const [active, setActive] = useState(0)
+  const [dismissed, setDismissed] = useState(false)
+  useEffect(() => { void loadSkills().then(setSkills) }, [chatId])
+
+  // Đang gõ tên skill ở đầu tin nhắn (sau các skill đã chọn): `/api-in`.
+  const typing = /^((?:\/[a-z0-9-]+\s+)*)\/([a-z0-9-]*)$/.exec(text)
+  const matches = typing && !dismissed ? skills.filter((x) => x.name.startsWith(typing[2])) : []
+  const unknown = /^\/([a-z0-9][a-z0-9-]*)\s/.exec(text)
+  const unknownName = unknown && skills.length && !skills.some((x) => x.name === unknown[1]) ? unknown[1] : undefined
+
+  const pick = (name: string) => {
+    setText(`${typing?.[1] ?? ''}/${name} `)
+    setActive(0)
+  }
   const send = async () => {
     if (!text.trim()) return
     setError(undefined)
     try {
       await connection.call('chats.send', { chatId, text })
       setText('')
+      setDismissed(false)
     } catch (e) {
       setError((e as Error).message)
     }
   }
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (matches.length) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setActive((i) => (i + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length)
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        pick(matches[Math.min(active, matches.length - 1)].name)
+        return
+      }
+      if (e.key === 'Escape') { setDismissed(true); return }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
+  }
   return (
     <div className="composer">
       {error && <div className="bad">{error}</div>}
+      {matches.length > 0 && (
+        <ul className="skill-menu" role="listbox">
+          {matches.map((x, i) => (
+            <li key={x.name} role="option" aria-selected={i === active} className={i === active ? 'active' : ''}
+              onMouseDown={(e) => { e.preventDefault(); pick(x.name) }}>
+              <code>/{x.name}</code> <span className="muted">{x.description}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {unknownName && <div className="muted small">Không có skill <code>/{unknownName}</code>; tin nhắn được gửi như văn bản thường.</div>}
       <textarea
         value={text}
-        placeholder="Mô tả tính năng cần kiểm thử, hoặc góp ý cho bản nháp… (Enter để gửi, Shift+Enter xuống dòng)"
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+        placeholder={`Mô tả tính năng cần kiểm thử, hoặc góp ý cho bản nháp… (Enter để gửi, Shift+Enter xuống dòng${skills.length ? ', / để gọi skill' : ''})`}
+        onChange={(e) => { setText(e.target.value); setDismissed(false) }}
+        onKeyDown={onKeyDown}
       />
       <div className="actions">
         {status !== 'idle'
