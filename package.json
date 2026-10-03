@@ -47,6 +47,7 @@
     "@aitest/mcp-gateway": "workspace:*",
     "@aitest/memory": "workspace:*",
     "@aitest/open-items": "workspace:*",
+    "@aitest/plan-bundle": "workspace:*",
     "@aitest/plan-manager": "workspace:*",
     "@aitest/plan-yaml": "workspace:*",
     "@aitest/plugin-manager": "workspace:*",

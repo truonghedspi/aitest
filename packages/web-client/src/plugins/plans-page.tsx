@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { connection } from '../connection.ts'
+import { ExportDialog, exportPlans, ImportDialog } from '../plan-bundle.tsx'
 import { PlanDocument, type PlanDoc } from '../plan-document.tsx'
 import { defaultEnv, EnvSelect, EnvTag, envLabel, setSelectedEnv, useEnvs, useSelectedEnv } from '../env.tsx'
 import type { ClientPlugin, PageProps } from '../slots.ts'
@@ -67,6 +68,7 @@ function PlanList({ navigate }: { navigate(path: string): void }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<Status>('all')
   const [running, setRunning] = useState<PlanItem>()
+  const [bundleDialog, setBundleDialog] = useState<'export' | 'import'>()
   const runs = useRuns(undefined, 200)
   const [env] = useSelectedEnv()
   const envs = useEnvs()
@@ -104,6 +106,8 @@ function PlanList({ navigate }: { navigate(path: string): void }) {
     <>
       <div className="toolbar">
         <input className="search" placeholder="Tìm theo tên, mã plan, case hoặc đường dẫn" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <button onClick={() => setBundleDialog('export')} disabled={!plans?.length} title="Đóng gói plan cùng tài liệu và hệ thống để chuyển sang aitest khác">⇩ Export</button>
+        <button onClick={() => setBundleDialog('import')} title="Nhập gói plan xuất từ aitest khác">⇧ Import</button>
         <div className="chips">
           {(Object.keys(STATUS_LABEL) as Status[]).map((s) => (
             <button key={s} className={`chip ${status === s ? 'active' : ''}`} onClick={() => setStatus(s)}>
@@ -112,6 +116,8 @@ function PlanList({ navigate }: { navigate(path: string): void }) {
           ))}
         </div>
       </div>
+      {bundleDialog === 'export' && plans && <ExportDialog plans={plans} onClose={() => setBundleDialog(undefined)} />}
+      {bundleDialog === 'import' && <ImportDialog onClose={() => setBundleDialog(undefined)} onDone={() => void load()} />}
       {error && <div className="bad">{error}</div>}
       {!plans && !error && <div className="muted">Đang tải…</div>}
       {env && <p className="muted small">Kết quả lần chạy gần nhất trên môi trường <EnvTag env={env} />. Đổi môi trường ở góc trên.</p>}
@@ -200,6 +206,7 @@ function PlanView({ path, navigate }: { path: string; navigate(path: string): vo
         {plan && <span className="muted">{plan.id}</span>}
         <span className="spacer" />
         <EnvSelect value={env} onChange={setEnv} allowed={plan?.envs} />
+        <button onClick={() => void exportPlans([path]).catch((e) => setError((e as Error).message))} title="Tải gói gồm plan, tài liệu và hệ thống plan dùng">⇩ Export</button>
         <button onClick={() => void editWithAgent(path, navigate, env)}>Sửa cùng agent</button>
         <button className="primary" disabled={!detail?.valid || !allowedHere} onClick={() => setRunning(true)}
           title={allowedHere ? undefined : `Plan chỉ chạy trên: ${plan?.envs.join(', ')}`}>▶ Chạy plan</button>

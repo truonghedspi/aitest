@@ -428,3 +428,11 @@ pre.diff .ctx { color: var(--muted); }
 
 /* Nút Kiểm tra, Chạy thử, Lưu luôn trong tầm tay khi bản xem trước hoặc YAML dài. */
 .plan-panel > .actions { position: sticky; bottom: -12px; z-index: 2; background: var(--surface); padding: 8px 0; margin-bottom: -8px; border-top: 1px solid var(--border); }
+
+/* Export, import gói plan */
+.dialog.modal.wide { width: min(900px, 94vw); }
+.bundle-list { list-style: none; padding: 0; margin: 4px 0; max-height: 46vh; overflow: auto; }
+.bundle-list li { padding: 3px 0; }
+.bundle-table td code { overflow-wrap: anywhere; }
+.bundle-table tr.blocked td { color: var(--bad); }
+.bundle-table tr.same td { color: var(--muted); }

@@ -57,7 +57,7 @@ export function apply(ctx: Context) {
       const before = await readFile(file, 'utf8')
       const doc = parseDocument(before)
       const summary = applyChange(doc, args)
-      const after = doc.toString()
+      const after = doc.toString(YAML_FORMAT)
       if (after === before) throw new Error('nothing to change: the catalog already says this')
       // Nạp thử bản mới cạnh file gốc (đường dẫn OpenAPI tương đối vẫn đúng) trước khi hỏi duyệt.
       const check = `${file}.check.tmp`
@@ -170,3 +170,6 @@ function tablePath(doc: Document, table: string, namespace?: string): Array<stri
   const count = (doc.getIn(['data', index, 'tables']) as { items: unknown[] }).items.length
   return ['data', index, 'tables', count - 1]
 }
+
+/** Ghi lại YAML giữ định dạng người viết: không tự xuống dòng chuỗi dài, không thêm khoảng trắng trong `[a, b]`. */
+const YAML_FORMAT = { lineWidth: 0, flowCollectionPadding: false } as const

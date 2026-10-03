@@ -109,7 +109,11 @@ describe('http_request networking', () => {
   it('reports which step failed and the route taken', async () => {
     const dns = await call('http_request', 'http://does-not-exist.invalid/x')
     expect(dns.error).toMatch(/failed after \d+ ms: DNS lookup failed \((ENOTFOUND|EAI_AGAIN), direct connection\)/)
-    const refused = await call('http_request', `http://127.0.0.1:${silentPort + 1}/x`)
+    // Cổng vừa được cấp rồi đóng: chắc chắn không có ai nghe (cổng kế bên có thể đang được bài test khác dùng).
+    const probe = createTcpServer()
+    const closedPort = await listen(probe)
+    await new Promise<void>((resolve) => probe.close(() => resolve()))
+    const refused = await call('http_request', `http://127.0.0.1:${closedPort}/x`)
     expect(refused.error).toMatch(/connection failed \(ECONNREFUSED, direct connection\)|connect/)
     const silentServer = await call('http_request', `http://127.0.0.1:${silentPort}/x`)
     expect(silentServer.error).toMatch(/no response headers before timeout|timed out after 2 s/)

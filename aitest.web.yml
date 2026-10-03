@@ -34,6 +34,8 @@ plugins:
   # Quản lý plan: danh sách, chi tiết, chạy plan từ giao diện
   - id: plan-manager
     name: '@aitest/plan-manager'
+  - id: plan-bundle-web
+    name: '@aitest/plan-bundle/web'
   # Xem log của các lượt chạy: tại sao agent ra kết quả như vậy
   - id: run-viewer
     name: '@aitest/run-viewer'

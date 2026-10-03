@@ -979,7 +979,34 @@ Từ kết quả chạy thử trong cuộc chat, bấm "Xem log chi tiết" đ�
 
 **Lý do của từng lời gọi tool.** Kiro không gửi phần suy nghĩ ra ngoài, kể cả khi đặt `--effort high`. Vì vậy, nền tảng yêu cầu agent khai báo `reason` (lấy dữ liệu gì, để làm gì) và `step` (phục vụ bước nào) ở mỗi lần gọi tool. Lý do được ghi vào log, hiển thị ở tab Hành trình, Giải thích kết quả, và trên thẻ tool trong cuộc chat. Lời gọi thiếu lý do vẫn chạy, nhưng được đánh dấu "Agent không nêu lý do". Fixture lấy lý do từ trường `desc` trong plan.
 
-### 8.5. Tra `events.jsonl`
+### 8.5. Chuyển plan sang aitest khác (Export, Import)
+
+Gói plan là một file JSON chứa plan cùng những gì plan cần để chạy được ở nơi khác:
+
+- File plan.
+- Tài liệu nghiệp vụ trong `contextRefs`.
+- Mô tả hệ thống trong `systems`: `service.yml`, `formulas.yml`, OpenAPI và tài liệu `service.yml` tham chiếu.
+
+Gói **không** chứa cấu hình môi trường (`envs/`) và bí mật: URL, kết nối thuộc về máy đích.
+
+| Việc | Giao diện (trang Plan) | Dòng lệnh |
+|---|---|---|
+| Xuất một plan | Trang chi tiết plan → "⇩ Export" | `pnpm aitest export examples/plans/order.plan.yaml -o order.json` |
+| Xuất nhiều plan | Danh sách plan → "⇩ Export" → chọn plan | `pnpm aitest export <plan> <plan> ... -o goi.json` |
+| Xem trước khi nhập | "⇧ Import" → chọn file | `pnpm aitest import goi.json --dry-run` |
+| Nhập | Bấm "⇧ Import" trong hộp thoại | `pnpm aitest import goi.json` (thêm `--overwrite` để ghi đè file khác bản đang có) |
+
+Khi nhập:
+
+- File được ghi vào thư mục của máy đích theo loại: plan vào thư mục lưu plan, tài liệu vào thư mục ngữ cảnh đầu tiên, hệ thống vào thư mục catalog. `contextRefs` trong plan được sửa theo vị trí mới.
+- Plan cùng mã với plan đang có được cập nhật tại chỗ, không tạo bản thứ hai.
+- Trạng thái từng file: **Mới** (ghi), **Giống hệt** (bỏ qua), **Khác bản đang có** (giữ bản trên máy đích, trừ khi chọn ghi đè), **Bị chặn** (đường dẫn không an toàn, không ghi).
+- OpenAPI và tài liệu của một hệ thống chỉ được ghi khi `service.yml` của gói cũng được ghi.
+- Hộp thoại báo điều máy đích còn thiếu: tool cho namespace trong `requires`, URL của hệ thống trong môi trường hiện tại. Plan vẫn nhập được nhưng chưa chạy được cho tới khi bổ sung.
+- Bản cũ của file bị ghi đè và bản ghi lần nhập nằm trong `.aitest/imports/<thời điểm>/`. Sau khi nhập, từng plan được kiểm tra lại trên máy đích.
+- Gói bị sửa sau khi xuất (sai mã băm) bị từ chối.
+
+### 8.6. Tra `events.jsonl`
 
 Mỗi dòng là một sự kiện JSON. Các loại sự kiện hay dùng:
 

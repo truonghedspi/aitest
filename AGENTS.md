@@ -38,6 +38,7 @@ packages/            @aitest/<tên> — mỗi package là một hoặc nhiều p
   chat/              cuộc chat soạn plan: log, cầu nối ACP sang event, duyệt quyền
   web-host/          HTTP, WebSocket /ws, registry method
   plan-manager/      trang Plan: danh sách, chi tiết, chạy plan (plans.list/get/run)
+  plan-bundle/       gói plan (ctx.bundles): export/import plan kèm contextRefs và hệ thống giữa các aitest; aitest export/import
   run-viewer/        lượt chạy (trang con của Plan): danh sách, giải thích kết quả, dòng thời gian, theo dõi lượt chạy đang diễn ra
   knowledge/         tri thức của nhóm trong kb/: tool kb_list/kb_read/kb_propose, quy ước vào hướng dẫn, đánh dấu lỗi đã biết
   context/           thư viện ngữ cảnh (ctx.library): mục lục context/, skill chuẩn Agent Skills (use_skill, read_skill_file), trang Ngữ cảnh
@@ -86,6 +87,8 @@ pnpm aitest run <plan> [--env staging] [--case A,B] [--agent kiro] [--input tên
 pnpm aitest envs check       # nạp tool của từng môi trường, báo lỗi cấu hình
 pnpm aitest -c aitest.e2e.yml run examples/plans/order-ui.plan.yaml
 pnpm aitest report .aitest/runs/<id>/events.jsonl           # dựng lại báo cáo từ log
+pnpm aitest export <plan...> -o goi.json                     # đóng gói plan để chuyển sang aitest khác
+pnpm aitest import goi.json [--dry-run] [--overwrite]       # nhập gói plan
 pnpm serve                   # build giao diện rồi chạy Host tại http://127.0.0.1:4300 (dist không nằm trong git)
 pnpm web:dev                 # Vite dev server cho web-client, chuyển /ws tới Host ở cổng 4300
 pnpm aitest mcp              # MCP server soạn plan qua stdio; stdout chỉ dành cho giao thức MCP

@@ -150,6 +150,9 @@ plugins:
     name: '@aitest/authoring/dry-run'
     config:
       maxCases: 3
+  # Gói plan để chuyển giữa các aitest: plan, tài liệu contextRefs, hệ thống (aitest export, aitest import, trang Plan).
+  - id: plan-bundle
+    name: '@aitest/plan-bundle'
   - id: authoring-save
     name: '@aitest/authoring/save'
     config:

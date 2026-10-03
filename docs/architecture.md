@@ -103,6 +103,7 @@ packages/
   knowledge/         Tri thức của nhóm: lỗi đã biết, quy ước, bài học (thư mục kb/)
   context/           Thư viện ngữ cảnh: thư mục context/ và skill theo chuẩn Agent Skills (mục 7.9)
   memory/            Bộ nhớ giữa các phiên của agent soạn plan (mục 7.9)
+  plan-bundle/       Gói plan để chuyển giữa các aitest: plan, tài liệu contextRefs, hệ thống (mục 7.7)
   open-items/        Việc còn mở: điều chưa chốt, nhắc lại ở lượt sau và cuộc chat sau (mục 7.9)
   run-viewer/        Xem log lượt chạy trên giao diện, theo dõi lượt chạy đang diễn ra
   web-client/        Giao diện React + Vite; plugin phía client đăng ký vào slot
@@ -596,6 +597,19 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 
 `runs.subscribe` gửi snapshot rồi đọc tiếp file theo vị trí byte cho tới khi gặp `run/end`; dòng ghi dở được để lại cho lần đọc sau. Nhờ vậy, Host theo dõi được cả lượt chạy CLI ở process khác. Tool riêng của agent (ví dụ Kiro đọc file) được ghi tham số và kết quả vào `agent/update`, rút gọn ở 4.000 ký tự.
 
+**Gói plan (`@aitest/plan-bundle`, service `ctx.bundles`).** Mục đích là chuyển plan giữa các aitest có bố cục thư mục khác nhau.
+
+- Mỗi file trong gói có `kind` (`plan`, `context`, `system`), đường dẫn tương đối với thư mục gốc của loại đó, và `sha256`.
+- Thư mục gốc trên máy đích lấy từ cấu hình của plugin tương ứng: `authoring-save`/`authoring-catalog`, `context`, `system-catalog`.
+- Khi xuất, file OpenAPI và tài liệu `service.yml` tham chiếu được gom vào thư mục hệ thống. `service.yml` được sửa bằng `yaml` Document, giữ comment và định dạng.
+- Khi nhập:
+  - Plan cùng mã cập nhật tại chỗ (tra qua `list_plans`).
+  - `contextRefs` được sửa theo thư mục ngữ cảnh của máy đích.
+  - File khác bản đang có chỉ ghi khi có trong `overwrite`; file phụ thuộc `service.yml` theo quyết định của `service.yml`.
+  - Đường dẫn tuyệt đối, có `..`, hoặc sai loại bị chặn.
+- Không xuất `envs/`. Bản cũ bị ghi đè và `import.json` lưu ở `importDir`.
+- Method `bundles.export`, `bundles.preview`, `bundles.import` (plugin `plan-bundle/web`) và lệnh CLI `export`, `import` dùng chung service.
+
 ### 7.8. Kiểm thử
 
 | File | Nội dung |
@@ -606,6 +620,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | `packages/action-math/tests/run-vars.test.ts` | Công thức dùng đầu vào dạng chuỗi JSON, đầu vào object tạo bằng `fill`, `vars` của plan, `{{biến.trường}}` trong fixture; agent assert không truyền `inputs`; báo cáo ghi `runVars`; `validate_plan` trả nguồn biến, bắt sai tên trường, tính thử công thức, cảnh báo biến không có bước thu thập |
 | `packages/core/tests/formula-vars.test.ts` | Chia biến của công thức theo nguồn, đọc chuỗi JSON giữ chữ số, `lookupVar` ưu tiên khoá phẳng |
 | `packages/verdict/tests/feedback.test.ts` | Góp ý qua `feedback_submit`: chặn trùng, bước không tồn tại, không đổi verdict; có trong báo cáo dựng từ log, `report.md`, `runs.list`, kết quả chạy thử cho agent soạn plan |
+| `packages/plan-bundle/tests/bundle.test.ts` | Xuất plan kèm tài liệu và hệ thống; nhập vào máy có bố cục thư mục khác (sửa `contextRefs`, gom OpenAPI); giữ bản đang có, ghi đè có sao lưu; chặn gói bị sửa và đường dẫn không an toàn |
 | `packages/runner/tests/cancel.test.ts` | Dừng một lời gọi tool (action không tự dừng), dừng lượt chạy giữa case (teardown vẫn chạy, case sau ghi lỗi), dừng chạy thử khi dừng lời gọi chờ kết quả hoặc khi nhận `authoring/stop` |
 | `packages/plan-manager/tests/plan-manager.test.ts` | Danh sách, chi tiết, bản xem trước của bản nháp (bước chuẩn bị, bước có cấu trúc, tiêu chí), chạy plan, lọc lượt chạy |
 | `packages/agent-acp/tests/permission.test.ts` | Agent ACP giả xin phép chỉ với `toolCallId` (như Codex): driver ghép tiêu đề và tham số từ update `tool_call` |

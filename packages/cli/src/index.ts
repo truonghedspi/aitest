@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type {} from '@aitest/runner'
 import type {} from '@aitest/authoring'
+import type {} from '@aitest/plan-bundle'
 import { createToolServer } from '@aitest/mcp-gateway'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { bootFromFile, deriveReport, parseJson, PlanError, type Kernel } from '@aitest/core'
@@ -17,6 +18,8 @@ Cách dùng:
   aitest validate <plan>                                  Kiểm tra cú pháp và schema của plan
   aitest actions                                          Liệt kê action đã đăng ký
   aitest report <events.jsonl>                            Dựng lại báo cáo từ run log (replay)
+  aitest export <plan> [<plan> ...] [-o gói.json]         Đóng gói plan cùng tài liệu contextRefs và hệ thống để chuyển sang aitest khác
+  aitest import <gói.json> [--dry-run] [--overwrite]      Nhập gói: xem trước, ghi file mới; --overwrite ghi đè file khác bản đang có
   aitest mcp                                              Chạy MCP server soạn plan qua stdio (cho Kiro chat, Claude Code...)
   aitest -c aitest.web.yml serve                          Chạy giao diện web soạn plan cùng agent
 
@@ -35,6 +38,9 @@ export async function main(argv: string[]) {
       model: { type: 'string' },
       input: { type: 'string', multiple: true },
       env: { type: 'string' },
+      output: { type: 'string', short: 'o' },
+      'dry-run': { type: 'boolean' },
+      overwrite: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   })
@@ -56,6 +62,8 @@ export async function main(argv: string[]) {
       case 'validate': return await validate(kernel, need(target, 'plan'))
       case 'actions': return listActions(kernel)
       case 'report': return await replay(kernel, need(target, 'events.jsonl'))
+      case 'export': return await exportBundle(kernel, positionals.slice(1), values.output)
+      case 'import': return await importBundle(kernel, need(target, 'bundle.json'), { dryRun: !!values['dry-run'], overwrite: !!values.overwrite })
       case 'serve': return await serve(kernel)
       default:
         process.stdout.write(USAGE)
@@ -120,6 +128,36 @@ export function parseInputs(pairs: string[]): Record<string, unknown> {
     inputs[pair.slice(0, index)] = value
   }
   return inputs
+}
+
+async function exportBundle(kernel: Kernel, plans: string[], output?: string) {
+  if (!plans.length) throw new Error('missing argument: plan')
+  const bundle = await kernel.ctx.bundles.export(plans)
+  const file = output ?? `aitest-bundle-${new Date().toISOString().slice(0, 10)}.json`
+  const size = await kernel.ctx.bundles.writeBundle(bundle, file)
+  process.stdout.write(`Đã đóng gói ${bundle.plans.length} plan, ${bundle.files.length} file (${Math.round(size / 1024)} KB) vào ${file}\n`)
+  for (const f of bundle.files) process.stdout.write(`  ${f.kind.padEnd(7)} ${f.path}\n`)
+  if (bundle.requirements.namespaces.length) process.stdout.write(`  cần tool cho namespace: ${bundle.requirements.namespaces.join(', ')}\n`)
+  return 0
+}
+
+const STATUS_LABEL: Record<string, string> = { new: 'mới', same: 'giống hệt', changed: 'khác bản đang có', blocked: 'bị chặn' }
+
+async function importBundle(kernel: Kernel, file: string, options: { dryRun: boolean; overwrite: boolean }) {
+  const bundle = JSON.parse(await readFile(resolve(file), 'utf8'))
+  const preview = await kernel.ctx.bundles.preview(bundle)
+  process.stdout.write(`Gói có ${preview.plans.length} plan: ${preview.plans.map((p) => p.id).join(', ')}\n`)
+  for (const i of preview.items) {
+    const note = i.status === 'blocked' ? ` — ${i.reason}` : i.dependsOn ? ` — chỉ ghi khi ghi đè ${i.dependsOn.replace(/^system:/, '')}` : ''
+    process.stdout.write(`  ${STATUS_LABEL[i.status].padEnd(16)} ${i.kind.padEnd(7)} ${i.target ?? i.path}${note}\n`)
+  }
+  for (const w of preview.warnings) process.stdout.write(`  WARNING: ${w}\n`)
+  if (options.dryRun) return preview.items.some((i) => i.status === 'blocked') ? 1 : 0
+  const overwrite = options.overwrite ? preview.items.filter((i) => i.status === 'changed').map((i) => `${i.kind}:${i.path}`) : []
+  const result = await kernel.ctx.bundles.import(bundle, { overwrite })
+  process.stdout.write(`Đã ghi ${result.written.length} file, bỏ qua ${result.skipped.length}; bản ghi và bản cũ: ${result.backupDir}\n`)
+  for (const p of result.plans) process.stdout.write(`  ${p.valid ? 'OK   ' : 'ERROR'} ${p.target}${p.errors.length ? `: ${p.errors.join('; ')}` : ''}\n`)
+  return result.plans.every((p) => p.valid) ? 0 : 1
 }
 
 async function validate(kernel: Kernel, file: string) {
