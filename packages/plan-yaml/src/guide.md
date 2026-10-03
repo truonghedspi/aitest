@@ -7,8 +7,10 @@ description: Một câu nêu mục tiêu của plan.
 requires: [http, db]           # namespace action mà agent chạy test được dùng
 vars:
   base_url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}
+systems: [order-service]       # agent chạy test nhận bảng, cột, giá trị, quy tắc từ catalog của hệ thống
+contextRefs: [context/order/matching-flow.md]   # tài liệu nghiệp vụ dùng chung, tuỳ chọn
 context: |
-  Bối cảnh nghiệp vụ cho agent chạy test: tên bảng, cột, giá trị trạng thái, quy tắc.
+  Chỉ điều riêng của plan này, ví dụ dữ liệu dùng riêng hay lưu ý cho các case.
 setup:                         # chạy trước MỖI case, không qua AI
   - desc: Xoá dữ liệu cũ
     action: dbadmin_query
@@ -35,6 +37,14 @@ cases:
       - action: dbadmin_query
         args: { sql: "DELETE FROM orders WHERE id = ?", params: ["{{order_id}}"] }
 ```
+
+### Bối cảnh cho agent chạy test
+
+Mỗi sự thật chỉ ghi ở một nơi:
+
+- Bảng, cột, giá trị hợp lệ, quy tắc nghiệp vụ của một hệ thống: catalog hệ thống, qua `systems`. Thiếu thì đề xuất bằng `propose_system_knowledge`.
+- Quy trình nghiệp vụ dài dùng cho nhiều plan: tài liệu trong thư mục ngữ cảnh, qua `contextRefs`. Chưa có thì đề xuất bằng `propose_context_doc`.
+- `context`: chỉ điều riêng của plan. `validate_plan` cảnh báo khi `context` chép lại điều catalog đã có.
 
 ### Quy tắc viết bước (`steps`)
 

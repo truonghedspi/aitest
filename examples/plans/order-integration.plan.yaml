@@ -7,11 +7,9 @@ description: |
 requires: [http, db, webhook]
 vars:
   base_url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}
-context: |
-  Khi lệnh có `callback_url`, Order API khớp lệnh sau khoảng 1,5 giây:
-  status chuyển từ NEW sang FILLED, `filled_qty` bằng `qty`, rồi API gọi POST tới callback_url
-  với body {"event":"order.filled","orderId":<id>,"status":"FILLED","filledQty":<qty>}.
-  Lệnh đã FILLED hoặc CANCELLED không huỷ được nữa (HTTP 409).
+systems: [order-service]
+# Luồng khớp lệnh dùng chung cho mọi plan về khớp lệnh: một tài liệu, nhiều plan tham chiếu.
+contextRefs: [context/order/matching-flow.md]
 
 # Chạy trước mỗi case: dọn dữ liệu mã MWG để case không phụ thuộc lượt chạy trước.
 setup:

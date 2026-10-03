@@ -244,7 +244,7 @@ Plan chỉ nêu cần kiểm tra gì. Ba lớp còn lại tách khỏi plan đ�
 **Plugin.** Service `@aitest/system-catalog` (`ctx.systems`) đọc lại catalog ở đầu mỗi case của plan có `systems`:
 
 - Listener `case/start` ghi biến `<system>.url` vào `scope.vars` trước fixture, rồi ghi event `systems/resolved` vào run log. Runner không đổi, vì fixture và bước được thay biến sau `case/start`.
-- Section prompt `systems/context` (thứ tự 15) mô tả operation, kênh, consumer, dữ liệu của các hệ thống được khai báo.
+- Section prompt `systems/context` (thứ tự 15) mô tả operation, kênh, consumer của các hệ thống được khai báo, và **ngữ cảnh dùng chung**: bảng, cột (kiểu, ý nghĩa, giá trị hợp lệ kèm nghĩa), quy tắc của bảng và quy tắc nghiệp vụ của service (`describeKnowledge`, dùng chung với `get_system_context`). Cột viết một dòng bị YAML tách tại dấu phẩy (khoá lạ, giá trị không có nghĩa) là lỗi nạp catalog.
 
 Plugin `@aitest/system-catalog/authoring` cung cấp `list_systems`, `describe_system` cho agent soạn plan và quy tắc kiểm tra qua `authoring/lint`. Mỗi kênh sự kiện trong kết quả có trường `tool { namespace, available }`, tính từ ánh xạ broker của môi trường và registry action lúc gọi (tool bị tắt không được tính). Khi thiếu tool, trường `hint` hướng agent tra `list_tool_catalog` theo namespace; plugin không phụ thuộc `tool-catalog`. Kênh được dùng trong bước mà chưa có tool là lỗi kiểm tra plan. Quy tắc biến chung của `authoring` bỏ qua `{{<system>.*}}`; quy tắc của catalog kiểm tra khoá đó.
 
@@ -429,7 +429,8 @@ Mỗi nhóm tool là một plugin con của `@aitest/authoring`, đăng ký vào
 | `authoring/dry-run` | `dry_run`, `get_run_result` | Chạy nền bằng runner thật; kết quả rút gọn kèm gợi ý sửa plan |
 | `authoring/save` | `save_plan` | Chỉ ghi `*.plan.yaml` trong thư mục cấu hình; plan phải hợp lệ |
 | `system-catalog/brief` | `get_system_context`, `new_plan_skeleton` | Gói ngữ cảnh một hệ thống trong một lời gọi; khung plan có bước gọi API có cấu trúc (mục 7.9) |
-| `context/tools` | `use_skill`, `read_skill_file` | Nạp skill theo tầng (mục 7.9) |
+| `system-catalog/propose` | `propose_system_knowledge` | Ghi quy tắc, mô tả bảng, cột vào catalog; người dùng duyệt kèm diff (mục 7.9) |
+| `context/tools` | `use_skill`, `read_skill_file`, `propose_context_doc` | Nạp skill theo tầng; đề xuất tài liệu ngữ cảnh dùng chung (mục 7.9) |
 | `memory/tools` | `memory_search`, `memory_read`, `memory_save`, `memory_delete` | Bộ nhớ giữa các phiên; ghi bộ nhớ nhóm cần duyệt (mục 7.9) |
 | `open-items/tools` | `open_item_add`, `open_item_resolve`, `open_item_list` | Việc còn mở; không cần duyệt (mục 7.9) |
 
@@ -558,6 +559,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 |---|---|
 | `packages/authoring/tests/authoring.test.ts` | Giới hạn tool theo scope, hướng dẫn, nguồn context, explore chỉ đọc, quy tắc kiểm tra, chạy thử, lưu |
 | `packages/chat/tests/restore.test.ts` | Khôi phục phiên agent sau khi Host khởi động lại; agent mất phiên thì gửi lại lịch sử, bản nháp, môi trường; agent không hỗ trợ `loadSession` |
+| `packages/system-catalog/tests/knowledge.test.ts` | Bảng, cột, giá trị, quy tắc và tài liệu `contextRefs` vào prompt chạy test; cảnh báo `context` chép lại catalog, nhắc bảng chưa khai báo hệ thống; `propose_system_knowledge` giữ comment, gộp giá trị, đổi bảng viết gọn, chặn quy tắc trùng; `propose_context_doc` chỉ ghi trong thư mục ngữ cảnh; lỗi dấu phẩy trong map một dòng |
 | `packages/runner/tests/cancel.test.ts` | Dừng một lời gọi tool (action không tự dừng), dừng lượt chạy giữa case (teardown vẫn chạy, case sau ghi lỗi), dừng chạy thử khi dừng lời gọi chờ kết quả hoặc khi nhận `authoring/stop` |
 | `packages/plan-manager/tests/plan-manager.test.ts` | Danh sách, chi tiết, bản xem trước của bản nháp (bước chuẩn bị, bước có cấu trúc, tiêu chí), chạy plan, lọc lượt chạy |
 | `packages/agent-acp/tests/error.test.ts` | Lỗi JSON-RPC của agent hiện lý do trong `data` (ví dụ hết hạn mức) thay vì chỉ "Internal error" |
@@ -605,6 +607,30 @@ Ngữ cảnh chia thành sáu lớp, theo thứ tự agent gặp trong một phi
 | Gói ngữ cảnh hệ thống | Catalog hệ thống, DB, plan, skill, tài liệu, kb | Một lời gọi `get_system_context` | Tự dựng |
 | Skill | `skills/<tên>/SKILL.md` | Tên và mô tả trong hướng dẫn; thân qua `use_skill`; file kèm qua `read_skill_file` | Nhóm, qua git |
 | Tài liệu | `context/**` | Mục lục kèm mô tả trong `list_context_sources`; nội dung qua `read_context_source` | Nhóm, qua git |
+
+#### Bối cảnh của agent chạy test: ba tầng
+
+Trước đây prompt chạy test chỉ nhận tên bảng từ catalog, nên plan nào cũng chép tên cột, mã trạng thái, quy tắc vào `context`. Mỗi sự thật giờ có một nơi ghi:
+
+| Tầng | Nơi lưu | Vào prompt chạy test qua |
+|---|---|---|
+| Hệ thống | `service.yml`: `data[].tables[]` (`desc`, `columns`, `rules`), `rules` | Section `systems/context`, với plan có `systems` |
+| Tính năng | Tài liệu trong thư mục ngữ cảnh | `contextRefs` của plan; plugin `@aitest/context/run` đọc ở `case/start`, ghi `context/resolved`, đưa vào section `context/refs` (thứ tự 12), mỗi tài liệu tối đa `maxDocChars` |
+| Plan | `context` | Section `runner/plan`, như trước |
+
+Không dùng `kb/` cho tầng nào ở trên: agent chạy test không đọc kb.
+
+Cơ chế quản trị:
+
+- `propose_system_knowledge` (plugin `system-catalog/propose`) sửa `service.yml` bằng `yaml` Document để giữ comment. Tool nạp thử bản mới, rồi hỏi duyệt qua `scope.confirm` với preview `context-change` (diff theo dòng, `lineDiff` của core).
+- `propose_context_doc` (plugin `context/tools`) tạo hoặc thay tài liệu, chỉ trong thư mục ngữ cảnh đầu tiên.
+- `authoring/lint` cảnh báo khi:
+  - `context` chép lại cột hoặc giá trị đã khai báo (từ 3 cột hoặc 2 giá trị).
+  - `context` nhắc bảng của hệ thống chưa khai báo trong `systems`.
+  - `context` quá 800 ký tự.
+  - `contextRefs` sai, hoặc tài liệu được tham chiếu quá dài.
+- `get_system_context` ghi "Chưa khai báo trong catalog" cho cột chưa được giải thích và giá trị thật ngoài `values`.
+- `library.list` trả `usedBy` của từng tài liệu (từ `contextRefs` trong `list_plans`).
 
 #### Gói ngữ cảnh hệ thống
 

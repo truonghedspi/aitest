@@ -155,3 +155,14 @@ function ContextListView({ view }: ToolViewProps) {
 export function Json({ value }: { value: unknown }) {
   return <pre className="code">{JSON.stringify(value, null, 2)?.slice(0, 4000)}</pre>
 }
+
+/** Diff theo dòng (`+`, `-`, ` `, `…`) từ `lineDiff` của core: tô màu dòng thêm, dòng bỏ. */
+export function DiffView({ diff }: { diff: string }) {
+  return (
+    <pre className="code diff">
+      {diff.split('\n').map((line, i) => (
+        <div key={i} className={line.startsWith('+ ') ? 'add' : line.startsWith('- ') ? 'del' : 'ctx'}>{line}</div>
+      ))}
+    </pre>
+  )
+}

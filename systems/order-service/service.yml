@@ -43,7 +43,58 @@ consumers:
       - Phát order.filled lên order-events và order-exchange
       - Gửi POST tới callback_url với {event, orderId, filledQty}
 
+# Ngữ cảnh dùng chung: agent chạy test thấy phần dưới với mọi plan khai báo order-service trong `systems`.
+# Plan không chép lại các điều này vào `context`; chỉ ghi điều riêng của plan.
 data:
   - namespace: db
     description: SQLite của Order API (chỉ đọc)
-    tables: [orders]
+    tables:
+      - name: orders
+        desc: Mỗi dòng là một lệnh mua hoặc bán cổ phiếu
+        columns:
+          id:
+            type: integer
+            desc: Mã lệnh, trùng `id` trong response của API
+          symbol:
+            type: text
+            desc: Mã chứng khoán, 3 chữ cái in hoa
+          side:
+            type: text
+            values: { BUY: lệnh mua, SELL: lệnh bán }
+          qty:
+            type: integer
+            desc: Khối lượng, bội số của 100 (lô chẵn)
+          price:
+            type: integer
+            desc: Giá, đơn vị đồng
+          status:
+            type: text
+            desc: Trạng thái lệnh
+            values:
+              NEW: vừa nhận, chưa khớp
+              FILLED: đã khớp toàn bộ
+              CANCELLED: đã huỷ
+          filled_qty:
+            type: integer
+            desc: Khối lượng đã khớp; bằng qty khi FILLED, 0 khi chưa khớp
+          created_at:
+            type: text
+            desc: Thời điểm nhận lệnh
+          filled_at:
+            type: text
+            desc: Thời điểm khớp; null khi chưa khớp
+          cancelled_at:
+            type: text
+            desc: Thời điểm huỷ; null khi chưa huỷ
+          callback_url:
+            type: text
+            desc: URL nhận thông báo khớp; null nếu lệnh không có callback
+        rules:
+          - Phí (`fee`) không lưu trong bảng; API tính khi trả bản ghi lệnh
+
+rules:
+  - Lệnh vi phạm ràng buộc đầu vào bị từ chối với HTTP 400 và không được lưu vào bảng orders
+  - Chỉ lệnh NEW được huỷ (HTTP 200, status chuyển CANCELLED, ghi cancelled_at); lệnh FILLED hoặc CANCELLED trả 409 và giữ nguyên trạng thái
+  - Lệnh có callback_url được khớp toàn bộ sau khoảng 1,5 giây; lệnh không có callback_url giữ trạng thái NEW
+  - Phí giao dịch (nghìn đồng) = 0,15% × qty × price / 1000, làm tròn nửa lên 2 chữ số; công thức `fee(o)` tính sẵn
+  - Tổng hợp theo mã (summary, positions) bỏ qua lệnh đã huỷ

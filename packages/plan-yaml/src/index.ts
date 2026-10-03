@@ -80,6 +80,7 @@ export const PlanSchema = z.object({
   formulas: z.dict(FormulaSchema).default({}),
   vars: z.dict(z.any()).default({}),
   context: z.string(),
+  contextRefs: z.array(z.string()).default([]),
   setup: Fixtures,
   teardown: Fixtures,
   cases: z.array(CaseSchema).required(),
@@ -200,6 +201,7 @@ export function parsePlan(text: string, source: string): TestPlan {
     })),
     vars,
     context: data.context,
+    ...(data.contextRefs.length ? { contextRefs: data.contextRefs } : {}),
     setup: fixtures(data.setup),
     teardown: fixtures(data.teardown),
     cases: data.cases.map((c) => ({

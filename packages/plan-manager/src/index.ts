@@ -39,6 +39,8 @@ export interface PlanDetail {
     /** Môi trường được chạy plan; rỗng là mọi môi trường. */
     envs: string[]
     inputs: Array<{ name: string; desc?: string; default?: unknown; required: boolean; mode: 'fill' | 'prepare' | 'user' }>
+    /** Tài liệu nghiệp vụ dùng chung mà plan tham chiếu. */
+    contextRefs: string[]
     /** Bước chuẩn bị, dọn dẹp chung cho mọi case: mô tả, hoặc tên action khi không có mô tả. */
     setup: string[]
     teardown: string[]
@@ -194,6 +196,7 @@ export function describePlan(plan: TestPlan): PlanDetail['plan'] {
       name: i.name, desc: i.desc, default: i.default, required: i.required,
       mode: i.fill.length ? 'fill' as const : i.prepare ? 'prepare' as const : 'user' as const,
     })),
+    contextRefs: plan.contextRefs ?? [],
     setup: plan.setup.map(fixtureText),
     teardown: plan.teardown.map(fixtureText),
     cases: plan.cases.map((c) => ({

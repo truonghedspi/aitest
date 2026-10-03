@@ -13,6 +13,7 @@ export interface PlanDoc {
   systems: string[]
   envs: string[]
   inputs: Array<{ name: string; desc?: string; default?: unknown; required: boolean; mode: 'fill' | 'prepare' | 'user' }>
+  contextRefs?: string[]
   setup?: string[]
   teardown?: string[]
   cases: Array<{
@@ -81,6 +82,7 @@ export function PlanDocument({ plan, caseBadge, compact = false }: {
             {plan.systems.length > 0 && <><dt>Hệ thống</dt><dd>{plan.systems.join(', ')}</dd></>}
             <dt>Môi trường</dt><dd>{plan.envs.length ? plan.envs.join(', ') : 'mọi môi trường'}</dd>
             <dt>Số case</dt><dd>{plan.cases.length}</dd>
+
           </dl>
           {plan.inputs.length > 0 && (
             <section>
@@ -95,6 +97,12 @@ export function PlanDocument({ plan, caseBadge, compact = false }: {
             </section>
           )}
         </>
+      )}
+      {plan.contextRefs && plan.contextRefs.length > 0 && (
+        <div className="small">
+          <span className="muted">Tài liệu nghiệp vụ agent chạy test đọc: </span>
+          {plan.contextRefs.map((r) => <a key={r} href="#/context/docs" title="Xem trên trang Ngữ cảnh"><code>{r}</code> </a>)}
+        </div>
       )}
       {plan.setup && plan.setup.length > 0 && (
         <section>
@@ -137,7 +145,7 @@ export function PlanDocument({ plan, caseBadge, compact = false }: {
         </section>
       )}
       {!compact && plan.context && (
-        <details><summary className="muted small">Bối cảnh cho agent</summary><pre className="code">{plan.context}</pre></details>
+        <details><summary className="muted small">Bối cảnh riêng của plan</summary><pre className="code">{plan.context}</pre></details>
       )}
     </div>
   )

@@ -149,7 +149,12 @@
     },
     "context": {
       "type": "string",
-      "description": "Bối cảnh nghiệp vụ cho agent."
+      "description": "Bối cảnh riêng của plan cho agent chạy test. Bảng, cột, giá trị, quy tắc dùng chung khai báo ở catalog hệ thống (systems/<id>/service.yml)."
+    },
+    "contextRefs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tài liệu nghiệp vụ dùng chung trong thư mục ngữ cảnh (ví dụ context/order/cancel.md); nội dung được đưa vào prompt của agent chạy test."
     },
     "cases": {
       "type": "array",

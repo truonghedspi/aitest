@@ -315,6 +315,9 @@ importers:
       '@aitest/core':
         specifier: workspace:*
         version: link:../core
+      '@aitest/runner':
+        specifier: workspace:*
+        version: link:../runner
       '@aitest/web-host':
         specifier: workspace:*
         version: link:../web-host

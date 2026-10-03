@@ -14,6 +14,7 @@ import { OpenItemsTab } from './open-items.tsx'
 export const contextPage: ClientPlugin = (s) => {
   s.page.register('context', { id: 'context', title: 'Ngữ cảnh', order: 4, component: ContextPage })
   s.toolView.register('memory-saved', MemorySavedView)
+  s.toolView.register('context-change', ContextChangeView)
 }
 
 type MemoryType = 'user' | 'feedback' | 'project' | 'reference'
@@ -38,7 +39,7 @@ interface Review {
   stale: string[]
 }
 
-interface Doc { id: string; title: string; description?: string; systems: string[]; features: string[]; inclusion: 'always' | 'auto'; size: number }
+interface Doc { id: string; title: string; description?: string; systems: string[]; features: string[]; inclusion: 'always' | 'auto'; size: number; usedBy?: string[] }
 interface Skill { name: string; description: string; path: string; systems: string[]; features: string[]; files: string[] }
 interface Library { dirs: string[]; skillDirs: string[]; docs: Doc[]; skills: Skill[]; issues: Array<{ path: string; error: string }> }
 
@@ -293,7 +294,7 @@ function LibraryTab({ kind }: { kind: 'skills' | 'docs' }) {
             : lib.docs.map((d) => (
                 <button key={d.id} className={`kb-item ${selected === d.id ? 'active' : ''}`} onClick={() => open(d.id)}>
                   <span className="title">{d.inclusion === 'always' && <span className="badge active">luôn dùng</span>} {d.title}</span>
-                  <span className="meta">{d.id}{d.systems.length ? ` · ${d.systems.join(', ')}` : ''}</span>
+                  <span className="meta">{d.id}{d.systems.length ? ` · ${d.systems.join(', ')}` : ''}{d.usedBy?.length ? ` · ${d.usedBy.length} plan dùng` : ''}</span>
                 </button>
               ))}
           {(kind === 'skills' ? lib.skills : lib.docs).length === 0 && (
@@ -310,6 +311,13 @@ function LibraryTab({ kind }: { kind: 'skills' | 'docs' }) {
               {content.path && <button onClick={() => open(selected)}>SKILL.md</button>}
             </div>
             {(skill?.description || doc?.description) && !content.path && <div className="muted small">{skill?.description ?? doc?.description}</div>}
+            {doc && (
+              <div className="muted small">
+                {doc.usedBy?.length
+                  ? <>Plan tham chiếu bằng <code>contextRefs</code>: {doc.usedBy.map((p) => <a key={p} href={`#/plans/${p}`}><code>{p}</code></a>).reduce<React.ReactNode[]>((acc, el, i) => (i ? [...acc, ', ', el] : [el]), [])}</>
+                  : <>Chưa plan nào tham chiếu; thêm <code>contextRefs: [{doc.id}]</code> vào plan để agent chạy test đọc tài liệu này.</>}
+              </div>
+            )}
             {skill && skill.files.length > 0 && (
               <div className="tags">
                 {skill.files.map((f) => <button key={f} className={`tag ${content.path === f ? 'active' : ''}`} onClick={() => open(skill.name, f)}>{f}</button>)}
@@ -415,6 +423,17 @@ export function MemoryPreview({ preview }: { preview: any }) {
       {preview.previous && preview.previous !== preview.body && (
         <details><summary className="muted small">Nội dung hiện tại (sẽ được thay)</summary><Markdown text={preview.previous} /></details>
       )}
+    </div>
+  )
+}
+
+/** Thẻ `propose_system_knowledge`, `propose_context_doc` trong cuộc chat: đã ghi gì, vào đâu. */
+function ContextChangeView({ view }: ToolViewProps) {
+  const v = view as unknown as { target?: string; summary?: string; saved?: boolean; reason?: string }
+  return (
+    <div className="small">
+      {v.saved ? 'Đã ghi' : 'Không ghi'} vào <code>{v.target}</code>{v.summary ? `: ${v.summary}` : ''}
+      {v.reason && <div className="muted">Nguồn: {v.reason}</div>}
     </div>
   )
 }

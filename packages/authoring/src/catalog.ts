@@ -95,6 +95,7 @@ export function apply(ctx: Context, config: Config) {
               cases: plan.cases.map((c) => ({ id: c.id, title: c.title })),
               // Operation dùng trong plan (bước có cấu trúc và tham chiếu `<system>.<operation>` trong câu), để tìm plan mẫu.
               ...(operationsOf(plan).length ? { operations: operationsOf(plan) } : {}),
+              ...(plan.contextRefs?.length ? { contextRefs: plan.contextRefs } : {}),
             })
           } catch (error) {
             plans.push({ path, error: (error as Error).message.split('\n')[0] })

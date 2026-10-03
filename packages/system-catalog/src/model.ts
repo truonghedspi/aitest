@@ -58,10 +58,26 @@ export interface Consumer {
   effects: string[]
 }
 
+/** Một cột: ý nghĩa nghiệp vụ và giá trị hợp lệ (ví dụ mã trạng thái) kèm nghĩa của từng giá trị. */
+export interface DataColumn {
+  name: string
+  type?: string
+  desc?: string
+  values?: Record<string, string>
+}
+
+/** Một bảng: mô tả, cột đã được giải thích, quy tắc về dữ liệu của bảng. Cột không khai báo vẫn có thể tồn tại. */
+export interface DataTable {
+  name: string
+  desc?: string
+  columns: DataColumn[]
+  rules: string[]
+}
+
 export interface DataStore {
   namespace: string
   description?: string
-  tables: string[]
+  tables: DataTable[]
   profile: boolean
 }
 
@@ -75,6 +91,11 @@ export interface SystemSpec {
   events: EventChannel[]
   consumers: Consumer[]
   data: DataStore[]
+  /**
+   * Quy tắc nghiệp vụ của service, ví dụ "chỉ lệnh NEW được huỷ". Cùng mô tả bảng, cột, đây là ngữ cảnh dùng chung
+   * cho mọi plan khai báo service trong `systems`: vào prompt của agent chạy test, không phải chép vào `context` của plan.
+   */
+  rules: string[]
   /** Tính năng liên quan, khớp `feature` của ghi chú trong `kb/`. */
   features: string[]
   /** Công thức nghiệp vụ của service (`formulas.yml` cạnh `service.yml`), dùng trong expectation của plan. */
@@ -141,11 +162,86 @@ const ServiceSchema = z.object({
   data: z.array(z.object({
     namespace: z.string().required(),
     description: z.string(),
-    tables: z.array(z.string()).default([]),
+    tables: z.array(z.union([z.string(), z.object({
+      name: z.string().required(),
+      desc: z.string(),
+      columns: z.dict(z.union([z.string(), z.object({
+        type: z.string(),
+        desc: z.string(),
+        values: z.union([z.array(z.union([z.string(), z.number()])), z.dict(z.string())]),
+      })])).default({}),
+      rules: z.array(z.string()).default([]),
+    })])).default([]),
     profile: z.boolean().default(true).description('Lấy hồ sơ dữ liệu thật (cột, giá trị hay gặp, dòng mẫu) cho gói ngữ cảnh.'),
   })).default([]),
+  rules: z.array(z.string()).default([]).description('Quy tắc nghiệp vụ dùng chung cho mọi plan của service.'),
   features: z.array(z.string()).default([]).description('Tính năng liên quan, khớp `feature` của ghi chú trong kb/.'),
 })
+
+/**
+ * Ngữ cảnh dữ liệu và quy tắc đã khai báo của service, dạng dòng Markdown. Dùng chung cho prompt của agent chạy test
+ * và gói ngữ cảnh khi soạn plan, để hai agent thấy cùng một nội dung.
+ */
+export function describeKnowledge(system: SystemSpec): string[] {
+  const lines: string[] = []
+  for (const store of system.data) {
+    lines.push(`- namespace \`${store.namespace}\`${store.description ? ` (${store.description})` : ''}: bảng ${store.tables.map((t) => `\`${t.name}\``).join(', ')}`)
+    for (const table of store.tables) {
+      if (!table.desc && !table.columns.length && !table.rules.length) continue
+      lines.push(`  - Bảng \`${table.name}\`${table.desc ? `: ${table.desc}` : ''}`)
+      for (const c of table.columns) {
+        const values = c.values && Object.keys(c.values).length
+          ? `; giá trị: ${Object.entries(c.values).map(([v, meaning]) => meaning ? `\`${v}\` = ${meaning}` : `\`${v}\``).join(', ')}`
+          : ''
+        lines.push(`    - \`${c.name}\`${c.type ? ` (${c.type})` : ''}${c.desc ? `: ${c.desc}` : ''}${values}`)
+      }
+      for (const rule of table.rules) lines.push(`    - Quy tắc: ${rule}`)
+    }
+  }
+  if (system.rules.length) {
+    lines.push('', 'Quy tắc nghiệp vụ:', ...system.rules.map((r) => `- ${r}`))
+  }
+  return lines
+}
+
+const COLUMN_KEYS = new Set(['type', 'desc', 'values'])
+
+/**
+ * Cột viết dạng `{ type: text, desc: Mã lệnh, trùng id }` bị YAML tách tại dấu phẩy: phần sau dấu phẩy thành khoá lạ
+ * và bị bỏ mà không báo. Báo lỗi để người viết đặt mô tả trong ngoặc kép hoặc viết nhiều dòng.
+ */
+function checkColumns(raw: unknown) {
+  const data = (raw as { data?: Array<{ tables?: unknown[] }> } | undefined)?.data ?? []
+  for (const store of Array.isArray(data) ? data : []) {
+    for (const table of store?.tables ?? []) {
+      const t = table as { name?: string; columns?: Record<string, unknown> }
+      for (const [column, spec] of Object.entries(t?.columns ?? {})) {
+        if (!spec || typeof spec !== 'object' || Array.isArray(spec)) continue
+        const unknown = Object.keys(spec).filter((k) => !COLUMN_KEYS.has(k))
+        if (unknown.length) {
+          throw new Error(`table ${t.name} column ${column}: unknown key "${unknown[0]}"; quote text containing commas, e.g. desc: "a, b", or write the column on several lines`)
+        }
+        const values = (spec as { values?: unknown }).values
+        if (values && typeof values === 'object' && !Array.isArray(values)) {
+          const empty = Object.entries(values).find(([, v]) => v === null)
+          if (empty) throw new Error(`table ${t.name} column ${column}: value "${empty[0]}" has no meaning; quote meanings containing commas, or write values on several lines`)
+        }
+      }
+    }
+  }
+}
+
+/** Bảng viết gọn (`tables: [orders]`) hoặc đầy đủ; cột viết gọn (`id: Mã lệnh`) hoặc đầy đủ; giá trị dạng danh sách hoặc map. */
+function normalizeTable(raw: string | { name: string; desc?: string; columns?: Record<string, unknown>; rules?: string[] }): DataTable {
+  if (typeof raw === 'string') return { name: raw, columns: [], rules: [] }
+  const columns = Object.entries(raw.columns ?? {}).map(([name, c]): DataColumn => {
+    if (typeof c === 'string') return { name, desc: c }
+    const col = c as { type?: string; desc?: string; values?: Array<string | number> | Record<string, string> }
+    const values = Array.isArray(col.values) ? Object.fromEntries(col.values.map((v) => [String(v), ''])) : col.values
+    return { name, ...(col.type ? { type: col.type } : {}), ...(col.desc ? { desc: col.desc } : {}), ...(values && Object.keys(values).length ? { values } : {}) }
+  })
+  return { name: raw.name, ...(raw.desc ? { desc: raw.desc } : {}), columns, rules: raw.rules ?? [] }
+}
 
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
@@ -176,7 +272,9 @@ export async function loadSystems(dirs: string[]): Promise<{ systems: SystemSpec
 }
 
 export async function loadSystem(file: string): Promise<SystemSpec> {
-  const data = ServiceSchema(parseYaml(await readFile(file, 'utf8')))
+  const raw = parseYaml(await readFile(file, 'utf8'))
+  checkColumns(raw)
+  const data = ServiceSchema(raw)
   const base = dirname(file)
   const operations = data.http?.openapi ? await loadOpenApi(resolve(base, data.http.openapi)) : []
   // Operation khai báo trực tiếp bổ sung hoặc ghi đè operation cùng id từ OpenAPI.
@@ -210,7 +308,8 @@ export async function loadSystem(file: string): Promise<SystemSpec> {
     operations,
     events: data.events as EventChannel[],
     consumers: data.consumers,
-    data: data.data,
+    data: data.data.map((d) => ({ ...d, tables: d.tables.map((t) => normalizeTable(t as Parameters<typeof normalizeTable>[0])) })),
+    rules: data.rules,
     features: data.features,
     file: display(file),
   }

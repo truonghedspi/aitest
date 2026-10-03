@@ -5,10 +5,11 @@ description: Kiểm tra luồng đặt lệnh, huỷ lệnh và ràng buộc lô
 requires: [http, db]
 vars:
   base_url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}
+# Bảng orders, giá trị status, ràng buộc lô chẵn, quy tắc huỷ lệnh: khai báo trong systems/order-service/service.yml,
+# agent chạy test nhận qua `systems`. `context` chỉ ghi điều riêng của plan này.
+systems: [order-service]
 context: |
-  Order API nhận lệnh mua/bán cổ phiếu và lưu vào bảng `orders` (SQLite).
-  Cột chính: id, symbol, side (BUY|SELL), qty, price, status (NEW|CANCELLED), cancelled_at.
-  Ràng buộc nghiệp vụ: khối lượng (qty) phải là bội số của 100 (lô chẵn).
+  Mỗi case dùng một mã chứng khoán riêng để đối chiếu DB không lẫn với case khác.
 
 cases:
   - id: TC-01

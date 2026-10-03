@@ -7,7 +7,7 @@ import { slots, type ClientPlugin, type PageProps } from '../slots.ts'
 import { useChat, useChatList } from '../store.ts'
 import type { ChatSummary } from '../types.ts'
 import { ToolCallCard } from '../components.tsx'
-import { Json } from './tool-views.tsx'
+import { DiffView, Json } from './tool-views.tsx'
 import { MemoryPreview } from './context-page.tsx'
 
 /** Trang soạn plan cùng agent: danh sách cuộc chat ở cột trái, hội thoại và bảng plan ở giữa. */
@@ -325,6 +325,7 @@ function PermissionCard({ item, chatId }: { item: Extract<TimelineItem, { kind: 
       <div>Agent xin phép <b>{label}</b></div>
       {item.preview?.kind === 'tool-proposal' ? <ToolProposal preview={item.preview} />
         : item.preview?.kind === 'memory' ? <MemoryPreview preview={item.preview} />
+        : item.preview?.kind === 'context-change' ? <ContextChangePreview preview={item.preview} />
         : item.preview !== undefined ? <Json value={item.preview} />
         : item.args !== undefined && item.tool !== 'dry_run' && item.tool !== 'save_plan' && <Json value={item.args} />}
       {item.tool === 'save_plan' && <div className="muted">Đường dẫn: <code>{(item.args as any)?.path}</code></div>}
@@ -447,6 +448,20 @@ function Composer({ chatId, status }: { chatId: string; status: string }) {
           ? <button onClick={() => connection.call('chats.cancel', { chatId })}>Dừng</button>
           : <button className="primary" onClick={send} disabled={!text.trim()}>Gửi</button>}
       </div>
+    </div>
+  )
+}
+
+/** Bản xem trước khi agent đề xuất sửa catalog hệ thống hoặc tài liệu ngữ cảnh: file, lý do, diff. */
+function ContextChangePreview({ preview }: { preview: { target: string; summary?: string; reason?: string; diff: string } }) {
+  return (
+    <div className="context-change">
+      <div className="muted small">
+        Ngữ cảnh dùng chung · <code>{preview.target}</code>{preview.summary ? ` · ${preview.summary}` : ''}
+      </div>
+      {preview.reason && <div className="small">Nguồn: {preview.reason}</div>}
+      <DiffView diff={preview.diff} />
+      <div className="muted small">Thay đổi này áp dụng cho mọi plan dùng ngữ cảnh này; file nằm trong git nên xem lại được qua pull request.</div>
     </div>
   )
 }

@@ -400,3 +400,11 @@ button.tag.active { border-color: var(--accent); }
 
 /* Dừng tool đang chạy */
 .tool summary .stop-tool { margin-left: auto; font-size: 12px; padding: 1px 8px; }
+
+/* Diff khi đề xuất sửa ngữ cảnh dùng chung */
+pre.diff { padding: 6px 0; }
+pre.diff div { padding: 0 10px; white-space: pre-wrap; }
+pre.diff .add { background: color-mix(in srgb, var(--ok, #2e7d32) 18%, transparent); }
+pre.diff .del { background: color-mix(in srgb, var(--bad, #c62828) 18%, transparent); text-decoration: line-through; opacity: .8; }
+pre.diff .ctx { color: var(--muted); }
+.context-change { display: flex; flex-direction: column; gap: 6px; }

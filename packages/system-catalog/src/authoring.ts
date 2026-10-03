@@ -57,7 +57,7 @@ export function apply(ctx: Context) {
             tool: toolStatus(e, catalog, available), messages: e.messages.map((m) => m.name),
           })),
           consumers: s.consumers.map((c) => c.group),
-          data: s.data.map((d) => ({ namespace: d.namespace, tables: d.tables })),
+          data: s.data.map((d) => ({ namespace: d.namespace, tables: d.tables.map((t) => t.name) })),
           formulas: Object.entries(s.formulas).map(([name, f]) => `${name}(${f.params.join(', ')})${f.desc ? `: ${f.desc}` : ''}`),
           docs: s.docs,
         })),
@@ -165,6 +165,8 @@ export function lintSystems(plan: TestPlan, catalog: Catalog, available: Readonl
     })
   })
 
+  issues.push(...lintContext(plan, catalog))
+
   // Biến `{{system.key}}` ở mọi nơi trong plan.
   const text = JSON.stringify({ vars: plan.vars, context: plan.context, setup: plan.setup, teardown: plan.teardown, cases: plan.cases })
   for (const [, id, key] of text.matchAll(/\{\{\s*([a-z][a-z0-9-]*)\.([\w-]+)\s*\}\}/g)) {
@@ -228,6 +230,44 @@ export function lintSystems(plan: TestPlan, catalog: Catalog, available: Readonl
         issues.push({ level: 'error', message: `${id}.${channelId} needs a tool with namespace ${namespace}, which is not installed; add it from list_tool_catalog with propose_tool` })
       } else if (available.has(namespace) && !plan.requires.includes(namespace)) issues.push({ level: 'warning', path: 'requires', message: `${id}.${channelId} needs namespace ${namespace} in requires` })
     }
+  }
+  return issues
+}
+
+/** Độ dài `context` mà quá ngưỡng này thì nhắc tách phần dùng chung ra catalog hoặc tài liệu ngữ cảnh. */
+const CONTEXT_WARN_CHARS = 800
+
+/**
+ * `context` của plan chép lại điều catalog đã khai báo (cột, giá trị hợp lệ của bảng), hoặc nhắc tới bảng của một hệ thống
+ * mà plan chưa khai báo trong `systems`: cảnh báo, để mỗi sự thật chỉ có một nơi ghi.
+ */
+function lintContext(plan: TestPlan, catalog: Catalog) {
+  const issues: Array<{ level: 'warning'; message: string; path: string }> = []
+  const context = plan.context ?? ''
+  if (!context.trim()) return issues
+  const declared = new Set(plan.systems ?? [])
+  const mentions = (word: string) => new RegExp(`(^|[^\\w])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\w]|$)`).test(context)
+  for (const system of catalog.systems) {
+    for (const table of system.data.flatMap((d) => d.tables)) {
+      if (!mentions(table.name)) continue
+      if (!declared.has(system.id)) {
+        if (table.desc || table.columns.length) {
+          issues.push({ level: 'warning', path: 'context', message: `context mentions table ${table.name} of ${system.id}; add ${system.id} to systems so the test agent gets its documented columns and rules` })
+        }
+        continue
+      }
+      const columns = table.columns.filter((c) => mentions(c.name)).map((c) => c.name)
+      const values = table.columns.flatMap((c) => Object.keys(c.values ?? {}).filter((v) => mentions(v)).map((v) => `${c.name}=${v}`))
+      if (columns.length >= 3 || values.length >= 2) {
+        issues.push({
+          level: 'warning', path: 'context',
+          message: `context repeats what the ${system.id} catalog already tells the test agent about table ${table.name} (${[...columns, ...values].slice(0, 6).join(', ')}); keep only what is specific to this plan`,
+        })
+      }
+    }
+  }
+  if (context.length > CONTEXT_WARN_CHARS) {
+    issues.push({ level: 'warning', path: 'context', message: `context has ${context.length} characters; move facts shared by several plans to the system catalog (propose_system_knowledge) or a context document (contextRefs)` })
   }
   return issues
 }

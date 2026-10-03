@@ -470,6 +470,32 @@ data:
   - { namespace: db, tables: [orders] }
 ```
 
+**Ngữ cảnh dùng chung: bảng, cột, giá trị, quy tắc.** Agent chạy test nhận phần này với mọi plan khai báo service trong `systems`. Nhờ đó bạn không phải chép tên cột, mã trạng thái, quy tắc nghiệp vụ vào `context` của từng plan. Đổi hệ thống thì sửa một nơi.
+
+```yaml
+data:
+  - namespace: db
+    tables:
+      - name: orders
+        desc: Mỗi dòng là một lệnh mua hoặc bán
+        columns:
+          qty:
+            type: integer
+            desc: Khối lượng, bội số của 100 (lô chẵn)
+          status:
+            type: text
+            values:                     # giá trị hợp lệ và nghĩa
+              NEW: vừa nhận, chưa khớp
+              FILLED: đã khớp toàn bộ
+              CANCELLED: đã huỷ
+        rules: [Phí không lưu trong bảng; API tính khi trả bản ghi]
+      - payments                        # bảng chưa mô tả: chỉ có tên
+rules:                                  # quy tắc nghiệp vụ của service
+  - Chỉ lệnh NEW được huỷ; lệnh FILLED hoặc CANCELLED trả 409 và giữ nguyên trạng thái
+```
+
+Mô tả có dấu phẩy thì viết nhiều dòng như trên, hoặc đặt trong ngoặc kép. Viết `{ desc: a, b }` trên một dòng làm YAML tách tại dấu phẩy; catalog báo lỗi thay vì cắt mất nội dung.
+
 Service chưa có OpenAPI thì khai báo operation trực tiếp: `http.operations.createOrder: { method: POST, path: /orders, summary: Đặt lệnh }`. Operation khai báo trực tiếp ghi đè operation cùng id lấy từ OpenAPI.
 
 **Khai báo môi trường.** File `envs/<tên>.yml` không chứa bí mật; bí mật nằm trong cấu hình của tool qua `${env.TÊN}`.
@@ -661,6 +687,26 @@ inclusion: always           # đưa vào hướng dẫn của mọi cuộc chat;
 ```
 
 Không có frontmatter thì tiêu đề lấy từ dòng `#` đầu tiên, mô tả lấy từ đoạn văn đầu tiên.
+
+#### Bối cảnh của plan: mỗi sự thật một nơi
+
+Agent chạy test nhận bối cảnh từ ba tầng. Đặt mỗi điều ở đúng tầng để lần soạn plan sau dùng lại được:
+
+| Tầng | Nơi lưu | Ví dụ | Plan dùng bằng |
+|---|---|---|---|
+| Hệ thống | `systems/<id>/service.yml` (`data`, `rules`) | Cột `status` có `NEW`, `FILLED`, `CANCELLED`; chỉ lệnh NEW được huỷ | `systems: [order-service]` |
+| Tính năng | `context/<tính năng>/*.md` | Luồng khớp lệnh và callback | `contextRefs: [context/order/matching-flow.md]` |
+| Plan | trường `context` | "Mỗi case dùng một mã chứng khoán riêng" | viết trực tiếp |
+
+Cách giữ ba tầng gọn gàng:
+
+- **Agent đề xuất, bạn duyệt.** Khi agent biết một sự thật dùng chung (đọc đặc tả, thấy trong dữ liệu thật, hoặc bạn vừa xác nhận), agent đề xuất ghi lên catalog (`propose_system_knowledge`) hoặc tạo tài liệu (`propose_context_doc`). Thẻ duyệt hiện diff của file sẽ sửa; `service.yml` giữ nguyên comment. Ở chế độ tự duyệt, đề xuất được ghi ngay.
+- **Kiểm tra cảnh báo khi trùng.** `validate_plan` cảnh báo khi `context` chép lại cột, giá trị catalog đã có; khi `context` nhắc bảng của một hệ thống mà plan chưa khai báo trong `systems`; khi `context` quá 800 ký tự; khi `contextRefs` trỏ tới tài liệu không có.
+- **Gói ngữ cảnh chỉ ra chỗ thiếu.** `get_system_context` liệt kê cột có trong DB nhưng chưa được giải thích, và giá trị thật chưa có trong `values`. Đây là danh sách việc cần bổ sung cho catalog.
+- **Biết ảnh hưởng trước khi sửa.** Tab Tài liệu trên trang Ngữ cảnh ghi tài liệu đang được plan nào tham chiếu.
+- **Xem lại qua git.** Catalog và thư mục ngữ cảnh nằm trong repo; thay đổi đi qua pull request như code.
+
+Không dùng Knowledge (`kb/`) cho các điều này. Agent chạy test không đọc kb (để lỗi đã biết không làm agent bỏ qua bước kiểm tra), trong khi bối cảnh hệ thống phải tới được agent chạy test.
 
 #### Gói ngữ cảnh hệ thống
 

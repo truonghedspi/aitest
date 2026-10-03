@@ -12,7 +12,7 @@ export interface Config {
 }
 
 export const name = 'context-web'
-export const inject = ['library', 'web', 'kernel']
+export const inject = ['library', 'web', 'kernel', 'actions']
 
 export const Config = z.object({
   row: z.string().default('context').description('Mã row của thư viện ngữ cảnh (`@aitest/context`).'),
@@ -22,11 +22,12 @@ export function apply(ctx: Context, config: Config) {
   const kernel = ctx.get('kernel') as Kernel
 
   ctx.web.method('library.list', async () => {
-    const [docs, skills] = await Promise.all([ctx.library.docs(), ctx.library.skills()])
+    const [docs, skills, usage] = await Promise.all([ctx.library.docs(), ctx.library.skills(), docUsage(ctx)])
     return {
       dirs: ctx.library.config.dirs,
       skillDirs: ctx.library.config.skillDirs,
-      docs: docs.docs,
+      // Plan tham chiếu tài liệu bằng `contextRefs`: biết sửa tài liệu thì ảnh hưởng tới plan nào.
+      docs: docs.docs.map((d) => ({ ...d, usedBy: usage.get(d.id) ?? [] })),
       skills: skills.skills,
       issues: [...docs.issues, ...skills.issues],
     }
@@ -51,4 +52,14 @@ export function apply(ctx: Context, config: Config) {
     await kernel.configure(config.row, { ...current, [params.kind === 'skills' ? 'skillDirs' : 'dirs']: dirs })
     return { ok: true }
   })
+}
+
+/** Plan tham chiếu từng tài liệu, đọc qua `list_plans` (cùng giới hạn thư mục plan với agent soạn plan). */
+async function docUsage(ctx: Context): Promise<Map<string, string[]>> {
+  const usage = new Map<string, string[]>()
+  const scope = { kind: 'authoring' as const, id: 'context-web', namespaces: new Set(['authoring']), phase: 'user' as const, signal: new AbortController().signal, log: () => {} }
+  const outcome = await ctx.actions.invoke(scope, 'list_plans', {}).catch(() => undefined)
+  const plans = (outcome?.value as { plans?: Array<{ path: string; contextRefs?: string[] }> } | undefined)?.plans ?? []
+  for (const plan of plans) for (const ref of plan.contextRefs ?? []) usage.set(ref, [...(usage.get(ref) ?? []), plan.path])
+  return usage
 }

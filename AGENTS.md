@@ -57,10 +57,10 @@ examples/
   plugins/           plugin mẫu nạp theo đường dẫn tương đối
 docs/                architecture.md, user-guide.md, plan.schema.json
 kb/                  tri thức của nhóm: bug/, convention/, lesson/ (Markdown + frontmatter)
-context/             tài liệu ngữ cảnh cho agent soạn plan; frontmatter title, description, systems, inclusion: always
+context/             tài liệu ngữ cảnh: agent soạn plan đọc; plan tham chiếu bằng contextRefs để agent chạy test đọc; frontmatter title, description, systems, inclusion: always
 skills/              skill soạn plan: <tên>/SKILL.md theo chuẩn Agent Skills, kèm plan mẫu
 memory/              bộ nhớ nhóm (ký ức dùng chung, vào git); bộ nhớ cá nhân ở .aitest/memory/<user>/
-systems/             catalog hệ thống: <id>/service.yml (OpenAPI, kênh sự kiện, consumer, dữ liệu)
+systems/             catalog hệ thống: <id>/service.yml (OpenAPI, kênh sự kiện, consumer, bảng, cột, giá trị, quy tắc nghiệp vụ)
 envs/                môi trường: URL service, topic, ghi đè cấu hình tool, biến, chặn ghi; chọn bằng --env, AITEST_ENV hoặc trên giao diện
 tool-catalog/        danh mục tool đã kiểm duyệt: plugin, tham số, mẫu cấu hình chỉ đọc và phần ghi
 aitest.yml           cấu hình plugin mặc định
@@ -111,6 +111,7 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 - **Chạy được trên macOS, Linux, Windows.** Khởi chạy process bằng `cross-spawn` (hoặc qua MCP SDK); kiểm tra đường dẫn bằng `isInside`; ghi đường dẫn hiển thị bằng `toPosix`; đọc file văn bản chấp nhận CRLF. CI chạy cả ba hệ điều hành.
 - **Agent chạy test không đọc tri thức.** Tool `kb_*` chỉ có scope `authoring`; lỗi đã biết chỉ được dùng để phân loại kết quả trong báo cáo, qua `case/annotation`.
 - **Bộ nhớ chỉ dành cho soạn plan, không chứa bí mật.** Tool `memory_*` chỉ có scope `authoring`. `ctx.memory.save` từ chối nội dung giống bí mật, ký ức gần trùng và bản ghi cũ hơn `expectedVersion`; mọi lần sửa, xoá giữ bản cũ trong `.history/`. Ghi bộ nhớ nhóm cần `scope.confirm`.
+- **Bối cảnh chạy test có một nơi ghi.** Bảng, cột, giá trị, quy tắc nghiệp vụ của hệ thống nằm trong `systems/<id>/service.yml`; quy trình dùng chung nằm trong thư mục ngữ cảnh và được plan tham chiếu bằng `contextRefs`; `context` của plan chỉ chứa điều riêng của plan. Không đưa bối cảnh hệ thống vào `kb/`.
 - **Ngữ cảnh nạp theo tầng.** Đầu phiên chỉ có mục lục (bộ nhớ, việc còn mở, tên và mô tả skill, tài liệu `inclusion: always`); nội dung đọc qua tool. Thêm ngữ cảnh bằng `ctx.authoring.introSection` (đầu phiên), `turnSection` (mỗi lượt) hoặc `guideSection`; `chat` không biết plugin nào đóng góp.
 - **Duyệt trước khi ghi.** Tool soạn plan chỉ đọc được duyệt tự động; `dry_run`, `save_plan` và tool riêng của agent cần người dùng duyệt.
 - **Agent chỉ thêm tool từ danh mục, qua người duyệt.** `propose_tool` dựng cấu hình từ mẫu trong `tool-catalog/`, không nhận cấu hình tự do. Tool tự duyệt qua `scope.confirm` (phía server) và từ chối khi scope không có người duyệt. Tool mới mặc định chỉ đọc; tham số bí mật chỉ nhận `${env.TÊN}`.

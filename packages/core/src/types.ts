@@ -125,8 +125,10 @@ export interface TestPlan {
   /** Hệ thống trong catalog mà plan dùng tới, ví dụ `order-service`; cung cấp biến `{{order-service.url}}`. */
   systems?: string[]
   vars: Record<string, unknown>
-  /** Bối cảnh nghiệp vụ bổ sung cho agent. */
+  /** Bối cảnh riêng của plan cho agent chạy test. Điều dùng chung cho nhiều plan nằm ở catalog hệ thống hoặc `contextRefs`. */
   context?: string
+  /** Tài liệu nghiệp vụ dùng chung (đường dẫn trong thư mục ngữ cảnh) đưa vào prompt của agent chạy test. */
+  contextRefs?: string[]
   /** Chạy trước mỗi case, trước `case.setup`. */
   setup: FixtureStep[]
   /** Chạy sau mỗi case, sau `case.teardown`; luôn chạy kể cả khi case lỗi. */

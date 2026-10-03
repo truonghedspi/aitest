@@ -5,9 +5,8 @@ description: Kiểm tra phí giao dịch API trả về đúng công thức tron
 requires: [http, db]
 vars:
   base_url: ${env.ORDER_API_URL:-http://127.0.0.1:4100}
-context: |
-  Phí giao dịch (`fee`, nghìn đồng) = 0,15% × qty × price / 1000, làm tròn nửa lên tới 2 chữ số thập phân.
-  `qty` và `price` của lệnh lưu trong bảng `orders`; `fee` chỉ có trong response của API.
+# Công thức phí và "phí không lưu trong bảng orders" là quy tắc của order-service (catalog), không chép vào context.
+systems: [order-service]
 
 setup:
   - desc: Xoá lệnh REE cũ

@@ -1,7 +1,7 @@
 import { stringify as stringifyYaml } from 'yaml'
 import type {} from '@aitest/authoring'
 import { errorMessage, type ActionScope, type Context } from '@aitest/core'
-import { channelIn, type Catalog, type DataStore, type HttpOperation, type SystemSpec } from './model.ts'
+import { channelIn, describeKnowledge, type Catalog, type DataStore, type HttpOperation, type SystemSpec } from './model.ts'
 import { compactSchema, sampleValue } from './schema.ts'
 import type {} from './index.ts'
 
@@ -87,7 +87,7 @@ export function apply(ctx: Context) {
     const value = (async () => {
       const out: TableProfile[] = []
       for (const store of system.data.filter((d) => d.profile)) {
-        for (const table of store.tables) out.push(await profileTable(scope, store, table))
+        for (const table of store.tables) out.push(await profileTable(scope, store, table.name))
       }
       return out
     })()
@@ -201,6 +201,23 @@ interface Related {
   skills: Array<{ name: string; description: string }>
 }
 
+/** Cột có trong DB nhưng chưa được giải thích, giá trị thật chưa có trong `values` đã khai báo. */
+function knowledgeGaps(system: SystemSpec, profile: TableProfile): string[] {
+  const declared = system.data.flatMap((d) => d.tables).find((t) => t.name === profile.table)
+  if (!declared) return []
+  const gaps: string[] = []
+  const known = new Map(declared.columns.map((c) => [c.name, c]))
+  const missing = profile.columns.map((c) => c.name).filter((n) => !known.has(n))
+  if (missing.length && declared.columns.length) gaps.push(`cột ${missing.join(', ')}`)
+  for (const [column, values] of Object.entries(profile.values)) {
+    const declaredValues = known.get(column)?.values
+    if (!declaredValues) continue
+    const extra = values.map((v) => String(v.value)).filter((v) => !(v in declaredValues))
+    if (extra.length) gaps.push(`giá trị ${extra.join(', ')} của \`${column}\``)
+  }
+  return gaps
+}
+
 const show = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v))
 
 export function renderBrief(system: SystemSpec, catalog: Catalog, tables: TableProfile[], related: Related): string {
@@ -228,8 +245,13 @@ export function renderBrief(system: SystemSpec, catalog: Catalog, tables: TableP
     lines.push('', '## Công thức (gọi như hàm trong `check.expr`)')
     for (const [n, f] of formulas) lines.push(`- \`${n}(${f.params.join(', ')})\`${f.desc ? `: ${f.desc}` : ''}`)
   }
+  const knowledge = describeKnowledge(system)
+  if (knowledge.length) {
+    lines.push('', '## Ngữ cảnh dùng chung đã khai báo',
+      'Agent chạy test thấy phần này với mọi plan khai báo service trong `systems`; không chép lại vào `context` của plan.', ...knowledge)
+  }
   if (system.data.length) {
-    lines.push('', '## Dữ liệu')
+    lines.push('', '## Dữ liệu thật')
     for (const store of system.data) lines.push(`Namespace \`${store.namespace}\`${store.description ? ` (${store.description})` : ''}:`)
     for (const t of tables) {
       lines.push(`### Bảng \`${t.table}\`${t.rows !== undefined ? ` (${t.rows} dòng)` : ''}`)
@@ -239,6 +261,8 @@ export function renderBrief(system: SystemSpec, catalog: Catalog, tables: TableP
         lines.push(`Giá trị \`${column}\`: ${values.map((v) => `${show(v.value)} (${v.count})`).join(', ')}`)
       }
       if (t.sample.length) lines.push('Dòng mẫu:', '```json', ...t.sample.map((r) => JSON.stringify(r)), '```')
+      const gaps = knowledgeGaps(system, t)
+      if (gaps.length) lines.push(`Chưa khai báo trong catalog (đề xuất bằng \`propose_system_knowledge\` khi biết ý nghĩa): ${gaps.join('; ')}`)
     }
   }
   if (related.plans.length) {

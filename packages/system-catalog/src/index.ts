@@ -1,5 +1,5 @@
 import { Context, Service, z, type CaseScope } from '@aitest/core'
-import { channelIn, loadEnv, loadSystems, systemVars, type Catalog, type EventChannel, type SystemSpec } from './model.ts'
+import { channelIn, describeKnowledge, loadEnv, loadSystems, systemVars, type Catalog, type EventChannel, type SystemSpec } from './model.ts'
 
 export * from './model.ts'
 
@@ -120,10 +120,8 @@ function renderSystem(system: SystemSpec, catalog: Catalog) {
     lines.push('', 'Công thức nghiệp vụ (dùng trong công thức của expectation và tool `calc`):')
     for (const [name, f] of formulas) lines.push(`- \`${name}(${f.params.join(', ')})\`${f.desc ? `: ${f.desc}` : ''}`)
   }
-  if (system.data.length) {
-    lines.push('', 'Dữ liệu:')
-    for (const d of system.data) lines.push(`- namespace \`${d.namespace}\`: bảng ${d.tables.map((t) => `\`${t}\``).join(', ')}${d.description ? ` (${d.description})` : ''}`)
-  }
+  const knowledge = describeKnowledge(system)
+  if (knowledge.length) lines.push('', ...(system.data.length ? ['Dữ liệu:'] : []), ...knowledge)
   return lines.join('\n')
 }
 
