@@ -160,6 +160,8 @@ export function apply(ctx: Context, config: Config) {
       '## Chạy thử',
       `- \`dry_run\` chạy tối đa ${config.maxCases} case trên môi trường kiểm thử, gồm cả fixture.`,
       `- Mỗi case chạy thử tối đa ${config.caseTimeout % 60 ? `${config.caseTimeout} giây` : `${config.caseTimeout / 60} phút`} (trừ case khai báo \`timeout\`); gọi \`get_run_result\` tới khi \`status\` khác \`running\`, không bỏ dở khi lượt chạy còn \`running\`.`,
+      '- Đọc `feedback` của từng case: agent chạy test góp ý chỗ plan mơ hồ, thiếu dữ liệu, khó tìm giá trị. Sửa plan theo góp ý hợp lý',
+      '  rồi kiểm tra lại, kể cả khi case đã đạt; báo người dùng góp ý nào bạn không áp dụng và vì sao.',
       '- Đọc `hints` và giá trị `actual` của từng expectation. Case không đạt có thể do plan viết chưa rõ,',
       '  hoặc do hệ thống có lỗi thật: phân biệt hai trường hợp và báo người dùng, không sửa plan để che lỗi thật.',
     ].join('\n'),
@@ -192,6 +194,8 @@ export function compact(report: RunReport) {
       actions: c.actions.map((a) => `${a.phase ?? 'agent'}:${a.name}:${a.status}`),
       agentSummary: c.agentSummary.trim().slice(0, 800),
       annotations: c.annotations,
+      // Góp ý của agent chạy test: plan làm agent phải đoán ở đâu; người soạn plan sửa theo.
+      ...(c.feedback.length ? { feedback: c.feedback } : {}),
       hints: hints(c),
     })),
   }

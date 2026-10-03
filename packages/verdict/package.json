@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./feedback": "./src/feedback.ts"
   },
   "dependencies": {
     "@aitest/core": "workspace:*",
+    "@aitest/runner": "workspace:*",
     "@deepseek-ai/cordis": "~4.0.4"
   }
 }

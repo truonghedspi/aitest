@@ -24,6 +24,9 @@ plugins:
       serverName: aitest
   - id: verdict
     name: '@aitest/verdict'
+  # Agent chạy test góp ý cải thiện plan (feedback_submit); hiện trong kết quả chạy thử, màn hình lượt chạy, báo cáo.
+  - id: plan-feedback
+    name: '@aitest/verdict/feedback'
   # Đầu vào của lượt chạy: người chạy điền, bước fill, agent chuẩn bị (prepare), mặc định; không đủ điều kiện thì blocked.
   - id: inputs
     name: '@aitest/inputs'

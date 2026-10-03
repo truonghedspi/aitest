@@ -149,6 +149,23 @@ Action chạy trong một **scope** có loại `case` (test case), `authoring` (
 
 Event ghi vào run log mà plugin dùng chung: `case/annotation` (`{ key, value }`) gắn thông tin vào case; `deriveReport` đưa vào `CaseReport.annotations`.
 
+**Góp ý của agent chạy test.** Plugin `@aitest/verdict/feedback` đăng ký tool `feedback_submit` (scope `case`) và section prompt `verdict/feedback`. Agent chạy test góp ý khi plan làm agent phải đoán.
+
+- Mỗi góp ý ghi event `case/feedback` (`kind`, `message`, `suggestion`, `step`, `expectId`); `deriveReport` đưa vào `CaseReport.feedback`.
+- Tối đa `maxPerCase` góp ý mỗi case; góp ý trùng bị bỏ qua; `step` và `expectId` phải có trong case.
+- Góp ý không ảnh hưởng verdict.
+- Góp ý hiện ở:
+  - `get_run_result` của chạy thử, kèm hướng dẫn agent soạn plan sửa theo góp ý.
+  - Bảng Chạy thử trong cuộc chat.
+  - Màn hình lượt chạy.
+  - `RunSummary.feedback` của `runs.list`.
+  - `report.md`.
+
+**Tiến trình chạy thử trực tiếp.** Mục "Chạy thử" của bảng plan nhúng `RunProgress` (web-client). Thành phần này theo dõi run log qua `runs.subscribe`, cùng nguồn với trang Lượt chạy. Mỗi case hiện các hoạt động theo thứ tự:
+
+- `action/start` và `action/call` kèm lý do của agent.
+- `step/note`, `assert/result`, `case/feedback`.
+
 **Dừng giữa chừng.** `ActionRegistry` cấp cho mỗi lời gọi một `signal` riêng, nối với `signal` của scope.
 
 - `ctx.actions.cancel(callId)` dừng đúng một lời gọi; `ctx.actions.running(scopeId?)` liệt kê lời gọi đang chạy.
@@ -586,6 +603,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | `packages/system-catalog/tests/knowledge.test.ts` | Bảng, cột, giá trị, quy tắc và tài liệu `contextRefs` vào prompt chạy test; cảnh báo `context` chép lại catalog, nhắc bảng chưa khai báo hệ thống; `propose_system_knowledge` giữ comment, gộp giá trị, đổi bảng viết gọn, chặn quy tắc trùng; `propose_context_doc` chỉ ghi trong thư mục ngữ cảnh; lỗi dấu phẩy trong map một dòng |
 | `packages/action-math/tests/run-vars.test.ts` | Công thức dùng đầu vào dạng chuỗi JSON, đầu vào object tạo bằng `fill`, `vars` của plan, `{{biến.trường}}` trong fixture; agent assert không truyền `inputs`; báo cáo ghi `runVars`; `validate_plan` trả nguồn biến, bắt sai tên trường, tính thử công thức, cảnh báo biến không có bước thu thập |
 | `packages/core/tests/formula-vars.test.ts` | Chia biến của công thức theo nguồn, đọc chuỗi JSON giữ chữ số, `lookupVar` ưu tiên khoá phẳng |
+| `packages/verdict/tests/feedback.test.ts` | Góp ý qua `feedback_submit`: chặn trùng, bước không tồn tại, không đổi verdict; có trong báo cáo dựng từ log, `report.md`, `runs.list`, kết quả chạy thử cho agent soạn plan |
 | `packages/runner/tests/cancel.test.ts` | Dừng một lời gọi tool (action không tự dừng), dừng lượt chạy giữa case (teardown vẫn chạy, case sau ghi lỗi), dừng chạy thử khi dừng lời gọi chờ kết quả hoặc khi nhận `authoring/stop` |
 | `packages/plan-manager/tests/plan-manager.test.ts` | Danh sách, chi tiết, bản xem trước của bản nháp (bước chuẩn bị, bước có cấu trúc, tiêu chí), chạy plan, lọc lượt chạy |
 | `packages/agent-acp/tests/error.test.ts` | Lỗi JSON-RPC của agent hiện lý do trong `data` (ví dụ hết hạn mức) thay vì chỉ "Internal error" |

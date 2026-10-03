@@ -23,7 +23,7 @@ packages/            @aitest/<tên> — mỗi package là một hoặc nhiều p
   mcp-gateway/       MCP server Streamable HTTP trong process, mỗi case một endpoint
   agent-acp/         driver ACP (Kiro mặc định)
   runner/            điều phối lượt chạy, fixture, prompt mặc định
-  verdict/           evidence, assert_expectation, note_step, tính verdict
+  verdict/           evidence, assert_expectation, note_step, tính verdict; feedback: feedback_submit (agent góp ý cải thiện plan)
   action-http/       http_request
   action-sqlite/     <namespace>_query cho SQLite
   action-mcp-proxy/  nối MCP server ngoài (Postgres, Playwright...) thành action

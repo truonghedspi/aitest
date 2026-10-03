@@ -406,6 +406,22 @@ export interface StepNote {
   note?: string
 }
 
+/**
+ * Góp ý của agent chạy test để cải thiện plan (event `case/feedback`): bước mơ hồ, thiếu dữ liệu, path khó tìm…
+ * Chỉ để người soạn plan đọc; không ảnh hưởng verdict.
+ */
+export interface PlanFeedback {
+  kind: 'step' | 'expectation' | 'data' | 'environment' | 'tool' | 'other'
+  /** Vấn đề gặp phải. */
+  message: string
+  /** Đề xuất sửa plan, nếu có. */
+  suggestion?: string
+  /** Bước liên quan (đánh số từ 1). */
+  step?: number
+  /** Expectation liên quan. */
+  expectId?: string
+}
+
 export interface CaseReport {
   id: string
   title: string
@@ -420,6 +436,8 @@ export interface CaseReport {
   agentSummary: string
   /** Thông tin plugin gắn vào case qua event `case/annotation`, ví dụ `knownIssues`. */
   annotations: Record<string, unknown>
+  /** Góp ý của agent chạy test để cải thiện plan. */
+  feedback: PlanFeedback[]
 }
 
 export interface RunReport {

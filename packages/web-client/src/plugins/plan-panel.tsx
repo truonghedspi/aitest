@@ -6,6 +6,7 @@ import type { ClientPlugin, PanelProps } from '../slots.ts'
 import { useChat } from '../store.ts'
 import type { Outcome } from '../types.ts'
 import { Issues, RunCases } from './tool-views.tsx'
+import { RunProgress } from './runs-page.tsx'
 
 /**
  * Bảng "Plan đang soạn": luôn hiển thị bản nháp mới nhất, kết quả kiểm tra và chạy thử.
@@ -222,10 +223,13 @@ function PlanPanel({ chatId }: PanelProps) {
           <h4>Chạy thử</h4>
           {draft.run.pending
             ? (
-              <div className="row">
-                <span className="muted">{stopping ? 'Đang dừng… (case đang chạy dọn dẹp xong mới kết thúc)' : 'Đang chạy…'}</span>
-                {!stopping && <button onClick={stopDryRun} title="Dừng lượt chạy thử; case đang chạy vẫn chạy bước dọn dẹp">⏹ Dừng chạy thử</button>}
-              </div>
+              <>
+                <div className="row">
+                  <span className="muted">{stopping ? 'Đang dừng… (case đang chạy dọn dẹp xong mới kết thúc)' : 'Đang chạy…'}</span>
+                  {!stopping && <button onClick={stopDryRun} title="Dừng lượt chạy thử; case đang chạy vẫn chạy bước dọn dẹp">⏹ Dừng chạy thử</button>}
+                </div>
+                {draft.run.runId && <RunProgress runId={draft.run.runId} />}
+              </>
             )
             : <RunCases value={draft.run.value} />}
         </section>

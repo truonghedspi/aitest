@@ -109,6 +109,13 @@ function renderCase(c: CaseReport) {
     lines.push(`| **kết quả** | \`${e.assertion!.expr}\` | ${brief(e.assertion!.expected)} |`, '')
   }
 
+  if (c.feedback.length) {
+    lines.push('### Góp ý của agent để cải thiện plan', '', ...c.feedback.map((f) => {
+      const where = [f.step && `bước ${f.step}`, f.expectId && `\`${f.expectId}\``].filter(Boolean).join(', ')
+      return `- **${FEEDBACK_KIND[f.kind] ?? f.kind}**${where ? ` (${where})` : ''}: ${f.message}${f.suggestion ? ` Đề xuất: ${f.suggestion}` : ''}`
+    }), '')
+  }
+
   if (c.steps.length) {
     lines.push('### Ghi chú theo bước', '', ...c.steps.map((s) => `- Bước ${s.step}: ${s.status}${s.note ? ` — ${s.note}` : ''}`), '')
   }
@@ -136,4 +143,8 @@ function brief(value: unknown): string {
   }
   const text = JSON.stringify(value)
   return text && text.length > 80 ? `${text.slice(0, 77)}…` : String(text)
+}
+
+const FEEDBACK_KIND: Record<string, string> = {
+  step: 'Bước', expectation: 'Kết quả mong đợi', data: 'Dữ liệu', environment: 'Môi trường', tool: 'Tool', other: 'Khác',
 }

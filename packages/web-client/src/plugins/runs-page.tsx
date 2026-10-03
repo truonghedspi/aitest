@@ -5,7 +5,7 @@ import { EnvTag } from '../env.tsx'
 import { Markdown } from '../markdown.tsx'
 import type { ClientPlugin, PageProps } from '../slots.ts'
 import type { ActionCallData, RunEvent } from '../types.ts'
-import { Json } from './tool-views.tsx'
+import { FeedbackList, Json, type FeedbackItem } from './tool-views.tsx'
 
 /**
  * Trang Lượt chạy: xem lại agent đã làm gì trong từng test case và vì sao ra kết quả đó.
@@ -27,7 +27,9 @@ export interface RunSummary {
   dryRun: boolean
   durationMs: number
   totals?: Record<string, number>
-  cases: Array<{ id: string; title: string; verdict: string }>
+  cases: Array<{ id: string; title: string; verdict: string; feedback?: number }>
+  /** Số góp ý của agent để cải thiện plan. */
+  feedback?: number
   blocked?: string[]
 }
 
@@ -194,7 +196,10 @@ export function RunTable({ runs, navigate, showPlan }: { runs: RunSummary[]; nav
               {r.model && <div className="muted small" title="Model agent chạy test">{r.model}</div>}
             </td>
             <td>{!r.finished ? <span className="badge pending">Đang chạy</span> : r.blocked ? <b className="warn">🚧 Chưa đủ điều kiện</b> : <Totals totals={r.totals} />}</td>
-            <td>{r.cases.map((c) => <span key={c.id} title={`${c.id}: ${VERDICT[c.verdict] ?? c.verdict}`}>{ICON[c.verdict] ?? '·'}</span>)}</td>
+            <td>
+              {r.cases.map((c) => <span key={c.id} title={`${c.id}: ${VERDICT[c.verdict] ?? c.verdict}`}>{ICON[c.verdict] ?? '·'}</span>)}
+              {r.feedback ? <span className="tag" title="Agent góp ý để cải thiện plan; mở lượt chạy để xem"> 💬 {r.feedback}</span> : null}
+            </td>
             <td>{(r.durationMs / 1000).toFixed(1)} s</td>
           </tr>
         ))}
@@ -261,7 +266,7 @@ function RunDetail({ runId, caseId, navigate }: { runId: string; caseId?: string
         <nav className="case-list">
           {cases.map((c) => (
             <button key={c.id} className={c.id === current?.id ? 'active' : ''} onClick={() => navigate(`runs/${runId}/${c.id}`)}>
-              <span>{ICON[c.end?.verdict ?? 'running']} <b>{c.id}</b></span>
+              <span>{ICON[c.end?.verdict ?? 'running']} <b>{c.id}</b>{c.events.some((e) => e.type === 'case/feedback') ? <span title="Có góp ý cải thiện plan"> 💬</span> : null}</span>
               <span className="muted small">{c.title}</span>
             </button>
           ))}
@@ -339,6 +344,9 @@ function CaseDetail({ item }: { item: CaseView }) {
         {item.annotations.knownIssues && <div className="warn small">Lỗi đã biết: {item.annotations.knownIssues.map((i) => `${i.id} (${i.title})`).join(', ')}</div>}
         {item.annotations.possiblyFixed && <div className="ok small">Có thể đã sửa: {item.annotations.possiblyFixed.map((i) => i.id).join(', ')}</div>}
       </div>
+      {item.events.some((e) => e.type === 'case/feedback') && (
+        <FeedbackList items={item.events.filter((e) => e.type === 'case/feedback').map((e) => e.data as FeedbackItem)} />
+      )}
       <div className="tabs inline">
         {([['why', 'Giải thích kết quả'], ['journey', 'Hành trình'], ['timeline', 'Dòng thời gian'], ['prompt', 'Prompt gửi agent'], ['raw', 'Dữ liệu thô']] as const).map(([id, label]) => (
           <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>
@@ -627,5 +635,75 @@ function CancelRun({ runId }: { runId: string }) {
       <button disabled={busy} onClick={cancel} title="Case đang chạy dừng nhưng vẫn chạy bước dọn dẹp; case chưa chạy được bỏ qua">⏹ Dừng lượt chạy</button>
       {error && <span className="bad small" title={error}>Không dừng được: {error}</span>}
     </>
+  )
+}
+
+/* ------------------------------------------------------------------ tiến trình trực tiếp */
+
+interface Activity { key: string; icon: string; text: string; detail?: string; pending?: boolean }
+
+/** Hoạt động của một case theo thứ tự: tool agent gọi (kèm lý do), bước chuẩn bị, ghi chú bước, assert, góp ý. */
+function activities(c: CaseView): Activity[] {
+  const out: Activity[] = []
+  const byCall = new Map<string, Activity>()
+  for (const e of c.events) {
+    const d = e.data
+    if (e.type === 'action/start') {
+      if (d.name === 'note_step' || d.name === 'feedback_submit') continue
+      const phase = d.phase && d.phase !== 'agent' ? (d.phase === 'setup' ? 'Chuẩn bị · ' : d.phase === 'teardown' ? 'Dọn dẹp · ' : '') : ''
+      const item: Activity = { key: `s${e.seq}`, icon: '⏳', text: `${phase}${d.name}`, detail: d.reason, pending: true }
+      byCall.set(d.callId, item)
+      out.push(item)
+    } else if (e.type === 'action/call') {
+      const item = byCall.get(d.callId)
+      if (item) Object.assign(item, { icon: d.status === 'ok' ? '✓' : '✗', pending: false, ...(d.status !== 'ok' && d.error ? { detail: `${item.detail ? `${item.detail} — ` : ''}${d.error}` } : {}) })
+    } else if (e.type === 'step/note') {
+      out.push({ key: `n${e.seq}`, icon: d.status === 'failed' ? '⚠' : '•', text: `Bước ${d.step}: ${d.status}`, detail: d.note })
+    } else if (e.type === 'assert/result') {
+      out.push({ key: `a${e.seq}`, icon: d.passed ? '✅' : '❌', text: `Assert ${d.expectId}`, detail: d.message })
+    } else if (e.type === 'case/feedback') {
+      out.push({ key: `f${e.seq}`, icon: '💬', text: 'Góp ý cho plan', detail: d.message })
+    }
+  }
+  return out
+}
+
+/**
+ * Tiến trình trực tiếp của một lượt chạy (bảng "Chạy thử" của cuộc chat): trạng thái từng case và các hoạt động gần nhất
+ * của case đang chạy. Dữ liệu theo dõi qua `runs.subscribe`, cùng nguồn với trang Lượt chạy.
+ */
+export function RunProgress({ runId, limit = 8 }: { runId: string; limit?: number }) {
+  const { events } = useRun(runId)
+  const cases = useMemo(() => deriveCases(events), [events])
+  const current = cases.find((c) => !c.end)
+  const preparing = !cases.length && events.length > 0
+  const shown = current ? activities(current) : []
+  return (
+    <div className="run-progress">
+      {preparing && <div className="muted small">Đang chuẩn bị lượt chạy (đầu vào, kết nối agent)…</div>}
+      <div className="cases">
+        {cases.map((c) => (
+          <span key={c.id} className={`tag ${c === current ? 'active' : ''}`} title={c.title}>
+            {ICON[c.end?.verdict ?? 'running']} {c.id}{c.events.some((e) => e.type === 'case/feedback') ? ' 💬' : ''}
+          </span>
+        ))}
+      </div>
+      {current && (
+        <>
+          <div className="small"><b>{current.id}</b> {current.title}</div>
+          <ul className="activity">
+            {shown.slice(-limit).map((a) => (
+              <li key={a.key} className={a.pending ? 'pending' : ''}>
+                <span className="icon">{a.icon}</span> <code>{a.text}</code>
+                {a.detail && <span className="muted small"> — {a.detail}</span>}
+              </li>
+            ))}
+            {!shown.length && <li className="muted small">Agent đang đọc kịch bản…</li>}
+          </ul>
+          {current.summary && <div className="muted small agent-said">Agent: {current.summary.slice(-300)}</div>}
+        </>
+      )}
+      <a className="small" href={`#/runs/${runId}${current ? `/${current.id}` : ''}`}>Xem chi tiết lượt chạy →</a>
+    </div>
   )
 }

@@ -72,8 +72,8 @@ export function RunCases({ value }: { value: any }) {
     <div className="run">
       {value.runId && <a className="small" href={`#/runs/${value.runId}`}>Xem log chi tiết: agent đã làm gì và vì sao ra kết quả này →</a>}
       {(value.cases ?? []).map((c: any) => (
-        <details key={c.id} open={c.verdict !== 'pass'}>
-          <summary>{ICON[c.verdict] ?? ''} <b>{c.id}</b> {c.title} — {c.verdict}</summary>
+        <details key={c.id} open={c.verdict !== 'pass' || c.feedback?.length > 0}>
+          <summary>{ICON[c.verdict] ?? ''} <b>{c.id}</b> {c.title} — {c.verdict}{c.feedback?.length > 0 ? ` · 💬 ${c.feedback.length} góp ý` : ''}</summary>
           <table>
             <thead><tr><th>Expectation</th><th>Mong đợi</th><th>Thực tế</th><th></th></tr></thead>
             <tbody>
@@ -88,6 +88,7 @@ export function RunCases({ value }: { value: any }) {
             </tbody>
           </table>
           {c.hints?.length > 0 && <ul className="hints">{c.hints.map((h: string, k: number) => <li key={k}>{h}</li>)}</ul>}
+          {c.feedback?.length > 0 && <FeedbackList items={c.feedback} />}
         </details>
       ))}
     </div>
@@ -164,5 +165,29 @@ export function DiffView({ diff }: { diff: string }) {
         <div key={i} className={line.startsWith('+ ') ? 'add' : line.startsWith('- ') ? 'del' : 'ctx'}>{line}</div>
       ))}
     </pre>
+  )
+}
+
+export interface FeedbackItem { kind: string; message: string; suggestion?: string; step?: number; expectId?: string }
+
+const FEEDBACK_KIND: Record<string, string> = {
+  step: 'Bước', expectation: 'Kết quả mong đợi', data: 'Dữ liệu', environment: 'Môi trường', tool: 'Tool', other: 'Khác',
+}
+
+/** Góp ý của agent chạy test để cải thiện plan; dùng ở kết quả chạy thử và màn hình lượt chạy. */
+export function FeedbackList({ items }: { items: FeedbackItem[] }) {
+  return (
+    <div className="feedback">
+      <div className="label">💬 Góp ý của agent để cải thiện plan</div>
+      <ul>
+        {items.map((f, i) => (
+          <li key={i}>
+            <b>{FEEDBACK_KIND[f.kind] ?? f.kind}</b>
+            {(f.step || f.expectId) && <span className="muted small"> ({[f.step && `bước ${f.step}`, f.expectId].filter(Boolean).join(', ')})</span>}: {f.message}
+            {f.suggestion && <div className="small">Đề xuất: {f.suggestion}</div>}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

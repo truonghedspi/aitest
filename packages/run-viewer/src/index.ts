@@ -38,7 +38,9 @@ export interface RunSummary {
   dryRun: boolean
   durationMs: number
   totals?: Record<string, number>
-  cases: Array<{ id: string; title: string; verdict: string }>
+  cases: Array<{ id: string; title: string; verdict: string; feedback?: number }>
+  /** Số góp ý của agent chạy test để cải thiện plan. */
+  feedback?: number
   /** Lý do lượt chạy bị chặn trước khi chạy case. */
   blocked?: string[]
 }
@@ -154,7 +156,9 @@ function summarize(runId: string, events: RunEvent[]): RunSummary {
     cases: report?.cases.map((c) => ({
       id: c.id, title: c.title,
       verdict: finished || events.some((e) => e.caseId === c.id && e.type === 'case/end') ? c.verdict : 'running',
+      ...(c.feedback.length ? { feedback: c.feedback.length } : {}),
     })) ?? [],
+    ...(report?.cases.some((c) => c.feedback.length) ? { feedback: report.cases.reduce((n, c) => n + c.feedback.length, 0) } : {}),
     ...(report?.blocked.length ? { blocked: report.blocked } : {}),
   }
 }

@@ -556,6 +556,9 @@ importers:
       '@aitest/core':
         specifier: workspace:*
         version: link:../core
+      '@aitest/runner':
+        specifier: workspace:*
+        version: link:../runner
       '@deepseek-ai/cordis':
         specifier: ~4.0.4
         version: 4.0.4

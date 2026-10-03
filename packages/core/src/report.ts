@@ -1,5 +1,5 @@
 import type {
-  ActionRecord, AgentUpdate, AssertionRecord, CaseReport, Expectation, ResolvedInput, RunEvent, RunReport, StepNote, Verdict,
+  ActionRecord, AgentUpdate, AssertionRecord, CaseReport, Expectation, PlanFeedback, ResolvedInput, RunEvent, RunReport, StepNote, Verdict,
 } from './types.ts'
 
 export interface RunStartData {
@@ -48,7 +48,7 @@ export function deriveReport(events: RunEvent[]): RunReport {
       const data = event.data as CaseStartData
       cases.set(data.id, {
         id: data.id, title: data.title, verdict: 'inconclusive', reasons: [], durationMs: 0,
-        expectations: data.expect.map((e) => ({ ...e, attempts: [] })), actions: [], steps: [], agentSummary: '', annotations: {},
+        expectations: data.expect.map((e) => ({ ...e, attempts: [] })), actions: [], steps: [], agentSummary: '', annotations: {}, feedback: [],
       })
       continue
     }
@@ -76,6 +76,9 @@ export function deriveReport(events: RunEvent[]): RunReport {
       }
       case 'step/note':
         report.steps.push(event.data as StepNote)
+        break
+      case 'case/feedback':
+        report.feedback.push(event.data as PlanFeedback)
         break
       case 'agent/update': {
         const data = event.data as AgentUpdate
