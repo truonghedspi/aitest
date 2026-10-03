@@ -184,7 +184,48 @@
             "type": "array",
             "minItems": 1,
             "items": {
-              "type": "string"
+              "oneOf": [
+                {
+                  "type": "string",
+                  "description": "Bước dạng câu chỉ dẫn cho agent."
+                },
+                {
+                  "type": "object",
+                  "description": "Bước gọi một operation của hệ thống trong catalog; được kiểm tra theo OpenAPI khi validate.",
+                  "required": [
+                    "call"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "call": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*\\.[A-Za-z_][\\w-]*$",
+                      "description": "<system>.<operationId>, ví dụ order-service.cancelOrder."
+                    },
+                    "path": {
+                      "type": "object",
+                      "description": "Tham số path."
+                    },
+                    "query": {
+                      "type": "object",
+                      "description": "Tham số query."
+                    },
+                    "headers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "body": {
+                      "description": "Body của request."
+                    },
+                    "desc": {
+                      "type": "string",
+                      "description": "Mục đích của bước."
+                    }
+                  }
+                }
+              ]
             }
           },
           "expect": {

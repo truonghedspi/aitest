@@ -97,6 +97,7 @@ describe('chat host over WebSocket', () => {
         { id: 'chat', name: '@aitest/chat', config: { agent: 'fake-chat', dir: join(dir, 'chats') } },
         { id: 'authoring-save', name: '@aitest/authoring/save', config: { dir: join(dir, 'plans') } },
         { id: 'tool-catalog', name: '@aitest/tool-catalog', config: { auditDir: join(dir, 'tool-catalog') } },
+        { id: 'memory', name: '@aitest/memory', config: { dir: join(dir, 'memory'), teamDir: join(dir, 'team-memory') } },
       ],
     })
     harness.kernel.ctx.agents.register(fakeAgent(prompts))
@@ -309,5 +310,42 @@ describe('chat host over WebSocket', () => {
     const list = await ws.call('chats.list')
     expect(list.find((c: any) => c.id === old)).toMatchObject({ archived: true, title: 'Cũ' })
     expect(list.find((c: any) => c.id === chat.id).archived).toBe(false)
+  })
+
+  it('starts every new chat with the memory index and tells a running chat when memory changes', async () => {
+    /** Gửi một tin nhắn, từ chối lưu plan, chờ hết lượt; trả về prompt agent nhận được. */
+    const turn = async (chatId: string, text: string) => {
+      const pushedBefore = ws.pushed.length
+      const count = prompts.length
+      await ws.call('chats.send', { chatId, text })
+      const request = await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'permission/request')
+      await ws.call('chats.decide', { chatId, requestId: request.event.data.requestId, allowed: false })
+      await ws.waitFor((m) => ws.pushed.indexOf(m) >= pushedBefore && m.type === 'event' && m.event.type === 'turn/end')
+      return prompts[count]
+    }
+    await ws.call('memory.save', { name: 'prefer-db-check', description: 'Người dùng muốn mọi case đối chiếu DB', type: 'feedback', body: 'Luôn thêm expectation đọc DB.', scope: 'personal' })
+    const chat = await ws.call('chats.create', { title: 'Có bộ nhớ' })
+    await ws.call('chats.subscribe', { chatId: chat.id })
+    const first = await turn(chat.id, 'Soạn plan')
+    expect(first).toContain('## Bộ nhớ từ các phiên trước')
+    expect(first).toContain('- `prefer-db-check` [feedback] Người dùng muốn mọi case đối chiếu DB')
+    expect(first).toContain('gọi `memory_save` ngay trong lượt đó')
+    expect(first.indexOf('## Bộ nhớ từ các phiên trước')).toBeLessThan(first.indexOf('## Tin nhắn của người dùng'))
+
+    // Người dùng sửa bộ nhớ trên giao diện giữa hai lượt: lượt sau báo thay đổi, lượt sau nữa không lặp lại.
+    await ws.call('memory.save', { name: 'order-status-names', description: 'Trạng thái lệnh: NEW, FILLED, CANCELLED', type: 'project', body: 'Không có MATCHED.', scope: 'personal' })
+    const second = await turn(chat.id, 'Tiếp tục')
+    expect(second).toContain('## Bộ nhớ vừa thay đổi\n\n- Đã ghi `order-status-names` (personal): Trạng thái lệnh: NEW, FILLED, CANCELLED')
+    expect(second).not.toContain('## Bộ nhớ từ các phiên trước')
+    const third = await turn(chat.id, 'Tiếp nữa')
+    expect(third).not.toContain('## Bộ nhớ vừa thay đổi')
+    expect(third).not.toContain('## Nhắc về bộ nhớ')
+    // Tin nhắn có yêu cầu ghi nhớ: lời nhắc gắn vào đúng lượt đó.
+    expect(await turn(chat.id, 'Lần sau dùng mã case dạng CAN-01 nhé')).toContain('## Nhắc về bộ nhớ\n\nTin nhắn này có thể chứa yêu cầu ghi nhớ.')
+
+    const listed = await ws.call('memory.list')
+    expect(listed.memories.map((m: any) => m.name)).toEqual(['order-status-names', 'prefer-db-check'])
+    const got = await ws.call('memory.get', { name: 'order-status-names', scope: 'personal' })
+    expect(got).toMatchObject({ memory: { version: 1, source: 'ui' }, history: [] })
   })
 })

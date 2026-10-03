@@ -101,6 +101,16 @@ plugins:
           title: Đặc tả Order API
           description: Yêu cầu nghiệp vụ, ràng buộc dữ liệu và giao diện của ứng dụng mẫu.
           paths: [examples/order-api/SPEC.md]
+  # Thư viện ngữ cảnh: thư mục context/ (tài liệu, mục lục tự sinh) và skills/ (chuẩn Agent Skills, nạp theo ba tầng).
+  - id: context
+    name: '@aitest/context'
+  - id: context-tools
+    name: '@aitest/context/tools'
+  # Bộ nhớ giữa các phiên (cá nhân: .aitest/memory/<user>/, nhóm: memory/): mục lục vào đầu mỗi phiên agent soạn plan.
+  - id: memory
+    name: '@aitest/memory'
+  - id: memory-tools
+    name: '@aitest/memory/tools'
   - id: authoring-explore
     name: '@aitest/authoring/explore'
   # Catalog hệ thống dưới kiểm thử (systems/, envs/): biến {{<system>.url}}, mô tả service cho agent, kiểm tra tham chiếu trong plan.
@@ -113,6 +123,8 @@ plugins:
     name: '@aitest/system-catalog'
   - id: system-catalog-authoring
     name: '@aitest/system-catalog/authoring'
+  - id: system-catalog-brief
+    name: '@aitest/system-catalog/brief'
   # Danh mục tool đã kiểm duyệt (tool-catalog/*.yml): agent đề xuất, người dùng duyệt trong chat, row mới ghi vào patch layer.
   - id: tool-catalog
     name: '@aitest/tool-catalog'

@@ -283,7 +283,7 @@ export class Chat {
       // Phiên mới cần chỉ dẫn vai trò và lịch sử; phiên khôi phục bằng `loadSession` đã có sẵn ngữ cảnh.
       const intro = this.needsIntro
       this.needsIntro = false
-      const prompt = this.buildPrompt(text, intro)
+      const prompt = await this.buildPrompt(text, intro)
       this.log.append('agent/prompt', { text: prompt })
       this.log.append('turn/start', {})
       const result = await session.prompt(prompt, this.controller.signal)
@@ -444,6 +444,8 @@ export class Chat {
   }
 
   private opening?: Promise<AgentSession>
+  /** Revision của bộ nhớ agent đã biết; bộ nhớ đổi sau đó thì báo ở lượt kế tiếp. */
+  private memoryRevision = 0
   /** Phiên agent hiện tại là phiên mới (không khôi phục được), lượt kế tiếp phải gửi chỉ dẫn vai trò và lịch sử. */
   private needsIntro = false
 
@@ -499,10 +501,18 @@ export class Chat {
    * Lượt đầu của một phiên agent mới gửi kèm chỉ dẫn vai trò; nếu cuộc chat đã có lịch sử mà không khôi phục được
    * phiên cũ, gửi kèm lịch sử, bản nháp plan và môi trường để agent nối tiếp.
    */
-  private buildPrompt(text: string, isFirstTurn: boolean) {
+  private async buildPrompt(text: string, isFirstTurn: boolean) {
     const parts: string[] = []
+    const memory = this.ctx.get('memory') as {
+      revision: number
+      changesSince(r: number): Array<{ action: string; name: string; scope: string; description?: string }>
+      hint(text: string): string | undefined
+    } | undefined
     if (isFirstTurn) {
       parts.push(AGENT_PROMPT.trim())
+      // Ngữ cảnh đầu phiên do plugin đóng góp, ví dụ mục lục bộ nhớ giữa các phiên.
+      const intro = await this.ctx.authoring.intro()
+      if (intro) parts.push(intro)
       const history = this.transcript()
       if (history) {
         parts.push(`## Lịch sử hội thoại trước đó\n\n${history}`)
@@ -510,7 +520,17 @@ export class Chat {
         if (state) parts.push(`## Trạng thái hiện tại\n\n${state}`)
       }
     }
+    // Bộ nhớ đổi từ lượt trước (phiên khác ghi, người dùng sửa trên giao diện): báo để agent không dùng bản cũ.
+    if (memory && !isFirstTurn && memory.revision > this.memoryRevision) {
+      const changes = memory.changesSince(this.memoryRevision)
+      if (changes.length) {
+        parts.push(`## Bộ nhớ vừa thay đổi\n\n${changes.map((c) => `- ${c.action === 'deleted' ? 'Đã xoá' : 'Đã ghi'} \`${c.name}\` (${c.scope})${c.description ? `: ${c.description}` : ''}`).join('\n')}`)
+      }
+    }
+    if (memory) this.memoryRevision = memory.revision
     if (this.notes.length) parts.push(`## Thao tác của người dùng trên giao diện\n\n${this.notes.splice(0).join('\n\n')}`)
+    const hint = memory?.hint(text)
+    if (hint) parts.push(hint)
     parts.push(isFirstTurn ? `## Tin nhắn của người dùng\n\n${text}` : text)
     return parts.join('\n\n')
   }

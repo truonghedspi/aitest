@@ -4,6 +4,7 @@ id: order-service
 title: Order API
 description: Nhận, tra cứu và huỷ lệnh chứng khoán; khớp lệnh bất đồng bộ và gửi callback.
 owner: team-oms
+features: [order]
 docs: [../../examples/order-api/SPEC.md]
 
 http:

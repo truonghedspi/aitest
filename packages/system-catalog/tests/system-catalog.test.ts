@@ -206,6 +206,57 @@ describe('catalog in runs and authoring', () => {
     await harness.kernel.remove('rabbitmq')
   })
 
+  it('packs the system context in one call: compact API, DB profile, related plans and skills', async () => {
+    const { ctx } = harness.kernel
+    const brief = await ctx.actions.invoke(session.scope, 'get_system_context', { system: 'order-service' })
+    const text = (brief.value as { context: string }).context
+    expect(text).toContain(`Base URL: \`${harness.baseUrl}\``)
+    expect(text).toContain('body: {symbol*: string /^[A-Z]{3}$/, side*: BUY|SELL, qty*: integer ≥100 ×100, price*: integer ≥1, callback_url: string}')
+    expect(text).toContain('409 (Lệnh không ở trạng thái NEW; trạng thái giữ nguyên)')
+    expect(text).toMatch(/### Bảng `orders` \(\d+ dòng\)\nCột: id integer, symbol text/)
+    expect(text).toMatch(/Giá trị `status`: NEW/)
+    expect(text).toContain('`examples/plans/order-inputs.plan.yaml` TP-ORDER-INPUTS-001: Huỷ lệnh với dữ liệu chuẩn bị theo lượt chạy; dùng cancelOrder')
+    expect(text).toContain('- `api-input-validation`:')
+    expect(text).toContain('- `context/order/glossary.md`: Thuật ngữ nghiệp vụ')
+    expect(text).toContain('- `order-odd-lot-accepted` [bug, open]')
+    const unknown = await ctx.actions.invoke(session.scope, 'get_system_context', { system: 'nope' })
+    expect(unknown.error).toMatch(/unknown system nope/)
+  })
+
+  it('builds a plan skeleton with structured calls; steps render to prose and are linted against the API', async () => {
+    const { ctx } = harness.kernel
+    const out = await ctx.actions.invoke(session.scope, 'new_plan_skeleton', { system: 'order-service', operations: ['createOrder', 'cancelOrder'] })
+    const yaml = (out.value as { yaml: string }).yaml
+    expect(yaml).toContain('      - call: order-service.cancelOrder\n        path:\n          id: "{{id}}"')
+    // Khung chỉ thiếu biến {{id}} do người soạn chuẩn bị.
+    const draft = await ctx.authoring.validate(yaml)
+    expect(draft.issues.filter((i) => i.level === 'error').map((i) => i.message)).toEqual([expect.stringContaining('{{id}}')])
+
+    const plan = [
+      'id: TP-S', 'name: S', 'requires: [http]', 'systems: [order-service]',
+      'setup:', '  - { action: http_request, args: { method: POST, url: "{{order-service.url}}/orders", body: { symbol: FPT, side: BUY, qty: 100, price: 1 } }, save: { order_id: $.body.id } }',
+      'cases:', '  - id: C1', '    title: T', '    steps:',
+      '      - { call: order-service.cancelOrder, path: { id: "{{order_id}}" }, desc: huỷ lệnh vừa đặt }',
+      '      - { call: order-service.createOrder, body: { symbol: fpt, side: BUY, qty: 150, price: 1 } }',
+      '      - { call: order-service.getSummary }',
+      '      - { call: order-service.getOrder }',
+      '      - { call: order-service.nope }',
+      '      - "Đọc bảng orders."',
+      '    expect: [{ id: e1, desc: d, check: { op: eq, value: 200 } }]', '',
+    ].join('\n')
+    const result = await ctx.authoring.validate(plan)
+    expect(result.plan!.cases[0].steps.slice(0, 2)).toEqual([
+      'Gọi order-service.cancelOrder với path {"id":"{{order_id}}"} — huỷ lệnh vừa đặt.',
+      'Gọi order-service.createOrder với body {"symbol":"fpt","side":"BUY","qty":150,"price":1}.',
+    ])
+    const by = (level: string) => result.issues.filter((i) => i.level === level).map((i) => i.message).join('\n')
+    expect(by('error')).toContain('call order-service.getSummary: missing query parameter symbol')
+    expect(by('error')).toContain('call order-service.getOrder: missing path parameter id (GET /orders/{id})')
+    expect(by('error')).toContain('call order-service.nope: order-service has no operation nope; operations: listOrders')
+    expect(by('warning')).toContain('body.symbol = "fpt" does not match /^[A-Z]{3}$/')
+    expect(by('warning')).toContain('body.qty = 150 is not a multiple of 100')
+  })
+
   it('runs catalog rules in validate_plan', async () => {
     const result = await harness.kernel.ctx.authoring.validate([
       'id: TP-X', 'name: X', 'requires: [http]', 'systems: [order-service]', 'cases:',

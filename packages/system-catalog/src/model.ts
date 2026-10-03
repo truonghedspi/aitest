@@ -62,6 +62,7 @@ export interface DataStore {
   namespace: string
   description?: string
   tables: string[]
+  profile: boolean
 }
 
 export interface SystemSpec {
@@ -74,6 +75,8 @@ export interface SystemSpec {
   events: EventChannel[]
   consumers: Consumer[]
   data: DataStore[]
+  /** Tính năng liên quan, khớp `feature` của ghi chú trong `kb/`. */
+  features: string[]
   /** Công thức nghiệp vụ của service (`formulas.yml` cạnh `service.yml`), dùng trong expectation của plan. */
   formulas: Record<string, FormulaDefinition>
   /** File `service.yml`, tương đối với thư mục làm việc. */
@@ -139,7 +142,9 @@ const ServiceSchema = z.object({
     namespace: z.string().required(),
     description: z.string(),
     tables: z.array(z.string()).default([]),
+    profile: z.boolean().default(true).description('Lấy hồ sơ dữ liệu thật (cột, giá trị hay gặp, dòng mẫu) cho gói ngữ cảnh.'),
   })).default([]),
+  features: z.array(z.string()).default([]).description('Tính năng liên quan, khớp `feature` của ghi chú trong kb/.'),
 })
 
 
@@ -206,6 +211,7 @@ export async function loadSystem(file: string): Promise<SystemSpec> {
     events: data.events as EventChannel[],
     consumers: data.consumers,
     data: data.data,
+    features: data.features,
     file: display(file),
   }
 }

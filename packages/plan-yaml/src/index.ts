@@ -52,7 +52,18 @@ const CaseSchema = z.object({
   title: z.string().required(),
   tags: z.array(z.string()).default([]),
   timeout: z.natural().description('Giới hạn thời gian của case, đơn vị giây.'),
-  steps: z.array(z.string()).required(),
+  // Bước là câu chỉ dẫn, hoặc lời gọi có cấu trúc `{ call: <system>.<operation>, path, query, body, desc }`.
+  steps: z.array(z.union([
+    z.string(),
+    z.object({
+      call: z.string().required(),
+      path: z.dict(z.any()),
+      query: z.dict(z.any()),
+      headers: z.dict(z.string()),
+      body: z.any(),
+      desc: z.string(),
+    }),
+  ])).required(),
   expect: z.array(ExpectationSchema).default([]),
   setup: Fixtures,
   teardown: Fixtures,
@@ -198,7 +209,7 @@ export function parsePlan(text: string, source: string): TestPlan {
       timeoutMs: c.timeout ? c.timeout * 1000 : undefined,
       setup: fixtures(c.setup),
       teardown: fixtures(c.teardown),
-      steps: c.steps,
+      ...renderSteps(c.steps),
       expect: c.expect.map((e) => ({
         id: e.id,
         desc: e.desc,
@@ -210,4 +221,32 @@ export function parsePlan(text: string, source: string): TestPlan {
       })),
     })),
   }
+}
+
+type RawStep = string | { call: string; path?: Record<string, unknown>; query?: Record<string, unknown>; headers?: Record<string, string>; body?: unknown; desc?: string }
+
+/**
+ * Bước có cấu trúc thành câu chỉ dẫn cho agent; giữ lời gọi gốc trong `calls` (cùng chỉ số) để kiểm tra và hiển thị.
+ * Ví dụ: `Gọi order-service.cancelOrder với path {"id":"{{order_id}}"} — huỷ lệnh vừa đặt`.
+ */
+function renderSteps(raw: RawStep[]): { steps: string[]; calls?: Array<import('@aitest/core').StepCall | undefined> } {
+  if (raw.every((s) => typeof s === 'string')) return { steps: raw as string[] }
+  const steps: string[] = []
+  const calls: Array<import('@aitest/core').StepCall | undefined> = []
+  for (const step of raw) {
+    if (typeof step === 'string') {
+      steps.push(step)
+      calls.push(undefined)
+      continue
+    }
+    const parts = [`Gọi ${step.call}`]
+    const json = (v: unknown) => JSON.stringify(v)
+    if (step.path && Object.keys(step.path).length) parts.push(`path ${json(step.path)}`)
+    if (step.query && Object.keys(step.query).length) parts.push(`query ${json(step.query)}`)
+    if (step.headers && Object.keys(step.headers).length) parts.push(`header ${json(step.headers)}`)
+    if (step.body !== undefined) parts.push(`body ${json(step.body)}`)
+    steps.push(`${parts[0]}${parts.length > 1 ? ` với ${parts.slice(1).join(', ')}` : ''}${step.desc ? ` — ${step.desc}` : ''}.`)
+    calls.push({ ...step })
+  }
+  return { steps, calls }
 }

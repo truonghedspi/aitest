@@ -77,12 +77,29 @@ export interface PlanInput {
   cleanup: FixtureStep[]
 }
 
+/** Lời gọi tới một operation trong catalog hệ thống. */
+export interface StepCall {
+  /** `<system>.<operationId>`. */
+  call: string
+  path?: Record<string, unknown>
+  query?: Record<string, unknown>
+  headers?: Record<string, string>
+  body?: unknown
+  /** Ghi chú bằng lời, ví dụ "lấy id lệnh". */
+  desc?: string
+}
+
 export interface TestCase {
   id: string
   title: string
   tags: string[]
   /** Các bước viết bằng ngôn ngữ tự nhiên, agent tự chọn action để thực hiện. */
   steps: string[]
+  /**
+   * Bước có cấu trúc, cùng chỉ số với `steps`: lời gọi tới operation trong catalog hệ thống (`call: order-service.createOrder`).
+   * `steps[i]` là câu chỉ dẫn sinh từ lời gọi; lời gọi được kiểm theo OpenAPI khi soạn plan.
+   */
+  calls?: Array<StepCall | undefined>
   expect: Expectation[]
   timeoutMs?: number
   setup: FixtureStep[]

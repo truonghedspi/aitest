@@ -63,7 +63,7 @@ describe('authoring tools', () => {
 
   it('lists and reads context sources by line range', async () => {
     const listed = await call('list_context_sources')
-    expect(listed.value).toMatchObject({ sources: [{ id: 'order-spec', docs: [{ id: 'SPEC.md' }] }] })
+    expect((listed.value as { sources: unknown[] }).sources).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'order-spec', docs: [expect.objectContaining({ id: 'SPEC.md' })] })]))
     const read = await call('read_context_source', { source: 'order-spec', doc: 'SPEC.md', offset: 1, limit: 5 })
     const value = read.value as { content: string; nextOffset: number; totalLines: number }
     expect(value.content).toContain('# Đặc tả nghiệp vụ Order API')

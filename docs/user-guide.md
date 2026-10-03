@@ -147,6 +147,18 @@ Namespace `verdict` (assert) và `wait` (`wait_until`) luôn được bật, kh�
 
 Agent đọc toàn bộ `context`, `vars`, các bước và danh sách expectation trước khi bắt đầu.
 
+Plan có khai báo `systems` nên viết bước gọi API dạng có cấu trúc. `pnpm aitest validate` kiểm tra bước này theo OpenAPI của hệ thống: sai tên operation, thiếu tham số path hoặc query bắt buộc là lỗi; body sai schema là cảnh báo.
+
+```yaml
+steps:
+  - call: order-service.cancelOrder      # <hệ thống>.<operationId>
+    path: { id: "{{order_id}}" }
+    desc: huỷ lệnh vừa đặt
+  - Truy vấn bảng orders theo id {{order_id}}.
+```
+
+Khi chạy, nền tảng chuyển bước có cấu trúc thành câu chỉ dẫn cho agent, ví dụ `Gọi order-service.cancelOrder với path {"id":"…"} — huỷ lệnh vừa đặt.`
+
 ### 5.4. Viết expectation
 
 Mỗi expectation gồm `id`, `desc` và nên có `check`:
@@ -546,6 +558,89 @@ Môi trường mặc định do `AITEST_ENV` quyết định (mặc định `loc
 
 Ví dụ trong repo: `envs/local.yml` (mặc định), `envs/staging.yml` (API, DB riêng ở cổng 4101), `envs/uat.yml` (chỉ đọc).
 
+
+### 5.11. Ngữ cảnh cho agent soạn plan: bộ nhớ, skill, tài liệu
+
+Trang **Ngữ cảnh** gom những gì agent soạn plan biết trước khi bắt đầu. Ngữ cảnh càng đủ, agent càng ít hỏi lại và bản nháp càng sát yêu cầu.
+
+| Tab | Chứa gì | Agent dùng thế nào |
+|---|---|---|
+| **Bộ nhớ** | Điều agent đã ghi nhớ về bạn và dự án qua các cuộc chat | Mục lục có ở đầu mọi cuộc chat mới; agent đọc nội dung khi liên quan |
+| **Skill** | Quy trình soạn plan cho từng loại yêu cầu, kèm plan mẫu | Agent thấy tên và mô tả; khi yêu cầu khớp mô tả, agent nạp skill |
+| **Tài liệu** | File trong thư mục ngữ cảnh: đặc tả, quy trình nghiệp vụ, thuật ngữ, OpenAPI | Agent thấy mục lục kèm mô tả và đọc file khi cần |
+
+#### Bộ nhớ
+
+Nói với agent như với đồng nghiệp: "nhớ là mỗi case phải đối chiếu DB", "lần sau đặt mã case dạng CAN-01", "quên điều về staging đi". Agent ghi ký ức bằng `memory_save` và hiện thẻ trong cuộc chat; bấm **Hoàn tác** trên thẻ nếu agent ghi sai.
+
+| Loại ký ức | Ví dụ |
+|---|---|
+| Người dùng | "Người dùng là QA nghiệp vụ chứng khoán, quen SQL" |
+| Góp ý cách làm | "Mọi case đối chiếu trạng thái trong DB, không chỉ HTTP status" |
+| Dự án | "Môi trường staging reset dữ liệu lúc 2 giờ sáng" |
+| Nơi tra cứu | "Dashboard lỗi của Order API ở Grafana, thư mục Trading" |
+
+- **Cá nhân** (mặc định): lưu ở `.aitest/memory/<người dùng>/`, không vào git. Agent tự ghi, không cần duyệt.
+- **Nhóm**: lưu ở `memory/`, đưa vào git để cả nhóm dùng chung. Agent ghi vào đây phải được bạn duyệt trên thẻ.
+- Trên tab Bộ nhớ: lọc, sửa, xoá, xem lịch sử và khôi phục bản cũ. Tab cảnh báo ký ức gần trùng, liên kết `[[tên]]` hỏng và ký ức quá 180 ngày chưa cập nhật.
+- Không lưu bí mật: agent từ chối ghi token, mật khẩu, URL có mật khẩu. Ghi tên biến môi trường thay cho giá trị.
+- Agent chạy test không đọc bộ nhớ, nên kết quả lượt chạy không phụ thuộc người chạy.
+
+Cấu hình trong row `memory` của `aitest.yml`:
+
+| Trường | Mặc định | Ý nghĩa |
+|---|---|---|
+| `dir` | `.aitest/memory` | Thư mục bộ nhớ cá nhân |
+| `teamDir` | `memory` | Thư mục bộ nhớ nhóm |
+| `user` | `default` | Tên thư mục con của người dùng |
+| `indexMaxChars` | `6000` | Độ dài tối đa của mục lục ở đầu cuộc chat |
+| `autoSave` | `true` | Đặt `false` để duyệt cả ký ức cá nhân |
+
+#### Skill
+
+Skill theo chuẩn [Agent Skills](https://agentskills.io/specification), nên skill viết cho Claude Code hoặc Kiro dùng lại được. Mỗi skill là một thư mục trong `skills/`:
+
+```
+skills/cancel-order/
+  SKILL.md                 # bắt buộc
+  examples/cancel.plan.yaml
+```
+
+```markdown
+---
+name: cancel-order          # chữ thường, số, gạch nối; trùng tên thư mục
+description: Soạn case huỷ lệnh ở các trạng thái. Dùng khi yêu cầu nhắc tới huỷ lệnh.
+metadata:
+  systems: order-service    # tuỳ chọn: gắn skill với hệ thống trong catalog
+---
+
+# Huỷ lệnh
+1. Gọi get_system_context để biết mã trả về của cancelOrder.
+2. ...
+Plan mẫu: examples/cancel.plan.yaml (đọc bằng read_skill_file).
+```
+
+`description` quyết định khi nào agent dùng skill: nêu skill làm gì và khi nào dùng. Một plan mẫu tốt trong skill có tác dụng hơn nhiều đoạn hướng dẫn.
+
+#### Thư mục ngữ cảnh
+
+Đặt tài liệu vào `context/` (thêm thư mục khác bằng "Đổi thư mục" trên tab). Nền tảng nhận file văn bản: Markdown, YAML, JSON, SQL, CSV, `.feature`, OpenAPI. Frontmatter tuỳ chọn:
+
+```markdown
+---
+title: Thuật ngữ nghiệp vụ lệnh
+description: Nghĩa của lô chẵn, lệnh lẻ, trạng thái lệnh; dùng khi soạn plan cho Order API.
+systems: [order-service]    # tài liệu hiện trong gói ngữ cảnh của hệ thống này
+inclusion: always           # đưa vào hướng dẫn của mọi cuộc chat; chỉ dùng cho quy ước ngắn
+---
+```
+
+Không có frontmatter thì tiêu đề lấy từ dòng `#` đầu tiên, mô tả lấy từ đoạn văn đầu tiên.
+
+#### Gói ngữ cảnh hệ thống
+
+Với hệ thống trong catalog, agent gọi `get_system_context` một lần để nhận API rút gọn, kênh sự kiện, công thức, cấu trúc DB kèm giá trị thật của cột trạng thái, plan liên quan, skill, tài liệu và ghi chú kb. Sau đó agent gọi `new_plan_skeleton` để lấy khung plan có bước gọi API có cấu trúc. Thêm `profile: false` vào kho dữ liệu trong `service.yml` nếu không muốn agent đọc dòng mẫu của DB.
+
 ## 6. Chuẩn bị và dọn dữ liệu
 
 Dùng `setup` và `teardown` để mỗi case bắt đầu từ trạng thái biết trước. aitest chạy các bước này theo đúng thứ tự khai báo, **không qua AI**.
@@ -909,7 +1004,8 @@ Khi khởi động, log của Host ghi proxy đang dùng (`proxy from env: http=
 5. **Mô tả dữ liệu trong `context`.** Tên bảng, tên cột và giá trị trạng thái giúp agent truy vấn đúng ngay lần đầu.
 6. **Chạy `validate` trước `run`.** Lỗi plan được phát hiện trong một giây, không tốn lượt chạy của AI.
 7. **Đọc báo cáo của case `pass` quan trọng.** Kiểm tra cột "Thực tế" để chắc chắn agent đối chiếu đúng dữ liệu.
-8. **Chế độ nghiêm ngặt cho CI.** Đặt `allowRetry: false` trong row `verdict` để chỉ tính lần assert đầu tiên.
+8. **Dạy agent một lần.** Khi agent làm chưa đúng ý, nói "nhớ là…" thay vì sửa tay bản nháp; lần sau agent tự áp dụng.
+9. **Chế độ nghiêm ngặt cho CI.** Đặt `allowRetry: false` trong row `verdict` để chỉ tính lần assert đầu tiên.
 
 ## Thuật ngữ mới
 
@@ -923,3 +1019,5 @@ Khi khởi động, log của Host ghi proxy đang dùng (`proxy from env: http=
 | catalog hệ thống | B | Mô tả các service dưới kiểm thử trong `systems/` |
 | operation | A | Một cặp method + path của API, định danh bằng `operationId` |
 | consumer | A | Thành phần đọc bản tin từ broker và xử lý |
+| skill | A | Quy trình soạn plan đóng gói theo chuẩn Agent Skills |
+| ký ức, bộ nhớ | B | Điều agent ghi nhớ giữa các cuộc chat |

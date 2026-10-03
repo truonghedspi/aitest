@@ -44,6 +44,9 @@ importers:
       '@aitest/cli':
         specifier: workspace:*
         version: link:packages/cli
+      '@aitest/context':
+        specifier: workspace:*
+        version: link:packages/context
       '@aitest/core':
         specifier: workspace:*
         version: link:packages/core
@@ -62,6 +65,9 @@ importers:
       '@aitest/mcp-gateway':
         specifier: workspace:*
         version: link:packages/mcp-gateway
+      '@aitest/memory':
+        specifier: workspace:*
+        version: link:packages/memory
       '@aitest/plan-manager':
         specifier: workspace:*
         version: link:packages/plan-manager
@@ -298,6 +304,24 @@ importers:
         specifier: ^1.31.0
         version: 1.31.0(supports-color@9.4.0)(zod@4.6.5)
 
+  packages/context:
+    dependencies:
+      '@aitest/authoring':
+        specifier: workspace:*
+        version: link:../authoring
+      '@aitest/core':
+        specifier: workspace:*
+        version: link:../core
+      '@aitest/web-host':
+        specifier: workspace:*
+        version: link:../web-host
+      '@deepseek-ai/cordis':
+        specifier: ~4.0.4
+        version: 4.0.4
+      yaml:
+        specifier: ^2.8.0
+        version: 2.9.1
+
   packages/core:
     dependencies:
       '@deepseek-ai/cordis':
@@ -378,6 +402,24 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.31.0
         version: 1.31.0(supports-color@9.4.0)(zod@4.6.5)
+
+  packages/memory:
+    dependencies:
+      '@aitest/authoring':
+        specifier: workspace:*
+        version: link:../authoring
+      '@aitest/core':
+        specifier: workspace:*
+        version: link:../core
+      '@aitest/web-host':
+        specifier: workspace:*
+        version: link:../web-host
+      '@deepseek-ai/cordis':
+        specifier: ~4.0.4
+        version: 4.0.4
+      yaml:
+        specifier: ^2.8.0
+        version: 2.9.1
 
   packages/plan-manager:
     dependencies:

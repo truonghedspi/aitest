@@ -42,6 +42,18 @@ cases:
 - Ghi rõ phương thức, URL, body; bảng và điều kiện truy vấn; tên trường và nút giao diện đúng như hiển thị.
 - Nói rõ dữ liệu cần lấy cho bước sau, ví dụ "Lấy id lệnh từ response".
 - Biến `{{tên}}` lấy từ `vars` hoặc từ `save` của fixture.
+- Bước gọi API của hệ thống trong catalog nên viết dạng có cấu trúc. `validate_plan` kiểm tra dạng này theo OpenAPI:
+  operation có thật, đủ tham số path và query bắt buộc, body đúng schema (sai schema chỉ là cảnh báo, vì case kiểm tra lỗi gửi body sai cố ý).
+
+```yaml
+steps:
+  - call: order-service.cancelOrder       # <system>.<operationId>
+    path: { id: "{{order_id}}" }
+    desc: huỷ lệnh vừa đặt
+  - call: order-service.getSummary
+    query: { symbol: FPT }
+  - Đọc bảng orders theo id {{order_id}}.  # bước dạng câu vẫn dùng được, trộn trong cùng danh sách
+```
 
 ### Quy tắc viết expectation
 

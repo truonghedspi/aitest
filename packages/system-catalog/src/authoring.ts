@@ -1,5 +1,6 @@
 import type {} from '@aitest/authoring'
 import type { Context, TestPlan } from '@aitest/core'
+import { checkValue } from './schema.ts'
 import { channelIn, SYSTEM_VAR_KEYS, type Catalog, type EventChannel, type SystemSpec } from './model.ts'
 import type {} from './index.ts'
 
@@ -172,6 +173,32 @@ export function lintSystems(plan: TestPlan, catalog: Catalog, available: Readonl
     else if (!SYSTEM_VAR_KEYS.includes(key)) issues.push({ level: 'error', message: `{{${id}.${key}}} is not provided; available: ${SYSTEM_VAR_KEYS.map((k) => `{{${id}.${k}}}`).join(', ')}` })
   }
 
+  // Bước có cấu trúc: operation phải có thật, tham số path đủ, body đúng schema của API.
+  plan.cases.forEach((c, ci) => (c.calls ?? []).forEach((call, si) => {
+    if (!call) return
+    const where = `cases[${ci}].steps[${si}]`
+    const [sysId, opId] = [call.call.slice(0, call.call.lastIndexOf('.')), call.call.slice(call.call.lastIndexOf('.') + 1)]
+    const system = byId.get(sysId)
+    if (!system) { issues.push({ level: 'error', path: where, message: `call ${call.call}: unknown system ${sysId}` }); return }
+    if (!declared.includes(sysId)) issues.push({ level: 'error', path: 'systems', message: `call ${call.call} needs ${sysId} in systems` })
+    const op = system.operations.find((o) => o.id === opId)
+    if (!op) { issues.push({ level: 'error', path: where, message: `call ${call.call}: ${sysId} has no operation ${opId}; operations: ${system.operations.map((o) => o.id).join(', ')}` }); return }
+    for (const p of op.params.filter((p) => p.in === 'path')) {
+      if (call.path?.[p.name] === undefined) issues.push({ level: 'error', path: where, message: `call ${call.call}: missing path parameter ${p.name} (${op.method} ${op.path})` })
+    }
+    for (const name of Object.keys(call.path ?? {})) {
+      if (!op.params.some((p) => p.in === 'path' && p.name === name)) issues.push({ level: 'error', path: where, message: `call ${call.call}: ${op.path} has no path parameter ${name}` })
+    }
+    for (const p of op.params.filter((p) => p.in === 'query' && p.required)) {
+      if (call.query?.[p.name] === undefined) issues.push({ level: 'error', path: where, message: `call ${call.call}: missing query parameter ${p.name}` })
+    }
+    for (const name of Object.keys(call.query ?? {})) {
+      if (!op.params.some((p) => p.in === 'query' && p.name === name)) issues.push({ level: 'warning', path: where, message: `call ${call.call}: query parameter ${name} is not in the API` })
+    }
+    if (call.body !== undefined && !op.requestBody) issues.push({ level: 'warning', path: where, message: `call ${call.call}: ${op.method} ${op.path} takes no body` })
+    for (const issue of checkValue(op.requestBody, call.body)) issues.push({ ...issue, path: where, message: `call ${call.call}: ${issue.message}` })
+  }))
+
   for (const id of declared) {
     const system = byId.get(id)
     if (!system) continue
@@ -182,6 +209,7 @@ export function lintSystems(plan: TestPlan, catalog: Catalog, available: Readonl
     const pattern = new RegExp(`(?<![\\w{./-])${id.replace(/-/g, '\\-')}\\.([A-Za-z][\\w-]*)`, 'g')
     const usedChannels = new Set<string>()
     plan.cases.forEach((c, ci) => c.steps.forEach((step, si) => {
+      if (c.calls?.[si]) return
       for (const [, item] of step.matchAll(pattern)) {
         if (SYSTEM_VAR_KEYS.includes(item)) continue
         const channel = system.events.find((e) => e.id === item)

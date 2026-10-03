@@ -40,10 +40,13 @@ packages/            @aitest/<tên> — mỗi package là một hoặc nhiều p
   plan-manager/      trang Plan: danh sách, chi tiết, chạy plan (plans.list/get/run)
   run-viewer/        lượt chạy (trang con của Plan): danh sách, giải thích kết quả, dòng thời gian, theo dõi lượt chạy đang diễn ra
   knowledge/         tri thức của nhóm trong kb/: tool kb_list/kb_read/kb_propose, quy ước vào hướng dẫn, đánh dấu lỗi đã biết
+  context/           thư viện ngữ cảnh (ctx.library): mục lục context/, skill chuẩn Agent Skills (use_skill, read_skill_file), trang Ngữ cảnh
+  memory/            bộ nhớ giữa các phiên (ctx.memory): ký ức cá nhân và nhóm, mục lục đầu phiên, memory_* tool, lịch sử và hoàn tác
   plugin-manager/    trang Plugin và Tool: bật/tắt, cấu hình, thêm/gỡ, thêm MCP server, tắt tool, chạy thử
   environments/      môi trường (ctx.envs): tool theo môi trường qua kernel.spawn, chặn ghi (policy.readOnly), plan.envs, envs.list
   inputs/            đầu vào của lượt chạy: người chạy điền, fill, agent prepare (provide_input, register_cleanup), default, blocked
-  system-catalog/    catalog hệ thống (ctx.systems): biến {{system.url}}, section prompt, list_systems/describe_system, quy tắc kiểm tra
+  system-catalog/    catalog hệ thống (ctx.systems): biến {{system.url}}, section prompt, list_systems/describe_system, quy tắc kiểm tra;
+                     brief: get_system_context (gói ngữ cảnh), new_plan_skeleton, kiểm tra bước `call:` theo OpenAPI
   tool-catalog/      list_tool_catalog, propose_tool: agent đề xuất thêm tool từ danh mục, người dùng duyệt trong chat
   web-client/        giao diện React + Vite; plugin client đăng ký vào slot (page, toolView, panel)
   cli/               lệnh aitest
@@ -53,6 +56,9 @@ examples/
   plugins/           plugin mẫu nạp theo đường dẫn tương đối
 docs/                architecture.md, user-guide.md, plan.schema.json
 kb/                  tri thức của nhóm: bug/, convention/, lesson/ (Markdown + frontmatter)
+context/             tài liệu ngữ cảnh cho agent soạn plan; frontmatter title, description, systems, inclusion: always
+skills/              skill soạn plan: <tên>/SKILL.md theo chuẩn Agent Skills, kèm plan mẫu
+memory/              bộ nhớ nhóm (ký ức dùng chung, vào git); bộ nhớ cá nhân ở .aitest/memory/<user>/
 systems/             catalog hệ thống: <id>/service.yml (OpenAPI, kênh sự kiện, consumer, dữ liệu)
 envs/                môi trường: URL service, topic, ghi đè cấu hình tool, biến, chặn ghi; chọn bằng --env, AITEST_ENV hoặc trên giao diện
 tool-catalog/        danh mục tool đã kiểm duyệt: plugin, tham số, mẫu cấu hình chỉ đọc và phần ghi
@@ -103,6 +109,8 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 - **Mọi lời gọi tool của agent có lý do.** Gateway thêm `reason`, `step` vào schema và tách ra thành `intent` trước khi gọi `invoke`. Không bỏ cơ chế này: agent (Kiro) không gửi suy nghĩ qua ACP, nên đây là nguồn duy nhất giải thích vì sao agent lấy dữ liệu.
 - **Chạy được trên macOS, Linux, Windows.** Khởi chạy process bằng `cross-spawn` (hoặc qua MCP SDK); kiểm tra đường dẫn bằng `isInside`; ghi đường dẫn hiển thị bằng `toPosix`; đọc file văn bản chấp nhận CRLF. CI chạy cả ba hệ điều hành.
 - **Agent chạy test không đọc tri thức.** Tool `kb_*` chỉ có scope `authoring`; lỗi đã biết chỉ được dùng để phân loại kết quả trong báo cáo, qua `case/annotation`.
+- **Bộ nhớ chỉ dành cho soạn plan, không chứa bí mật.** Tool `memory_*` chỉ có scope `authoring`. `ctx.memory.save` từ chối nội dung giống bí mật, ký ức gần trùng và bản ghi cũ hơn `expectedVersion`; mọi lần sửa, xoá giữ bản cũ trong `.history/`. Ghi bộ nhớ nhóm cần `scope.confirm`.
+- **Ngữ cảnh nạp theo tầng.** Đầu phiên chỉ có mục lục (bộ nhớ, tên và mô tả skill, tài liệu `inclusion: always`); nội dung đọc qua tool. Thêm ngữ cảnh vào đầu phiên bằng `ctx.authoring.introSection` hoặc `guideSection`, không nối thêm vào prompt của `chat`.
 - **Duyệt trước khi ghi.** Tool soạn plan chỉ đọc được duyệt tự động; `dry_run`, `save_plan` và tool riêng của agent cần người dùng duyệt.
 - **Agent chỉ thêm tool từ danh mục, qua người duyệt.** `propose_tool` dựng cấu hình từ mẫu trong `tool-catalog/`, không nhận cấu hình tự do. Tool tự duyệt qua `scope.confirm` (phía server) và từ chối khi scope không có người duyệt. Tool mới mặc định chỉ đọc; tham số bí mật chỉ nhận `${env.TÊN}`.
 - **Tính năng mới đi qua plugin.** Thêm hành vi bằng service, event hoặc action mới; chỉ sửa runner khi điểm mở rộng hiện có không đủ, và cập nhật docs/architecture.md cùng lúc.

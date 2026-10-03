@@ -350,3 +350,14 @@ table.matrix .current { background: var(--surface-2); }
 .chat-list-footer .chat-list, .chat-list-footer .chat-item { width: 100%; }
 .formula-steps { margin-top: 6px; }
 .value-list { display: inline-block; vertical-align: top; }
+
+/* Trang Ngữ cảnh và thẻ ký ức */
+.card.notice { border-color: var(--warn); }
+.card.notice ul { margin: 4px 0 0; padding-left: 18px; }
+.memory-card { display: flex; flex-direction: column; gap: 6px; }
+.memory-card .actions { margin-top: 2px; }
+.kb-list .row { display: flex; gap: 6px; }
+.kb-list .row input { flex: 1; min-width: 0; }
+pre.code { overflow-x: auto; background: var(--surface-2); padding: 10px; border-radius: 6px; font-size: 12px; }
+button.tag { cursor: pointer; }
+button.tag.active { border-color: var(--accent); }

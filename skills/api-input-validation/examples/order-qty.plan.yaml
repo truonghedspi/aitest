@@ -1,0 +1,19 @@
+id: TP-ORDER-QTY-001
+name: Ràng buộc khối lượng khi đặt lệnh
+requires: [http, db]
+systems: [order-service]
+cases:
+  - id: QTY-01
+    title: Khối lượng 100 (biên dưới, lô chẵn) được nhận
+    steps:
+      - { call: order-service.createOrder, body: { symbol: QTA, side: BUY, qty: 100, price: 10000 } }
+    expect:
+      - { id: http-201, desc: API nhận lệnh, check: { op: eq, value: 201 } }
+  - id: QTY-02
+    title: Khối lượng 150 (lô lẻ) bị từ chối và không lưu
+    steps:
+      - { call: order-service.createOrder, body: { symbol: QTB, side: BUY, qty: 150, price: 10000 } }
+      - Đếm số bản ghi trong bảng orders có symbol QTB.
+    expect:
+      - { id: http-400, desc: API từ chối lệnh lô lẻ, check: { op: eq, value: 400 } }
+      - { id: db-none, desc: Không lưu bản ghi nào, check: { op: eq, value: 0 } }

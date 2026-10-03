@@ -8,6 +8,7 @@ import { useChat, useChatList } from '../store.ts'
 import type { ChatSummary } from '../types.ts'
 import { ToolCallCard } from '../components.tsx'
 import { Json } from './tool-views.tsx'
+import { MemoryPreview } from './context-page.tsx'
 
 /** Trang soạn plan cùng agent: danh sách cuộc chat ở cột trái, hội thoại và bảng plan ở giữa. */
 export const chatPage: ClientPlugin = (s) => {
@@ -271,6 +272,7 @@ function PermissionCard({ item, chatId }: { item: Extract<TimelineItem, { kind: 
     <div className={`permission ${item.decision === undefined ? 'open' : item.decision ? 'allowed' : 'denied'}`}>
       <div>Agent xin phép <b>{label}</b></div>
       {item.preview?.kind === 'tool-proposal' ? <ToolProposal preview={item.preview} />
+        : item.preview?.kind === 'memory' ? <MemoryPreview preview={item.preview} />
         : item.preview !== undefined ? <Json value={item.preview} />
         : item.args !== undefined && item.tool !== 'dry_run' && item.tool !== 'save_plan' && <Json value={item.args} />}
       {item.tool === 'save_plan' && <div className="muted">Đường dẫn: <code>{(item.args as any)?.path}</code></div>}

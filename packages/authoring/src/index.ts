@@ -31,6 +31,10 @@ export interface ContextDoc {
   id: string
   title: string
   size?: number
+  /** Một câu mô tả, để agent chọn tài liệu cần đọc mà không phải mở từng tài liệu. */
+  description?: string
+  /** Hệ thống liên quan trong catalog. */
+  systems?: string[]
 }
 
 /** Một nguồn tài liệu về hệ thống đích. */
@@ -45,7 +49,8 @@ export interface ContextSource {
 export interface GuideSection {
   id: string
   order: number
-  render(): string | undefined
+  /** Nội dung của phần hướng dẫn; được phép bất đồng bộ (ví dụ đọc danh sách skill từ thư mục). */
+  render(): string | undefined | Promise<string | undefined>
 }
 
 export interface LintIssue {
@@ -84,6 +89,7 @@ export class AuthoringService extends Service {
 
   private readonly sources = new Map<string, ContextSource>()
   private readonly sections = new Map<string, GuideSection>()
+  private readonly intros = new Map<string, GuideSection>()
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'authoring')
@@ -110,17 +116,34 @@ export class AuthoringService extends Service {
     }, `authoring.guideSection(${section.id})`)
   }
 
+  /**
+   * Thêm một đoạn vào lượt đầu của mỗi phiên agent soạn plan (cuộc chat mới, hoặc phiên mở lại không khôi phục được),
+   * ví dụ mục lục bộ nhớ. Khác `guideSection`: agent không phải gọi tool mới thấy.
+   */
+  introSection(section: GuideSection) {
+    return this.ctx.effect(() => {
+      this.intros.set(section.id, section)
+      return () => { this.intros.delete(section.id) }
+    }, `authoring.introSection(${section.id})`)
+  }
+
+  /** Nội dung đầu phiên từ mọi `introSection`. */
+  async intro() {
+    const sections = [...this.intros.values()].sort((a, b) => a.order - b.order)
+    const rendered = await Promise.all(sections.map(async (s) => (await s.render())?.trim()))
+    return rendered.filter(Boolean).join('\n\n')
+  }
+
   /** Hướng dẫn đầy đủ: các section của plugin cộng hướng dẫn của từng định dạng plan. */
-  guide() {
+  async guide() {
     const formats = this.ctx.plans.listFormats()
       .filter((f) => f.guide)
       .map((f) => ({ id: `format/${f.name}`, order: 20, render: () => f.guide }))
-    return [...this.sections.values(), ...formats]
-      .sort((a, b) => a.order - b.order)
-      .map((s) => s.render()?.trim())
-      .filter(Boolean)
-      .join('\n\n')
+    const sections = [...this.sections.values(), ...formats].sort((a, b) => a.order - b.order)
+    const rendered = await Promise.all(sections.map(async (s) => (await s.render())?.trim()))
+    return rendered.filter(Boolean).join('\n\n')
   }
+
 
   /**
    * Mở một phiên soạn plan. Mọi lời gọi tool trong phiên được ghi vào log của phiên.
@@ -186,7 +209,7 @@ function registerCoreTools(ctx: Context, service: AuthoringService) {
     description: 'Lấy hướng dẫn soạn test plan: định dạng, quy tắc, cách dùng các tool soạn plan. Gọi một lần ở đầu phiên.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     async execute() {
-      return { guide: service.guide() }
+      return { guide: await service.guide() }
     },
     present: () => ({ kind: 'generic', title: 'Đọc hướng dẫn soạn plan' }),
   })
@@ -257,10 +280,11 @@ function registerCoreTools(ctx: Context, service: AuthoringService) {
       'Kết luận pass/fail do nền tảng tính từ dữ liệu thật, không do agent tự đánh giá.',
       '',
       '## Quy trình',
-      '1. Hỏi người dùng để hiểu rõ tính năng cần kiểm thử: luồng chính, trường hợp biên, kết quả mong đợi.',
-      '2. Đọc tài liệu hệ thống (`list_context_sources`, `read_context_source`) và các plan có sẵn (`list_plans`, `read_plan`).',
-      '3. Khảo sát dữ liệu thật bằng `explore` để dùng đúng tên bảng, tên cột, mã trạng thái, nhãn giao diện.',
-      '4. Soạn bản nháp, gọi `validate_plan` và sửa tới khi không còn lỗi.',
+      '1. Nắm ngữ cảnh trước khi hỏi: áp dụng bộ nhớ (mục lục ở đầu phiên); gọi `get_system_context` cho hệ thống liên quan',
+      '   (API, dữ liệu thật, plan mẫu, skill, tài liệu trong một lần gọi); nếu yêu cầu khớp một skill, gọi `use_skill`.',
+      '2. Chỉ hỏi người dùng điều ngữ cảnh chưa trả lời được: luồng chính, trường hợp biên, kết quả mong đợi.',
+      '3. Đọc một plan mẫu dùng cùng operation (`read_plan`); đọc thêm tài liệu (`read_context_source`) hoặc khảo sát (`explore`) khi còn thiếu.',
+      '4. Soạn bản nháp (plan mới: bắt đầu từ `new_plan_skeleton`), gọi `validate_plan` và sửa tới khi không còn lỗi.',
       '5. Trình bày bản nháp cho người dùng, giải thích từng case. Chỉnh theo góp ý.',
       '6. Chạy thử bằng `dry_run` rồi `get_run_result`; sửa bước hoặc expectation chưa rõ.',
       '7. Khi người dùng đồng ý, lưu bằng `save_plan`.',

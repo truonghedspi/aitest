@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
-import { isInside, toPosix, z, type Context } from '@aitest/core'
+import { isInside, toPosix, z, type Context, type TestPlan } from '@aitest/core'
 import type {} from './index.ts'
 
 /**
@@ -89,7 +89,13 @@ export function apply(ctx: Context, config: Config) {
           const path = toPosix(relative(process.cwd(), file))
           try {
             const plan = await ctx.plans.load(file)
-            plans.push({ path, id: plan.id, name: plan.name, cases: plan.cases.map((c) => ({ id: c.id, title: c.title })) })
+            plans.push({
+              path, id: plan.id, name: plan.name,
+              ...(plan.systems?.length ? { systems: plan.systems } : {}),
+              cases: plan.cases.map((c) => ({ id: c.id, title: c.title })),
+              // Operation dùng trong plan (bước có cấu trúc và tham chiếu `<system>.<operation>` trong câu), để tìm plan mẫu.
+              ...(operationsOf(plan).length ? { operations: operationsOf(plan) } : {}),
+            })
           } catch (error) {
             plans.push({ path, error: (error as Error).message.split('\n')[0] })
           }
@@ -161,4 +167,21 @@ async function planFiles(dir: string): Promise<string[]> {
     else if (/\.plan\.ya?ml$/.test(entry.name)) out.push(full)
   }
   return out.sort()
+}
+
+/** Operation mà plan gọi: từ bước có cấu trúc và từ tham chiếu `<system>.<operation>` trong câu chỉ dẫn. */
+export function operationsOf(plan: TestPlan): string[] {
+  const out = new Set<string>()
+  const systems = plan.systems ?? []
+  for (const c of plan.cases) {
+    for (const call of c.calls ?? []) if (call) out.add(call.call)
+    for (const step of c.steps) {
+      for (const id of systems) {
+        for (const m of step.matchAll(new RegExp(`(?<![\\w{./-])${id.replace(/[-]/g, '\\-')}\\.([A-Za-z][\\w-]*)`, 'g'))) {
+          if (m[1] !== 'url') out.add(`${id}.${m[1]}`)
+        }
+      }
+    }
+  }
+  return [...out].sort()
 }
