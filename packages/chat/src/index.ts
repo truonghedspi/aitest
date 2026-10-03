@@ -444,8 +444,6 @@ export class Chat {
   }
 
   private opening?: Promise<AgentSession>
-  /** Revision của bộ nhớ agent đã biết; bộ nhớ đổi sau đó thì báo ở lượt kế tiếp. */
-  private memoryRevision = 0
   /** Phiên agent hiện tại là phiên mới (không khôi phục được), lượt kế tiếp phải gửi chỉ dẫn vai trò và lịch sử. */
   private needsIntro = false
 
@@ -503,11 +501,6 @@ export class Chat {
    */
   private async buildPrompt(text: string, isFirstTurn: boolean) {
     const parts: string[] = []
-    const memory = this.ctx.get('memory') as {
-      revision: number
-      changesSince(r: number): Array<{ action: string; name: string; scope: string; description?: string }>
-      hint(text: string): string | undefined
-    } | undefined
     if (isFirstTurn) {
       parts.push(AGENT_PROMPT.trim())
       // Ngữ cảnh đầu phiên do plugin đóng góp, ví dụ mục lục bộ nhớ giữa các phiên.
@@ -520,17 +513,10 @@ export class Chat {
         if (state) parts.push(`## Trạng thái hiện tại\n\n${state}`)
       }
     }
-    // Bộ nhớ đổi từ lượt trước (phiên khác ghi, người dùng sửa trên giao diện): báo để agent không dùng bản cũ.
-    if (memory && !isFirstTurn && memory.revision > this.memoryRevision) {
-      const changes = memory.changesSince(this.memoryRevision)
-      if (changes.length) {
-        parts.push(`## Bộ nhớ vừa thay đổi\n\n${changes.map((c) => `- ${c.action === 'deleted' ? 'Đã xoá' : 'Đã ghi'} \`${c.name}\` (${c.scope})${c.description ? `: ${c.description}` : ''}`).join('\n')}`)
-      }
-    }
-    if (memory) this.memoryRevision = memory.revision
     if (this.notes.length) parts.push(`## Thao tác của người dùng trên giao diện\n\n${this.notes.splice(0).join('\n\n')}`)
-    const hint = memory?.hint(text)
-    if (hint) parts.push(hint)
+    // Ghi chú theo lượt do plugin đóng góp: việc còn mở, bộ nhớ vừa đổi, lời nhắc ghi nhớ.
+    const authoring = await this.ensureAuthoring()
+    parts.push(...await this.ctx.authoring.turnNotes({ sessionId: authoring.id, text, firstTurn: isFirstTurn }))
     parts.push(isFirstTurn ? `## Tin nhắn của người dùng\n\n${text}` : text)
     return parts.join('\n\n')
   }

@@ -53,6 +53,22 @@ export interface GuideSection {
   render(): string | undefined | Promise<string | undefined>
 }
 
+/** Một lượt của phiên agent soạn plan, truyền cho `turnSection`. */
+export interface TurnContext {
+  /** Mã phiên soạn plan (trùng mã cuộc chat). */
+  sessionId: string
+  /** Tin nhắn của người dùng ở lượt này. */
+  text: string
+  /** Lượt đầu của một phiên agent mới; khi đó `introSection` đã được gửi. */
+  firstTurn: boolean
+}
+
+export interface TurnSection {
+  id: string
+  order: number
+  render(turn: TurnContext): string | undefined | Promise<string | undefined>
+}
+
 export interface LintIssue {
   level: 'error' | 'warning'
   message: string
@@ -90,6 +106,7 @@ export class AuthoringService extends Service {
   private readonly sources = new Map<string, ContextSource>()
   private readonly sections = new Map<string, GuideSection>()
   private readonly intros = new Map<string, GuideSection>()
+  private readonly turns = new Map<string, TurnSection>()
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'authoring')
@@ -125,6 +142,24 @@ export class AuthoringService extends Service {
       this.intros.set(section.id, section)
       return () => { this.intros.delete(section.id) }
     }, `authoring.introSection(${section.id})`)
+  }
+
+  /**
+   * Thêm một đoạn vào mỗi lượt của phiên agent, đặt trước tin nhắn của người dùng, ví dụ việc còn mở của cuộc chat
+   * hoặc thay đổi của bộ nhớ từ lượt trước. `render` trả `undefined` khi lượt này không có gì cần báo.
+   */
+  turnSection(section: TurnSection) {
+    return this.ctx.effect(() => {
+      this.turns.set(section.id, section)
+      return () => { this.turns.delete(section.id) }
+    }, `authoring.turnSection(${section.id})`)
+  }
+
+  /** Ghi chú cho một lượt từ mọi `turnSection`, theo thứ tự `order`. */
+  async turnNotes(turn: TurnContext): Promise<string[]> {
+    const sections = [...this.turns.values()].sort((a, b) => a.order - b.order)
+    const rendered = await Promise.all(sections.map(async (s) => (await s.render(turn))?.trim()))
+    return rendered.filter((r): r is string => !!r)
   }
 
   /** Nội dung đầu phiên từ mọi `introSection`. */

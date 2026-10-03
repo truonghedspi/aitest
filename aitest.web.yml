@@ -25,6 +25,8 @@ plugins:
     name: '@aitest/plugin-manager'
   - id: memory-web
     name: '@aitest/memory/web'
+  - id: open-items-web
+    name: '@aitest/open-items/web'
   - id: context-web
     name: '@aitest/context/web'
   - id: envs-web

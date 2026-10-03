@@ -361,3 +361,10 @@ table.matrix .current { background: var(--surface-2); }
 pre.code { overflow-x: auto; background: var(--surface-2); padding: 10px; border-radius: 6px; font-size: 12px; }
 button.tag { cursor: pointer; }
 button.tag.active { border-color: var(--accent); }
+
+/* Việc còn mở */
+.open-items { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
+.open-items.wide { padding: 10px 0; max-width: 900px; }
+.open-item.resolved, .open-item.dropped { opacity: .75; }
+.open-item .row { display: flex; gap: 6px; }
+.open-item .row input { flex: 1; min-width: 0; }

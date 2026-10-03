@@ -46,6 +46,7 @@
     "@aitest/knowledge": "workspace:*",
     "@aitest/mcp-gateway": "workspace:*",
     "@aitest/memory": "workspace:*",
+    "@aitest/open-items": "workspace:*",
     "@aitest/plan-manager": "workspace:*",
     "@aitest/plan-yaml": "workspace:*",
     "@aitest/plugin-manager": "workspace:*",

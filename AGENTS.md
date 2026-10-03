@@ -42,6 +42,7 @@ packages/            @aitest/<tên> — mỗi package là một hoặc nhiều p
   knowledge/         tri thức của nhóm trong kb/: tool kb_list/kb_read/kb_propose, quy ước vào hướng dẫn, đánh dấu lỗi đã biết
   context/           thư viện ngữ cảnh (ctx.library): mục lục context/, skill chuẩn Agent Skills (use_skill, read_skill_file), trang Ngữ cảnh
   memory/            bộ nhớ giữa các phiên (ctx.memory): ký ức cá nhân và nhóm, mục lục đầu phiên, memory_* tool, lịch sử và hoàn tác
+  open-items/        việc còn mở (ctx.openItems): open_item_* tool, nhắc ở đầu phiên mới và mỗi lượt, bảng trong cuộc chat
   plugin-manager/    trang Plugin và Tool: bật/tắt, cấu hình, thêm/gỡ, thêm MCP server, tắt tool, chạy thử
   environments/      môi trường (ctx.envs): tool theo môi trường qua kernel.spawn, chặn ghi (policy.readOnly), plan.envs, envs.list
   inputs/            đầu vào của lượt chạy: người chạy điền, fill, agent prepare (provide_input, register_cleanup), default, blocked
@@ -110,7 +111,7 @@ Chạy `typecheck` và `test` trước khi kết thúc mọi thay đổi code. C
 - **Chạy được trên macOS, Linux, Windows.** Khởi chạy process bằng `cross-spawn` (hoặc qua MCP SDK); kiểm tra đường dẫn bằng `isInside`; ghi đường dẫn hiển thị bằng `toPosix`; đọc file văn bản chấp nhận CRLF. CI chạy cả ba hệ điều hành.
 - **Agent chạy test không đọc tri thức.** Tool `kb_*` chỉ có scope `authoring`; lỗi đã biết chỉ được dùng để phân loại kết quả trong báo cáo, qua `case/annotation`.
 - **Bộ nhớ chỉ dành cho soạn plan, không chứa bí mật.** Tool `memory_*` chỉ có scope `authoring`. `ctx.memory.save` từ chối nội dung giống bí mật, ký ức gần trùng và bản ghi cũ hơn `expectedVersion`; mọi lần sửa, xoá giữ bản cũ trong `.history/`. Ghi bộ nhớ nhóm cần `scope.confirm`.
-- **Ngữ cảnh nạp theo tầng.** Đầu phiên chỉ có mục lục (bộ nhớ, tên và mô tả skill, tài liệu `inclusion: always`); nội dung đọc qua tool. Thêm ngữ cảnh vào đầu phiên bằng `ctx.authoring.introSection` hoặc `guideSection`, không nối thêm vào prompt của `chat`.
+- **Ngữ cảnh nạp theo tầng.** Đầu phiên chỉ có mục lục (bộ nhớ, việc còn mở, tên và mô tả skill, tài liệu `inclusion: always`); nội dung đọc qua tool. Thêm ngữ cảnh bằng `ctx.authoring.introSection` (đầu phiên), `turnSection` (mỗi lượt) hoặc `guideSection`; `chat` không biết plugin nào đóng góp.
 - **Duyệt trước khi ghi.** Tool soạn plan chỉ đọc được duyệt tự động; `dry_run`, `save_plan` và tool riêng của agent cần người dùng duyệt.
 - **Agent chỉ thêm tool từ danh mục, qua người duyệt.** `propose_tool` dựng cấu hình từ mẫu trong `tool-catalog/`, không nhận cấu hình tự do. Tool tự duyệt qua `scope.confirm` (phía server) và từ chối khi scope không có người duyệt. Tool mới mặc định chỉ đọc; tham số bí mật chỉ nhận `${env.TÊN}`.
 - **Tính năng mới đi qua plugin.** Thêm hành vi bằng service, event hoặc action mới; chỉ sửa runner khi điểm mở rộng hiện có không đủ, và cập nhật docs/architecture.md cùng lúc.

@@ -98,6 +98,7 @@ describe('chat host over WebSocket', () => {
         { id: 'authoring-save', name: '@aitest/authoring/save', config: { dir: join(dir, 'plans') } },
         { id: 'tool-catalog', name: '@aitest/tool-catalog', config: { auditDir: join(dir, 'tool-catalog') } },
         { id: 'memory', name: '@aitest/memory', config: { dir: join(dir, 'memory'), teamDir: join(dir, 'team-memory') } },
+        { id: 'open-items', name: '@aitest/open-items', config: { file: join(dir, 'open-items.json') } },
       ],
     })
     harness.kernel.ctx.agents.register(fakeAgent(prompts))
@@ -342,6 +343,14 @@ describe('chat host over WebSocket', () => {
     expect(third).not.toContain('## Nhắc về bộ nhớ')
     // Tin nhắn có yêu cầu ghi nhớ: lời nhắc gắn vào đúng lượt đó.
     expect(await turn(chat.id, 'Lần sau dùng mã case dạng CAN-01 nhé')).toContain('## Nhắc về bộ nhớ\n\nTin nhắn này có thể chứa yêu cầu ghi nhớ.')
+
+    // Việc còn mở của cuộc chat có trong mỗi lượt; người dùng chốt trên giao diện thì lượt sau agent được báo.
+    const item = await harness.kernel.ctx.openItems.add({ kind: 'decision', title: 'Mã case dạng CAN-01 hay C01?', options: ['CAN-01', 'C01'] }, chat.id)
+    expect(await turn(chat.id, 'Làm tiếp')).toContain(`## Việc còn mở của cuộc chat này\n- \`${item.id}\` [quyết định] Mã case dạng CAN-01 hay C01? (phương án: CAN-01 | C01)`)
+    await ws.call('openItems.resolve', { id: item.id, resolution: 'CAN-01' })
+    const afterResolve = await turn(chat.id, 'Làm tiếp')
+    expect(afterResolve).toContain(`Đã đóng ngoài lượt trước của bạn:\n- \`${item.id}\` Mã case dạng CAN-01 hay C01? → đã chốt trên giao diện: CAN-01`)
+    expect(await ws.call('openItems.list', { chatId: chat.id })).toEqual([expect.objectContaining({ id: item.id, status: 'resolved', closedBy: 'ui' })])
 
     const listed = await ws.call('memory.list')
     expect(listed.memories.map((m: any) => m.name)).toEqual(['order-status-names', 'prefer-db-check'])

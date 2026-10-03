@@ -137,7 +137,7 @@ export function apply(ctx: Context) {
         })
         if (!approved) return { deleted: false, reason: 'the user declined' }
       }
-      await ctx.memory.remove(memory.name, memory.scope)
+      await ctx.memory.remove(memory.name, memory.scope, scope.id)
       return { deleted: true, name: memory.name, scope: memory.scope, version: memory.version }
     },
     present: (args, outcome) => {

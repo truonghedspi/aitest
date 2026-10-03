@@ -111,6 +111,11 @@ plugins:
     name: '@aitest/memory'
   - id: memory-tools
     name: '@aitest/memory/tools'
+  # Việc còn mở (.aitest/open-items.json): câu hỏi chờ người dùng, quyết định hoãn; nhắc lại ở lượt sau và cuộc chat sau.
+  - id: open-items
+    name: '@aitest/open-items'
+  - id: open-items-tools
+    name: '@aitest/open-items/tools'
   - id: authoring-explore
     name: '@aitest/authoring/explore'
   # Catalog hệ thống dưới kiểm thử (systems/, envs/): biến {{<system>.url}}, mô tả service cho agent, kiểm tra tham chiếu trong plan.

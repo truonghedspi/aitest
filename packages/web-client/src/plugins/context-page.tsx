@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { connection } from '../connection.ts'
 import { Markdown } from '../markdown.tsx'
 import type { ClientPlugin, PageProps, ToolViewProps } from '../slots.ts'
+import { OpenItemsTab } from './open-items.tsx'
 
 /**
  * Trang Ngữ cảnh: những gì agent soạn plan biết trước khi bắt đầu.
@@ -52,6 +53,7 @@ const SCOPE: Record<MemoryScope, string> = { personal: 'cá nhân', team: 'nhóm
 
 const TABS = [
   { id: 'memory', title: 'Bộ nhớ' },
+  { id: 'open-items', title: 'Việc còn mở' },
   { id: 'skills', title: 'Skill' },
   { id: 'docs', title: 'Tài liệu' },
 ] as const
@@ -66,7 +68,7 @@ function ContextPage({ param, navigate }: PageProps) {
           {TABS.map((t) => <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => navigate(`context/${t.id}`)}>{t.title}</button>)}
         </div>
       </header>
-      {tab === 'memory' ? <MemoryTab /> : tab === 'skills' ? <LibraryTab kind="skills" /> : <LibraryTab kind="docs" />}
+      {tab === 'memory' ? <MemoryTab /> : tab === 'open-items' ? <OpenItemsTab /> : tab === 'skills' ? <LibraryTab kind="skills" /> : <LibraryTab kind="docs" />}
     </main>
   )
 }

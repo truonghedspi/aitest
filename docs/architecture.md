@@ -103,6 +103,7 @@ packages/
   knowledge/         Tri thức của nhóm: lỗi đã biết, quy ước, bài học (thư mục kb/)
   context/           Thư viện ngữ cảnh: thư mục context/ và skill theo chuẩn Agent Skills (mục 7.9)
   memory/            Bộ nhớ giữa các phiên của agent soạn plan (mục 7.9)
+  open-items/        Việc còn mở: điều chưa chốt, nhắc lại ở lượt sau và cuộc chat sau (mục 7.9)
   run-viewer/        Xem log lượt chạy trên giao diện, theo dõi lượt chạy đang diễn ra
   web-client/        Giao diện React + Vite; plugin phía client đăng ký vào slot
   cli/               Lệnh aitest
@@ -414,6 +415,7 @@ Mỗi nhóm tool là một plugin con của `@aitest/authoring`, đăng ký vào
 | `system-catalog/brief` | `get_system_context`, `new_plan_skeleton` | Gói ngữ cảnh một hệ thống trong một lời gọi; khung plan có bước gọi API có cấu trúc (mục 7.9) |
 | `context/tools` | `use_skill`, `read_skill_file` | Nạp skill theo tầng (mục 7.9) |
 | `memory/tools` | `memory_search`, `memory_read`, `memory_save`, `memory_delete` | Bộ nhớ giữa các phiên; ghi bộ nhớ nhóm cần duyệt (mục 7.9) |
+| `open-items/tools` | `open_item_add`, `open_item_resolve`, `open_item_list` | Việc còn mở; không cần duyệt (mục 7.9) |
 
 ### 7.3. Cuộc chat
 
@@ -527,7 +529,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 |---|---|
 | `packages/authoring/tests/authoring.test.ts` | Giới hạn tool theo scope, hướng dẫn, nguồn context, explore chỉ đọc, quy tắc kiểm tra, chạy thử, lưu |
 | `packages/chat/tests/restore.test.ts` | Khôi phục phiên agent sau khi Host khởi động lại; agent mất phiên thì gửi lại lịch sử, bản nháp, môi trường; agent không hỗ trợ `loadSession` |
-| `packages/chat/tests/chat.test.ts` | Giao thức WebSocket thật với agent giả lập: stream, tool call kèm `view`, duyệt quyền, thao tác của người dùng, mở plan có sẵn, follow theo `seq`, khôi phục từ log, mục lục bộ nhớ ở lượt đầu, báo bộ nhớ đổi, nhắc ghi nhớ |
+| `packages/chat/tests/chat.test.ts` | Giao thức WebSocket thật với agent giả lập: stream, tool call kèm `view`, duyệt quyền, thao tác của người dùng, mở plan có sẵn, follow theo `seq`, khôi phục từ log, mục lục bộ nhớ ở lượt đầu, báo bộ nhớ đổi, nhắc ghi nhớ, việc còn mở trong prompt và khi đóng trên giao diện |
 | `packages/web-client/tests/derive.test.ts` | Trạng thái bản nháp khi mở plan trong và ngoài thư mục lưu, sửa sau khi mở |
 | `packages/core/tests/calc.test.ts` | BigDecimal: chính xác với số lớn, giữ phần thập phân, chia không hết phải chọn cách làm tròn, đủ 8 cách làm tròn, so sánh không qua số thực, từ chối biểu thức không hợp lệ |
 | `packages/action-math/tests/json.test.ts` | Parse JSON không mất chữ số |
@@ -545,6 +547,7 @@ Plugin `@aitest/run-viewer` cùng trang **Lượt chạy** cho người dùng xe
 | `packages/system-catalog/tests/system-catalog.test.ts` | Nạp OpenAPI và `$ref`, file lỗi không làm hỏng catalog, môi trường, quy tắc kiểm tra plan, biến cho fixture và bước, section prompt, tool soạn plan, gói ngữ cảnh hệ thống, khung plan, kiểm tra bước có cấu trúc theo API |
 | `packages/context/tests/context.test.ts` | Mục lục thư mục ngữ cảnh (frontmatter, mô tả tự suy, OpenAPI), tài liệu `always` trong hướng dẫn, skill ba tầng, skill sai chuẩn, chặn đường dẫn ra ngoài |
 | `packages/memory/tests/memory.test.ts` | Ghi không cần duyệt, mục lục đầu phiên, chặn tên sai, bí mật, ký ức gần trùng, ghi đè bản cũ; bộ nhớ nhóm cần duyệt; xoá, lịch sử, khôi phục; rà soát liên kết; agent chạy test không thấy tool bộ nhớ |
+| `packages/open-items/tests/open-items.test.ts` | Ghi, chặn trùng, nhắc mỗi lượt chỉ trong cuộc chat của việc, nhắc đầu phiên mới, báo việc đóng trên giao diện, không báo việc agent tự đóng, việc quá hạn, gỡ plugin thì section biến mất |
 | `packages/tool-catalog/tests/tool-catalog.test.ts` | Mẫu cấu hình, từ chối giá trị bí mật, từ chối khi không có người duyệt, từ chối và duyệt, quyền ghi tường minh, explore tool mới, khôi phục từ patch layer, log kiểm toán |
 
 
@@ -560,11 +563,12 @@ Agent soạn plan nhanh và đúng khi nắm ngữ cảnh sớm và chỉ phải
 | Ngữ cảnh luôn có so với ngữ cảnh theo điều kiện | [Kiro steering](https://kiro.dev/docs/steering/) | Frontmatter `inclusion: always` của tài liệu trong thư mục ngữ cảnh |
 | Mục lục dạng Markdown, một dòng mỗi mục | [llms.txt](https://llmstxt.org/) | `MEMORY.md`, mục lục thư mục ngữ cảnh |
 
-Ngữ cảnh chia thành năm lớp, theo thứ tự agent gặp trong một phiên:
+Ngữ cảnh chia thành sáu lớp, theo thứ tự agent gặp trong một phiên:
 
 | Lớp | Nơi lưu | Vào ngữ cảnh khi | Ai ghi |
 |---|---|---|---|
 | Bộ nhớ | `.aitest/memory/<user>/` (cá nhân), `memory/` (nhóm) | Mục lục ở lượt đầu của mọi phiên; nội dung qua `memory_read` | Agent (`memory_save`), người dùng trên trang Ngữ cảnh |
+| Việc còn mở | `.aitest/open-items.json` | Đầu phiên mới: việc còn mở của mọi cuộc chat; mỗi lượt sau: việc của chính cuộc chat | Agent (`open_item_add`, `open_item_resolve`), người dùng trên bảng cạnh bản nháp |
 | Ngữ cảnh luôn áp dụng | `context/*.md` có `inclusion: always` | Trong `get_authoring_guide`, tối đa `alwaysMaxChars` ký tự | Nhóm, qua git |
 | Gói ngữ cảnh hệ thống | Catalog hệ thống, DB, plan, skill, tài liệu, kb | Một lời gọi `get_system_context` | Tự dựng |
 | Skill | `skills/<tên>/SKILL.md` | Tên và mô tả trong hướng dẫn; thân qua `use_skill`; file kèm qua `read_skill_file` | Nhóm, qua git |
@@ -624,6 +628,20 @@ Các ràng buộc giữ bộ nhớ đáng tin cậy:
 - **Agent chạy test không đọc bộ nhớ.** Tool bộ nhớ chỉ có scope `authoring`, để kết quả lượt chạy không phụ thuộc người chạy.
 
 Bộ nhớ khác `kb/`. Thư mục `kb/` chứa tri thức kiểm thử đã duyệt qua pull request. Bộ nhớ chứa ngữ cảnh làm việc với người dùng, do agent ghi trong lúc chat.
+
+#### Việc còn mở
+
+Bộ nhớ giữ sự thật bền vững; việc còn mở giữ những gì **chưa chốt** và phải được đóng. Ví dụ: câu hỏi đang chờ người dùng, quyết định bị hoãn ("để tôi hỏi BA"), vấn đề phát hiện khi chạy thử nhưng chưa xử lý, việc agent hứa làm sau.
+
+Claude giữ việc dở nhờ hai cơ chế: toàn bộ hội thoại nằm trong ngữ cảnh, và bản tóm tắt khi nén hội thoại có mục việc còn dở. aitest không kiểm soát được ngữ cảnh bên trong Kiro, nên đưa việc còn mở ra ngoài thành dữ liệu có cấu trúc:
+
+- Agent ghi việc bằng `open_item_add` (loại, câu hỏi một dòng, phương án, plan, hệ thống) và đóng bằng `open_item_resolve` kèm kết luận.
+- Host nhắc lại một cách xác định, không dựa vào việc agent tự nhớ:
+  - Đầu mỗi phiên agent mới (`introSection`): việc còn mở của mọi cuộc chat trong `staleDays` ngày gần nhất, tối đa `introMax` việc.
+  - Mỗi lượt sau đó (`turnSection`): việc còn mở của chính cuộc chat, kèm việc vừa được đóng ngoài lượt trước (trên giao diện hoặc ở cuộc chat khác) và kết luận.
+- Người dùng chốt hoặc bỏ việc trên bảng "Việc còn mở" cạnh bản nháp, hoặc trên trang Ngữ cảnh; việc đóng nhầm mở lại được.
+
+`ctx.authoring.turnSection` là điểm mở rộng chung cho ghi chú theo lượt. Bộ nhớ cũng dùng điểm này để báo bộ nhớ vừa đổi và nhắc ghi nhớ, nên `chat` không phụ thuộc plugin nào cụ thể.
 
 ## 8. Hướng dẫn mở rộng
 
@@ -751,6 +769,9 @@ Các phép đo dưới đây thực hiện ngày 01/10/2026 trên macOS, Node 22
 | Cuộc chat với Kiro: người dùng gửi URL RabbitMQ có mật khẩu | Kiro truyền `${env.RABBITMQ_URL}`, không ghi mật khẩu vào cấu hình; biến chưa đặt nên tool báo lỗi và Kiro hướng dẫn đặt biến. Kiro chép URL vào `reason`; khắc phục: che thông tin đăng nhập trong URL ở bản xem trước và log kiểm toán, thêm quy tắc vào hướng dẫn |
 | Cuộc chat với Kiro (03/10/2026): "soạn plan từ chối lệnh lẻ lô… Nhớ là tôi luôn muốn mỗi case đối chiếu cả dữ liệu trong DB" | Lần đầu agent bỏ qua yêu cầu ghi nhớ; khắc phục bằng lời nhắc theo lượt. Lần sau agent gọi `memory_save` (loại `feedback`) ngay sau `get_authoring_guide`. Agent dùng `get_system_context`, kb, skill `api-input-validation` và plan mẫu kèm skill; bản nháp đạt `validate_plan` ở lần đầu |
 | Cuộc chat mới (phiên agent mới) sau lần trên: "soạn plan huỷ lệnh đã khớp bị từ chối" | Agent đọc ký ức `qa-db-check-preference` từ mục lục, tự thêm expectation đối chiếu trạng thái trong DB, dùng `new_plan_skeleton`; bản nháp đạt `validate_plan` ở lần đầu |
+| Cuộc chat với Kiro (03/10/2026): "soạn plan huỷ lệnh đã khớp… chưa chắc trả 409 hay 400, để tôi hỏi BA rồi chốt sau" | Agent gọi `open_item_add` (loại `decision`, hai phương án, bối cảnh từ đặc tả), soạn plan tạm theo 409 và báo đã ghi việc `oi-1` |
+| Cuộc chat mới: "tiếp tục với plan huỷ lệnh đã khớp hôm trước" | Câu trả lời đầu tiên của agent nhắc `oi-1` kèm hai phương án và hỏi người dùng chọn. Người dùng trả lời "BA chốt 409": agent gọi `open_item_resolve` kèm kết luận rồi soạn tiếp |
+| Mở lại `oi-1`, chốt bằng nút phương án trên bảng "Việc còn mở" | Lượt kế tiếp của cuộc chat có dòng "đã chốt trên giao diện: 409 Conflict"; agent sửa plan theo kết luận mà không hỏi lại |
 
 Phát hiện trong lần chạy đầu với Kiro: agent viết path `$.result.status` vì kết quả tool bọc giá trị trong trường `result`. Ba assertion đầu tiên không đạt, sau đó agent tự sửa path. Cách khắc phục đã áp dụng:
 
@@ -806,6 +827,7 @@ Phát hiện khi soạn plan cùng agent:
 | skill | A | Quy trình soạn plan đóng gói theo chuẩn Agent Skills |
 | ký ức, bộ nhớ | B | Dịch của "memory"; một ký ức là một file trong thư mục bộ nhớ |
 | gói ngữ cảnh hệ thống | B | Kết quả `get_system_context` |
+| việc còn mở | B | Dịch của "open item": điều chưa chốt agent ghi lại để nhắc |
 | plugin, action, guard, reporter, driver | A | Thành phần kiến trúc |
 | scope | A | Phạm vi thực thi action: `case`, `authoring`, `explore` |
 | slot | A | Điểm đăng ký thành phần giao diện phía client |

@@ -566,6 +566,7 @@ Trang **Ngữ cảnh** gom những gì agent soạn plan biết trước khi b�
 | Tab | Chứa gì | Agent dùng thế nào |
 |---|---|---|
 | **Bộ nhớ** | Điều agent đã ghi nhớ về bạn và dự án qua các cuộc chat | Mục lục có ở đầu mọi cuộc chat mới; agent đọc nội dung khi liên quan |
+| **Việc còn mở** | Câu hỏi chờ bạn trả lời, quyết định bạn hoãn lại, vấn đề chưa xử lý | Agent nhắc lại ở mỗi lượt và ở cuộc chat mới cho tới khi việc được đóng |
 | **Skill** | Quy trình soạn plan cho từng loại yêu cầu, kèm plan mẫu | Agent thấy tên và mô tả; khi yêu cầu khớp mô tả, agent nạp skill |
 | **Tài liệu** | File trong thư mục ngữ cảnh: đặc tả, quy trình nghiệp vụ, thuật ngữ, OpenAPI | Agent thấy mục lục kèm mô tả và đọc file khi cần |
 
@@ -595,6 +596,18 @@ Cấu hình trong row `memory` của `aitest.yml`:
 | `user` | `default` | Tên thư mục con của người dùng |
 | `indexMaxChars` | `6000` | Độ dài tối đa của mục lục ở đầu cuộc chat |
 | `autoSave` | `true` | Đặt `false` để duyệt cả ký ức cá nhân |
+
+
+#### Việc còn mở
+
+Khi agent hỏi điều cần biết để hoàn thành plan, hoặc bạn nói "để tôi hỏi BA rồi chốt sau", agent ghi một **việc còn mở**. Việc còn mở được nhắc lại:
+
+- Ở mỗi lượt sau của cùng cuộc chat, kể cả khi Host khởi động lại.
+- Ở đầu mọi cuộc chat mới trong 30 ngày. Khi yêu cầu mới liên quan, agent hỏi lại, ví dụ "Lần trước case CAN-02 chưa chốt mã lỗi 409 hay 400, bạn chọn gì?".
+
+Trả lời ngay trong chat thì agent tự đóng việc kèm kết luận. Bạn cũng chốt được trên bảng **Việc còn mở** bên phải cuộc chat: bấm một phương án hoặc gõ câu trả lời rồi bấm **Chốt**; bấm **Bỏ** khi không cần nữa. Lượt kế tiếp, agent được báo kết luận. Tab **Việc còn mở** trên trang Ngữ cảnh liệt kê việc của mọi cuộc chat, kể cả việc đã chốt và đã bỏ; việc đóng nhầm mở lại được.
+
+Cấu hình trong row `open-items` của `aitest.yml`: `file` (mặc định `.aitest/open-items.json`), `introMax` (số việc tối đa nhắc ở đầu cuộc chat, mặc định 10), `staleDays` (mặc định 30).
 
 #### Skill
 
@@ -1021,3 +1034,4 @@ Khi khởi động, log của Host ghi proxy đang dùng (`proxy from env: http=
 | consumer | A | Thành phần đọc bản tin từ broker và xử lý |
 | skill | A | Quy trình soạn plan đóng gói theo chuẩn Agent Skills |
 | ký ức, bộ nhớ | B | Điều agent ghi nhớ giữa các cuộc chat |
+| việc còn mở | B | Điều chưa chốt agent ghi lại để nhắc ở lượt sau và cuộc chat sau |

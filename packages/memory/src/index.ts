@@ -45,7 +45,9 @@ export class MemoryService extends Service {
   readonly team: MemoryStore
   /** Tăng mỗi khi bộ nhớ đổi, để phiên agent đang chạy biết cần đọc lại. */
   revision = 0
-  private readonly changes: Array<{ revision: number; action: 'saved' | 'deleted'; name: string; scope: MemoryScope; description?: string }> = []
+  /** Revision bộ nhớ mà từng phiên agent đã biết. */
+  private readonly seen = new Map<string, number>()
+  private readonly changes: Array<{ revision: number; action: 'saved' | 'deleted'; name: string; scope: MemoryScope; description?: string; source?: string }> = []
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'memory')
@@ -56,6 +58,9 @@ export class MemoryService extends Service {
     // Mục lục vào đầu mỗi phiên agent soạn plan mới.
     ctx.authoring.introSection({ id: 'memory/index', order: 5, render: () => this.index() })
     ctx.authoring.guideSection({ id: 'memory/guide', order: 8, render: () => GUIDE })
+    // Mỗi lượt: báo bộ nhớ vừa đổi (phiên khác ghi, người dùng sửa trên giao diện) và nhắc ghi nhớ khi tin nhắn yêu cầu.
+    ctx.authoring.turnSection({ id: 'memory/changes', order: 10, render: (turn) => this.changeNote(turn.sessionId, turn.firstTurn) })
+    ctx.authoring.turnSection({ id: 'memory/hint', order: 90, render: (turn) => this.hint(turn.text) })
   }
 
   store(scope: MemoryScope) {
@@ -107,6 +112,17 @@ export class MemoryService extends Service {
     return undefined
   }
 
+  /** Thay đổi bộ nhớ từ lượt trước của phiên; lượt đầu đã có mục lục nên chỉ ghi nhận revision. */
+  changeNote(sessionId: string, firstTurn: boolean): string | undefined {
+    const known = this.seen.get(sessionId)
+    this.seen.set(sessionId, this.revision)
+    if (firstTurn || known === undefined) return undefined
+    // Thay đổi do chính phiên này ghi thì agent đã biết.
+    const changes = this.changesSince(known).filter((c) => c.source !== sessionId)
+    if (!changes.length) return undefined
+    return `## Bộ nhớ vừa thay đổi\n\n${changes.map((c) => `- ${c.action === 'deleted' ? 'Đã xoá' : 'Đã ghi'} \`${c.name}\` (${c.scope})${c.description ? `: ${c.description}` : ''}`).join('\n')}`
+  }
+
   /** Thay đổi sau một revision, để báo cho phiên agent đang chạy. */
   changesSince(revision: number) {
     return this.changes.filter((c) => c.revision > revision)
@@ -146,15 +162,15 @@ export class MemoryService extends Service {
       version: (existing?.version ?? 0) + 1, created: existing?.created || now, updated: now, source: input.source,
     })
     const memory = (await store.get(input.name))!
-    this.changes.push({ revision: ++this.revision, action: 'saved', name: memory.name, scope, description })
+    this.changes.push({ revision: ++this.revision, action: 'saved', name: memory.name, scope, description, source: input.source })
     return { memory, created: !existing, similar }
   }
 
-  async remove(name: string, scope?: MemoryScope): Promise<Memory> {
+  async remove(name: string, scope?: MemoryScope, source?: string): Promise<Memory> {
     const memory = scope ? await this.store(scope).get(name) : await this.find(name)
     if (!memory) throw new Error(`unknown memory ${name}`)
     await this.store(memory.scope).remove(name)
-    this.changes.push({ revision: ++this.revision, action: 'deleted', name, scope: memory.scope })
+    this.changes.push({ revision: ++this.revision, action: 'deleted', name, scope: memory.scope, source })
     return memory
   }
 
