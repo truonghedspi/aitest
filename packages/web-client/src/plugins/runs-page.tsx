@@ -99,7 +99,10 @@ interface CaseView {
   end?: { verdict: string; reasons: string[]; durationMs: number; stopReason?: string }
   annotations: Record<string, Array<{ id: string; title: string }>>
   prompt?: string
+  /** Tin nhắn agent viết sau lời gọi tool cuối cùng: thường là phần tóm tắt kết quả. */
   summary: string
+  /** Tin nhắn agent viết ngay trước từng lời gọi tool của gateway, theo `callId`. */
+  messagesBefore: Map<string, string[]>
   model?: string
 }
 
@@ -109,7 +112,7 @@ function deriveCases(events: RunEvent[]): CaseView[] {
     if (e.type === 'case/start') {
       cases.set(e.data.id, {
         id: e.data.id, title: e.data.title, steps: e.data.steps ?? [], expect: e.data.expect, events: [], evidence: new Map(), assertions: [],
-        annotations: {}, summary: '',
+        annotations: {}, summary: '', messagesBefore: new Map(),
       })
       continue
     }
@@ -122,9 +125,44 @@ function deriveCases(events: RunEvent[]): CaseView[] {
     if (e.type === 'case/annotation') c.annotations[e.data.key] = e.data.value
     if (e.type === 'agent/prompt') c.prompt = e.data.text
     if (e.type === 'agent/session') c.model = e.data.model
-    if (e.type === 'agent/update' && e.data.kind === 'message' && e.data.text) c.summary = e.data.text
+  }
+  for (const c of cases.values()) {
+    const { before, after } = splitMessages(c.events)
+    c.messagesBefore = before
+    c.summary = after.join('\n\n')
   }
   return [...cases.values()]
+}
+
+/** Tin nhắn của agent, kể cả khi bị tách thành nhiều event do agent ngừng giữa chừng. */
+const isMessage = (e: RunEvent) => e.type === 'agent/update' && e.data.kind === 'message' && !!e.data.text
+
+/** Gắn tin nhắn của agent vào lời gọi tool của gateway ngay sau nó; phần còn lại sau lời gọi cuối là tóm tắt. */
+function splitMessages(events: RunEvent[]): { before: Map<string, string[]>; after: string[] } {
+  const before = new Map<string, string[]>()
+  let pending: string[] = []
+  for (const e of events) {
+    if (isMessage(e)) pending.push(e.data.text)
+    else if (e.type === 'action/call' && (e.data.phase ?? 'agent') === 'agent' && pending.length) {
+      before.set(e.data.callId, mergeChunks(pending))
+      pending = []
+    }
+  }
+  return { before, after: mergeChunks(pending) }
+}
+
+/** Ghép các mẩu liền nhau thành đoạn; agent stream tin nhắn theo token nên không chèn thêm ký tự giữa các mẩu. */
+function mergeChunks(chunks: string[]): string[] {
+  const text = chunks.join('').trim()
+  return text ? [text] : []
+}
+
+/** Lời gọi tool qua MCP (Kiro: `@server/tool`, Codex: `mcp.server.tool`); với lượt chạy test, MCP server duy nhất là gateway. */
+function isMcpTool(d: { title?: string; input?: unknown }): boolean {
+  const title = (d.title ?? '').trim()
+  if (/@[\w-]+\//.test(title) || /^mcp\.[\w-]+\.\w+$/.test(title)) return true
+  const input = d.input as { server?: unknown; tool?: unknown } | undefined
+  return typeof input === 'object' && input !== null && !!input.server && !!input.tool
 }
 
 /** Đọc giá trị theo path rút gọn `$.a.b[0]`, khớp cách nền tảng đọc evidence (kể cả tiền tố `$.result`). */
@@ -440,7 +478,13 @@ function Explanation({ item, onEvidence }: { item: CaseView; onEvidence(id: stri
           </div>
         )
       })}
-      {item.summary && <div className="agent-summary"><div className="field-name">Tóm tắt cuối cùng của agent</div><Markdown text={item.summary} /></div>}
+      {item.summary && (
+        <div className="agent-summary">
+          <div className="field-name">Tóm tắt của agent</div>
+          <Markdown text={item.summary} />
+          <div className="muted small">Chỉ để tham khảo. Verdict tính từ assertion trên evidence, không từ lời agent.</div>
+        </div>
+      )}
     </div>
   )
 }
@@ -480,6 +524,7 @@ function Journey({ item, onEvidence }: { item: CaseView; onEvidence(id: string):
   const asserts = new Set(['assert_expectation'])
   const Call = ({ c }: { c: ActionCallData & { annotations?: { evidenceId?: string } } }) => (
     <li className={c.status === 'ok' ? '' : 'bad'}>
+      {item.messagesBefore.get(c.callId)?.map((m, i) => <div key={i} className="bubble agent journey-said"><Markdown text={m} /></div>)}
       <code>{c.view?.title ?? c.name}</code>
       {c.annotations?.evidenceId && <> → <EvidenceLink id={c.annotations.evidenceId} onOpen={onEvidence} /></>}
       {c.status !== 'ok' && <span className="bad small"> ({c.status}: {c.error})</span>}
@@ -546,12 +591,15 @@ function EvidencePanel({ item, id, onClose }: { item: CaseView; id: string; onCl
 
 /** Mọi việc agent và nền tảng đã làm trong case, theo đúng thứ tự trong log. */
 function Timeline({ item, onEvidence }: { item: CaseView; onEvidence(id: string): void }) {
+  const [showMessages, setShowMessages] = useState(true)
   const outputs = new Map<string, unknown>()
   for (const e of item.events) if (e.type === 'agent/update' && e.data.kind === 'tool_update' && e.data.toolCallId) outputs.set(e.data.toolCallId, e.data.output)
   const started = new Set(item.events.filter((e) => e.type === 'action/call').map((e) => e.data.callId))
+  const events = useMemo(() => mergeMessageEvents(item.events), [item.events])
   return (
     <div className="timeline run-timeline">
-      {item.events.map((e) => {
+      <label className="small muted toggle"><input type="checkbox" checked={showMessages} onChange={(e) => setShowMessages(e.target.checked)} /> Hiện tin nhắn và suy nghĩ của agent</label>
+      {events.map((e) => {
         const d = e.data
         switch (e.type) {
           case 'fixture/vars': return <Row key={e.seq} e={e} label="Biến sau fixture"><Json value={d.vars} /></Row>
@@ -560,9 +608,20 @@ function Timeline({ item, onEvidence }: { item: CaseView; onEvidence(id: string)
           case 'action/call': return <Row key={e.seq} e={e} label={d.phase === 'agent' ? 'Agent gọi tool' : 'Nền tảng chạy fixture'}><ToolCallCard call={d} /></Row>
           case 'agent/permission': return <Row key={e.seq} e={e} label="Xin quyền"><span className={d.allowed ? 'ok' : 'bad'}>{d.allowed ? 'Cho phép' : 'Từ chối'}</span> <span className="muted small">{d.title}</span></Row>
           case 'agent/update':
+            if ((d.kind === 'message' || d.kind === 'thought') && !showMessages) return null
             if (d.kind === 'message') return <Row key={e.seq} e={e} label="Agent trả lời"><div className="bubble agent"><Markdown text={d.text ?? ''} /></div></Row>
-            if (d.kind === 'thought') return <Row key={e.seq} e={e} label="Agent suy nghĩ"><details className="thought"><summary>{(d.text ?? '').slice(0, 120)}{(d.text ?? '').length > 120 ? '…' : ''}</summary>{d.text}</details></Row>
-            if (d.kind === 'tool_call' && !/@[\w-]+\//.test(d.title ?? '')) {
+            if (d.kind === 'thought') {
+              // Codex gửi tiêu đề suy nghĩ dạng `**…**` kèm xuống dòng; dòng tóm tắt chỉ giữ chữ.
+              const text = (d.text ?? '').trim()
+              const head = text.replace(/\*\*/g, '').replace(/\s+/g, ' ')
+              return (
+                <Row key={e.seq} e={e} label="Agent suy nghĩ">
+                  {head.length <= 120 ? <span className="muted">{head}</span>
+                    : <details className="thought"><summary>{head.slice(0, 120)}…</summary><Markdown text={text} /></details>}
+                </Row>
+              )
+            }
+            if (d.kind === 'tool_call' && !isMcpTool(d)) {
               return (
                 <Row key={e.seq} e={e} label="Tool riêng của agent">
                   <details className="tool"><summary><span className="name">{d.title}</span></summary>
@@ -589,6 +648,19 @@ function Timeline({ item, onEvidence }: { item: CaseView; onEvidence(id: string)
       })}
     </div>
   )
+}
+
+/** Gộp các event tin nhắn (hoặc suy nghĩ) liền nhau thành một dòng; runner tách đoạn khi agent ngừng quá 1 s. */
+function mergeMessageEvents(events: RunEvent[]): RunEvent[] {
+  const out: RunEvent[] = []
+  for (const e of events) {
+    const prev = out[out.length - 1]
+    const kind = e.type === 'agent/update' ? e.data.kind : undefined
+    if ((kind === 'message' || kind === 'thought') && prev?.type === 'agent/update' && prev.data.kind === kind) {
+      out[out.length - 1] = { ...prev, data: { ...prev.data, text: (prev.data.text ?? '') + (e.data.text ?? '') } }
+    } else out.push(e)
+  }
+  return out
 }
 
 function Row({ e, label, children }: { e: RunEvent; label: string; children: ReactNode }) {
@@ -663,6 +735,11 @@ function activities(c: CaseView): Activity[] {
       out.push({ key: `a${e.seq}`, icon: d.passed ? '✅' : '❌', text: `Assert ${d.expectId}`, detail: d.message })
     } else if (e.type === 'case/feedback') {
       out.push({ key: `f${e.seq}`, icon: '💬', text: 'Góp ý cho plan', detail: d.message })
+    } else if (isMessage(e)) {
+      // Tin nhắn liền nhau của agent gộp vào một dòng.
+      const prev = out[out.length - 1]
+      if (prev?.key.startsWith('m')) prev.detail = `${prev.detail ?? ''}${d.text}`
+      else out.push({ key: `m${e.seq}`, icon: '🗨', text: 'Agent', detail: d.text })
     }
   }
   return out
@@ -695,12 +772,11 @@ export function RunProgress({ runId, limit = 8 }: { runId: string; limit?: numbe
             {shown.slice(-limit).map((a) => (
               <li key={a.key} className={a.pending ? 'pending' : ''}>
                 <span className="icon">{a.icon}</span> <code>{a.text}</code>
-                {a.detail && <span className="muted small"> — {a.detail}</span>}
+                {a.detail && <span className="muted small"> — {a.detail.length > 300 ? `…${a.detail.slice(-300)}` : a.detail}</span>}
               </li>
             ))}
             {!shown.length && <li className="muted small">Agent đang đọc kịch bản…</li>}
           </ul>
-          {current.summary && <div className="muted small agent-said">Agent: {current.summary.slice(-300)}</div>}
         </>
       )}
       <a className="small" href={`#/runs/${runId}${current ? `/${current.id}` : ''}`}>Xem chi tiết lượt chạy →</a>

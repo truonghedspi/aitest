@@ -17,7 +17,9 @@ export const root = resolve(import.meta.dirname, '../../..')
 
 /** Gọi một tool qua gateway; trả về payload `{ outcome, evidenceId, result | error }`. */
 export type Call = (name: string, args?: Record<string, unknown>) => Promise<any>
-export type Script = (call: Call, prompt: string) => Promise<void>
+/** Gửi một mẩu tin nhắn (hoặc suy nghĩ) của agent qua `onUpdate`, như agent thật stream qua ACP. */
+export type Say = (text: string, kind?: 'message' | 'thought') => void
+export type Script = (call: Call, prompt: string, say: Say) => Promise<void>
 
 export function scriptedDriver(scripts: Record<string, Script>): AgentDriver {
   return {
@@ -38,7 +40,8 @@ export function scriptedDriver(scripts: Record<string, Script>): AgentDriver {
                 const res = await client.callTool({ name, arguments: args }, undefined, { timeout: 120_000 })
                 return JSON.parse((res.content as Array<{ text: string }>)[0].text)
               }
-              await scripts[caseId](call, text)
+              const say: Say = (chunk, kind = 'message') => options.onUpdate?.({ kind, text: chunk, raw: { content: { text: chunk } } })
+              await scripts[caseId](call, text, say)
               return { stopReason: 'end_turn' }
             },
             close: () => client.close(),

@@ -436,3 +436,5 @@ pre.diff .ctx { color: var(--muted); }
 .bundle-table td code { overflow-wrap: anywhere; }
 .bundle-table tr.blocked td { color: var(--bad); }
 .bundle-table tr.same td { color: var(--muted); }
+.run-timeline .toggle { display: block; margin-bottom: 8px; }
+.journey .journey-said { margin: 4px 0 6px; font-size: 13px; }

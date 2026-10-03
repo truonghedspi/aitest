@@ -957,11 +957,13 @@ Plan chưa hợp lệ không chạy được; trang liệt kê lỗi và gợi �
 
 Chọn một lượt chạy rồi chọn case. Case không đạt được mở sẵn. Phần đầu case ghi model agent đã dùng.
 
+Tab Giải thích kết quả có thêm "Tóm tắt của agent": những gì agent viết sau lời gọi tool cuối cùng. Phần này chỉ để tham khảo; verdict chỉ tính từ assertion trên evidence. Khi lượt chạy đang diễn ra, bảng tiến trình hiện tin nhắn của agent (🗨) xen giữa các lời gọi tool.
+
 | Tab | Dùng để |
 |---|---|
-| **Hành trình** | Theo từng bước của plan: agent gọi tool nào, **vì sao** (lý do agent tự khai báo), lấy được evidence nào, ghi chú của bước. Fixture hiển thị ở đầu và cuối, kèm `desc` trong plan |
+| **Hành trình** | Theo từng bước của plan: agent gọi tool nào, **vì sao** (lý do agent tự khai báo), agent viết gì ngay trước lời gọi đó, lấy được evidence nào, ghi chú của bước thất bại hoặc bị bỏ qua. Fixture hiển thị ở đầu và cuối, kèm `desc` trong plan |
 | **Giải thích kết quả** | Với mỗi expectation: tiêu chí (hoặc công thức), giá trị mong đợi, **giá trị thật nền tảng đọc được** và đọc ở đâu (mã evidence và path), **vì sao agent lấy dữ liệu đó**, kết luận, các lần agent thử lại. Bấm mã evidence (`ev2`) để xem nguyên văn tham số agent gửi và kết quả action trả về |
-| **Dòng thời gian** | Mọi việc theo thứ tự: fixture, prompt gửi agent, agent xin quyền, gọi tool, ghi chú từng bước, suy nghĩ và trả lời của agent, assertion, kết thúc case |
+| **Dòng thời gian** | Mọi việc theo thứ tự: fixture, prompt gửi agent, agent xin quyền, gọi tool, ghi chú bước, suy nghĩ và tin nhắn của agent, assertion, kết thúc case. Bỏ chọn "Hiện tin nhắn và suy nghĩ của agent" để chỉ xem thao tác |
 | **Prompt gửi agent** | Nguyên văn chỉ dẫn agent nhận được, để kiểm tra plan có diễn đạt đúng ý không |
 | **Dữ liệu thô** | Từng event JSON, lọc theo loại; dùng khi cần điều tra sâu |
 

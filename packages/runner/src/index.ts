@@ -67,6 +67,11 @@ export class Runner extends Service {
   constructor(ctx: Context, public config: RunnerConfig) {
     super(ctx, 'runner')
     registerDefaultSections(ctx)
+    // Tin nhắn agent viết trước khi gọi tool của gateway được ghi trước `action/call`, để dòng thời gian đúng thứ tự.
+    ctx.on('action/before', (call, next) => {
+      transcripts.get(call.scope)?.flush()
+      return next()
+    })
   }
 
   async run(options: RunOptions): Promise<RunReport> {
@@ -335,22 +340,33 @@ export class Runner extends Service {
 
 export default Runner
 
+/** Bản ghi đang mở của từng scope, để pipeline action ghi tin nhắn còn đệm trước lời gọi tool. */
+const transcripts = new WeakMap<ActionScope, { flush(): void }>()
+
+/** Đệm tối đa bao lâu khi agent ngừng gửi tin nhắn; quá thời gian này đoạn đã nhận được ghi vào log. */
+const IDLE_FLUSH_MS = 1000
+
 /**
- * Gộp các chunk tin nhắn liên tiếp của agent thành một event duy nhất,
- * tránh ghi hàng nghìn event nhỏ vào run log.
+ * Ghép các mẩu tin nhắn, suy nghĩ liên tiếp của agent thành một event `agent/update`, tránh ghi hàng nghìn event nhỏ vào run log.
+ * Đoạn đang đệm được ghi khi có cập nhật loại khác, khi agent gọi tool của gateway, hoặc sau 1 s không có mẩu mới.
  */
 function createTranscript(scope: ActionScope) {
   let buffer: AgentUpdate | undefined
+  let idle: ReturnType<typeof setTimeout> | undefined
   const flush = () => {
+    if (idle) clearTimeout(idle)
+    idle = undefined
     if (buffer) scope.log('agent/update', { kind: buffer.kind, text: buffer.text })
     buffer = undefined
   }
-  return {
+  const transcript = {
     flush,
     push(update: AgentUpdate) {
       if (update.kind === 'message' || update.kind === 'thought') {
         if (buffer?.kind === update.kind) buffer.text = (buffer.text ?? '') + (update.text ?? '')
         else { flush(); buffer = { ...update } }
+        if (idle) clearTimeout(idle)
+        idle = setTimeout(flush, IDLE_FLUSH_MS)
         return
       }
       flush()
@@ -364,6 +380,8 @@ function createTranscript(scope: ActionScope) {
       })
     },
   }
+  transcripts.set(scope, transcript)
+  return transcript
 }
 
 /** Rút gọn giá trị lớn trước khi ghi log, để log không phình vì kết quả tool của agent. */
